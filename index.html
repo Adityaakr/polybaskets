@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png" href="/poly.png" />
+    <link rel="shortcut icon" type="image/png" href="/poly.png" />
+    <link rel="apple-touch-icon" href="/poly.png" />
+    <title>PolyBaskets - Decentralized Prediction Market Baskets</title>
+    <meta name="description" content="Create and trade prediction market baskets on Vara Network" />
+    <meta name="author" content="PolyBaskets" />
+
+    <meta property="og:title" content="PolyBaskets - Decentralized Prediction Market Baskets" />
+    <meta property="og:description" content="Create and trade prediction market baskets on Vara Network" />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="/poly.png" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@PolyBaskets" />
+    <meta name="twitter:image" content="/poly.png" />
+  </head>
+
+  <body>
+    <div id="root"></div>
+    <script>
+      // Buffer polyfill for browser compatibility
+      window.global = window;
+      if (typeof Buffer === 'undefined') {
+        // Will be imported in main.tsx
+      }
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

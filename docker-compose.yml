@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  settler-bot:
+    build:
+      context: ./settler-bot
+      dockerfile: Dockerfile
+    env_file:
+      - ./settler-bot/.env
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
