@@ -1,0 +1,78 @@
+type BasketItem = struct {
+  poly_market_id: str,
+  poly_slug: str,
+  weight_bps: u16,
+};
+
+type ItemResolution = struct {
+  item_index: u8,
+  resolved: Outcome,
+  poly_slug: str,
+  poly_condition_id: opt str,
+  poly_price_yes: u16,
+  poly_price_no: u16,
+};
+
+type Outcome = enum {
+  YES,
+  NO,
+};
+
+type Basket = struct {
+  id: u64,
+  creator: actor_id,
+  name: str,
+  description: str,
+  items: vec BasketItem,
+  created_at: u64,
+  status: BasketStatus,
+};
+
+type BasketStatus = enum {
+  Active,
+  Settled,
+  Closed,
+};
+
+type Position = struct {
+  basket_id: u64,
+  user: actor_id,
+  shares: u128,
+  claimed: bool,
+};
+
+type Settlement = struct {
+  basket_id: u64,
+  proposer: actor_id,
+  item_resolutions: vec ItemResolution,
+  payout_per_share: u128,
+  payload: str,
+  proposed_at: u64,
+  challenge_deadline: u64,
+  finalized_at: opt u64,
+  status: SettlementStatus,
+};
+
+type SettlementStatus = enum {
+  Proposed,
+  Finalized,
+  Disputed,
+};
+
+constructor {
+  New : (settler_role: actor_id, liveness_seconds: u64);
+};
+
+service BasketMarket {
+  BetOnBasket : (basket_id: u64) -> result (u128, str);
+  Claim : (basket_id: u64) -> result (u128, str);
+  CreateBasket : (name: str, description: str, items: vec BasketItem) -> result (u64, str);
+  FinalizeSettlement : (basket_id: u64) -> result (null, str);
+  ProposeSettlement : (basket_id: u64, item_resolutions: vec ItemResolution, payload: str) -> result (null, str);
+  query GetBasket : (basket_id: u64) -> result (Basket, str);
+  query GetBasketCount : () -> u64;
+  query GetConfig : () -> struct { actor_id, u64 };
+  query GetPositions : (user: actor_id) -> vec Position;
+  query GetSettlement : (basket_id: u64) -> result (Settlement, str);
+};
+

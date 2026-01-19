@@ -1,0 +1,29 @@
+[workspace]
+resolver = "3"
+members = ["app"]
+
+[package]
+name = "polymarket-mirror"
+version = "0.1.0"
+edition = "2024"
+build = "build.rs"
+
+[dependencies]
+polymarket-mirror-app = { path = "app" }
+
+[build-dependencies]
+sails-rs = { version = "0.9.1", features = ["wasm-builder"] }
+sails-idl-gen = "0.9.1"
+polymarket-mirror-app = { path = "app" }
+
+[features]
+wasm-binary = []
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+
+[profile.release.package."*"]
+opt-level = 3
+strip = true

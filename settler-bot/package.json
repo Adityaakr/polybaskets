@@ -1,0 +1,31 @@
+{
+  "name": "basket-market-settler",
+  "version": "0.1.0",
+  "description": "Settler bot that monitors Polymarket and proposes settlements for BasketMarket contracts",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/src/index.js",
+    "dev": "tsx src/index.ts",
+    "watch": "tsx watch src/index.ts"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "@gear-js/api": "0.44.1",
+    "@polkadot/api": "^15.0.3",
+    "@polkadot/util": "^13.5.9",
+    "@polkadot/util-crypto": "^13.5.9",
+    "node-fetch": "^3.3.2",
+    "sails-js": "0.5.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.24",
+    "tsx": "^4.7.1",
+    "typescript": "^5.3.3"
+  },
+  "overrides": {
+    "@polkadot/util": "^13.5.9",
+    "@polkadot/util-crypto": "^13.5.9"
+  }
+}

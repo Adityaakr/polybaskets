@@ -1,0 +1,554 @@
+import { useMemo, useState, useEffect, useRef } from 'react';
+import { Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { Basket } from '@/types/basket';
+import { getFollowerCount } from '@/lib/basket-storage';
+import { truncateAddress, calculateBasketIndex, formatChange, getChangeClass } from '@/lib/basket-utils';
+import { getMarketDetails, getOutcomeProbabilities, getOutcomePrices } from '@/lib/polymarket';
+import { OutcomeProbabilities } from '@/types/polymarket';
+import { calculateSuggestedBetAmount, formatVara } from '@/lib/betCalculator';
+import { NETWORKS } from '@/lib/network';
+import { Card, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Users, Layers, Circle, RefreshCw, ChevronDown, ChevronUp, TrendingUp, TrendingDown, ExternalLink, Calculator, Trash2, MoreVertical } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+
+interface BasketCardProps {
+  basket: Basket;
+  onDelete?: () => void;
+  isDeleting?: boolean;
+}
+
+export function BasketCard({ basket, onDelete, isDeleting }: BasketCardProps) {
+  const followers = getFollowerCount(basket.id);
+  const networkConfig = NETWORKS[basket.network];
+
+  // Track last update time for visual feedback
+  const [lastUpdateTime, setLastUpdateTime] = useState<Date | null>(null);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const prevLiveIndexRef = useRef<number | null>(null);
+
+  // Fetch market data for this basket's items (refresh every 2 seconds for real-time prices)
+  const basketMarketIds = useMemo(() => {
+    const ids = basket.items.map(item => item.marketId).filter((id, idx, arr) => arr.indexOf(id) === idx);
+    console.log(`[BasketCard] Basket ${basket.id} has ${basket.items.length} items, ${ids.length} unique market IDs:`, ids);
+    return ids;
+  }, [basket.items]);
+
+  const { 
+    data: itemMarketsData, 
+    isLoading, 
+    isFetching, 
+    error,
+    refetch,
+    dataUpdatedAt 
+  } = useQuery({
+    queryKey: ['market-details', basketMarketIds.sort().join(',')],
+    queryFn: async () => {
+      setIsUpdating(true);
+      try {
+        const markets = new Map<string, any>();
+        await Promise.all(
+          basketMarketIds.map(async (id) => {
+            try {
+              const market = await getMarketDetails(id);
+              if (market) markets.set(id, market);
+            } catch (err) {
+              console.error(`[BasketCard] Failed to fetch market ${id}:`, err);
+            }
+          })
+        );
+        setLastUpdateTime(new Date());
+        return markets;
+      } finally {
+        setIsUpdating(false);
+      }
+    },
+    enabled: basketMarketIds.length > 0,
+    staleTime: 0, // Always consider data stale - fetch fresh data immediately
+    refetchInterval: 2000, // Refetch every 2 seconds for real-time live updates (optimized for rate limits)
+    refetchIntervalInBackground: true, // Continue refetching even when tab is in background
+    refetchOnWindowFocus: true, // Refetch when user returns to tab
+    refetchOnMount: true, // Always refetch on mount
+    gcTime: 10000, // Keep in cache for 10 seconds
+    retry: 2, // Retry failed requests
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 5000), // Exponential backoff
+  });
+
+  // Update last update time when data changes
+  useEffect(() => {
+    if (dataUpdatedAt) {
+      setLastUpdateTime(new Date(dataUpdatedAt));
+    }
+  }, [dataUpdatedAt]);
+
+  // Calculate live index and market prices from REAL Polymarket data
+  // CRITICAL: Only calculate with real data - never use snapshot as "live" index
+  const { liveIndex, marketPrices, marketStatuses, hasValidData } = useMemo(() => {
+    console.log(`[BasketCard] Calculating live index for basket ${basket.id}:`, {
+      itemsCount: basket.items.length,
+      snapshotIndex: basket.createdSnapshot?.basketIndex,
+      marketsDataSize: itemMarketsData?.size || 0,
+      basketItems: basket.items.map(item => ({ marketId: item.marketId, outcome: item.outcome, weightBps: item.weightBps }))
+    });
+
+    // CRITICAL: Only calculate if we have REAL live data for ALL markets
+    // Never use snapshot as "live" index - that causes wrong percentage calculations
+    if (!itemMarketsData || itemMarketsData.size === 0 || basket.items.length === 0) {
+      console.warn(`[BasketCard] No live data for basket ${basket.id} - cannot calculate accurate live index`);
+      return {
+        liveIndex: basket.createdSnapshot?.basketIndex ?? 0, // Only for display, NOT for percentage calculation
+        marketPrices: new Map<string, { YES: number; NO: number }>(),
+        marketStatuses: new Map<string, { closed: boolean; active: boolean; resolved?: 'YES' | 'NO' | null }>(),
+        hasValidData: false, // Mark as invalid - don't calculate percentage
+      };
+    }
+
+    // Check if we have data for all markets - if not, calculation will be inaccurate
+    const missingMarkets = basket.items.filter(item => !itemMarketsData.has(item.marketId));
+    if (missingMarkets.length > 0) {
+      console.warn(`[BasketCard] Missing live data for ${missingMarkets.length} markets in basket ${basket.id}:`, missingMarkets.map(m => m.marketId));
+      // Still calculate but mark as potentially inaccurate
+    }
+
+    const probMap = new Map<string, OutcomeProbabilities>();
+    const priceMap = new Map<string, { YES: number; NO: number }>();
+    const statusMap = new Map<string, { closed: boolean; active: boolean; resolved?: 'YES' | 'NO' | null }>();
+
+    // Use ONLY live data from Polymarket API
+    itemMarketsData.forEach((market, id) => {
+      if (!market) {
+        console.warn(`[BasketCard] Null market data for ${id}`);
+        return;
+      }
+      
+      // Get live probabilities and prices from Polymarket
+      const probs = getOutcomeProbabilities(market);
+      const prices = getOutcomePrices(market);
+      
+      // Determine if market is resolved
+      let resolved: 'YES' | 'NO' | null = null;
+      if (market.closed && prices) {
+        const yesPrice = prices.YES;
+        const noPrice = prices.NO;
+        if (yesPrice >= 0.99 && noPrice <= 0.01) {
+          resolved = 'YES';
+        } else if (noPrice >= 0.99 && yesPrice <= 0.01) {
+          resolved = 'NO';
+        }
+      }
+      
+      console.log(`[BasketCard] Market ${id} - YES: ${probs.YES.toFixed(3)}, NO: ${probs.NO.toFixed(3)}, Closed: ${market.closed}, Resolved: ${resolved}`);
+      
+      probMap.set(id, probs);
+      if (prices) {
+        priceMap.set(id, prices);
+      }
+      statusMap.set(id, {
+        closed: market.closed,
+        active: market.active,
+        resolved,
+      });
+    });
+
+    // Calculate live index from REAL market data ONLY
+    const calculatedLiveIndex = calculateBasketIndex(basket.items, probMap);
+    
+    console.log(`[BasketCard] FINAL Calculated live index for ${basket.id}: ${calculatedLiveIndex.toFixed(3)} (from ${itemMarketsData.size} live markets, snapshot: ${basket.createdSnapshot?.basketIndex ?? 0})`);
+
+    // Track if liveIndex actually changed
+    if (prevLiveIndexRef.current !== null && prevLiveIndexRef.current !== calculatedLiveIndex) {
+      console.log(`[BasketCard] ${basket.id} - LiveIndex CHANGED: ${prevLiveIndexRef.current.toFixed(3)} → ${calculatedLiveIndex.toFixed(3)}`);
+    }
+    prevLiveIndexRef.current = calculatedLiveIndex;
+
+    // Only mark as valid if we have data for all or most markets
+    const hasDataForAllMarkets = missingMarkets.length === 0;
+    const hasDataForMostMarkets = itemMarketsData.size >= basket.items.length * 0.8; // At least 80% of markets
+    
+    return { 
+      liveIndex: calculatedLiveIndex, 
+      marketPrices: priceMap, 
+      marketStatuses: statusMap,
+      hasValidData: hasDataForAllMarkets || hasDataForMostMarkets // Valid only if we have most/all data
+    };
+  }, [itemMarketsData, basket.items, basket.createdSnapshot?.basketIndex, basket.id]);
+
+  // Calculate per-item changes since creation
+  const itemChanges = useMemo(() => {
+    if (!basket.createdSnapshot?.components || !itemMarketsData) {
+      return new Map<number, { currentProb: number; originalProb: number; change: number; changePercent: number }>();
+    }
+
+    const changes = new Map<number, { currentProb: number; originalProb: number; change: number; changePercent: number }>();
+    
+    basket.items.forEach((item, itemIndex) => {
+      const market = itemMarketsData.get(item.marketId);
+      if (!market) return;
+
+      const probs = getOutcomeProbabilities(market);
+      const currentProb = item.outcome === 'YES' ? probs.YES : probs.NO;
+      
+      // Find original probability from snapshot
+      const snapshotComponent = basket.createdSnapshot.components.find(c => c.itemIndex === itemIndex);
+      const originalProb = snapshotComponent?.prob ?? currentProb; // Fallback to current if not found
+      
+      const change = currentProb - originalProb;
+      const changePercent = originalProb !== 0 
+        ? (change / originalProb) * 100 
+        : 0;
+
+      changes.set(itemIndex, {
+        currentProb,
+        originalProb,
+        change,
+        changePercent,
+      });
+    });
+
+    return changes;
+  }, [basket.items, basket.createdSnapshot, itemMarketsData]);
+
+  // Calculate percentage change since creation - EXACT calculation
+  // CRITICAL: Only calculate if we have valid live data - never use snapshot as live index
+  const indexAtCreation = basket.createdSnapshot?.basketIndex ?? 0;
+  
+  // Validate snapshot index is reasonable (between 0 and 1 for probability-based index)
+  const isValidSnapshot = indexAtCreation >= 0 && indexAtCreation <= 1 && isFinite(indexAtCreation);
+  
+  // Only calculate percentage if we have valid live data AND valid snapshot
+  // If hasValidData is false, we don't have real market data, so percentage would be wrong
+  let indexChange = 0;
+  let indexChangePercent = 0;
+  
+  if (hasValidData && isValidSnapshot && indexAtCreation > 0) {
+    indexChange = liveIndex - indexAtCreation;
+    indexChangePercent = (indexChange / indexAtCreation) * 100;
+    
+    // Validate calculation is reasonable (sanity check)
+    if (isNaN(indexChangePercent) || !isFinite(indexChangePercent)) {
+      console.error(`[BasketCard] Invalid percentage calculation for ${basket.id}:`, {
+        liveIndex,
+        indexAtCreation,
+        indexChange,
+        indexChangePercent
+      });
+      indexChangePercent = 0;
+    }
+    
+    // Additional validation: percentage should be reasonable (not extreme outliers)
+    // If percentage is > 1000% or < -100%, something is wrong
+    if (Math.abs(indexChangePercent) > 1000) {
+      console.error(`[BasketCard] Extreme percentage value for ${basket.id}: ${indexChangePercent.toFixed(2)}% - likely data error`, {
+        liveIndex,
+        indexAtCreation,
+        indexChange
+      });
+      // Still show it but log the error
+    }
+  } else {
+    // Don't show percentage if we don't have valid data
+    if (!hasValidData) {
+      console.warn(`[BasketCard] Cannot calculate accurate percentage for ${basket.id} - missing live market data`);
+    }
+    if (!isValidSnapshot) {
+      console.warn(`[BasketCard] Cannot calculate accurate percentage for ${basket.id} - invalid snapshot index: ${indexAtCreation}`);
+    }
+  }
+  
+  // Debug logging to track if values are updating
+  useEffect(() => {
+    console.log(`[BasketCard] ${basket.id} - Live Update:`, {
+      basketName: basket.name,
+      indexAtCreation: indexAtCreation.toFixed(3),
+      liveIndex: liveIndex.toFixed(3),
+      absoluteChange: indexChange.toFixed(3),
+      percentChange: indexChangePercent.toFixed(2) + '%',
+      hasLiveData: !!itemMarketsData && itemMarketsData.size > 0,
+      marketsCount: itemMarketsData?.size || 0,
+      lastUpdate: lastUpdateTime?.toLocaleTimeString() || 'never',
+      isFetching,
+      error: error?.message || null,
+    });
+  }, [liveIndex, indexAtCreation, itemMarketsData, lastUpdateTime, isFetching, error, basket.id, basket.name]);
+
+  // Calculate suggested bet amount
+  const suggestedBetAmount = useMemo(() => {
+    return calculateSuggestedBetAmount(basket.items);
+  }, [basket.items]);
+
+  // State for expanding item details
+  const [showItemDetails, setShowItemDetails] = useState(false);
+  const isOnChain = basket.id.startsWith('onchain-');
+
+  const handleDeleteClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (onDelete && !isOnChain) {
+      onDelete();
+    }
+  };
+
+  return (
+    <div className="relative group">
+      <Link to={`/basket/${basket.id}`}>
+        <Card className="card-elevated card-hover overflow-hidden h-full">
+          <CardContent className="p-5">
+            {/* Header */}
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <div className="flex-1 min-w-0">
+                <h3 className="font-semibold text-base truncate">{basket.name}</h3>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  by {truncateAddress(basket.owner)}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
+                  {basket.network === 'vara' ? (
+                    <img src="/toggle.png" alt="Vara Network" className="w-4 h-4 object-contain" />
+                  ) : (
+                    <Circle className="w-2 h-2 fill-blue-500 text-blue-500" />
+                  )}
+                  <span className="text-xs text-muted-foreground">
+                    {networkConfig.name}
+                  </span>
+                </div>
+                {onDelete && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                        }}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-muted rounded"
+                        title="Basket options"
+                      >
+                        <MoreVertical className="w-4 h-4 text-muted-foreground" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                      <DropdownMenuItem
+                        onClick={handleDeleteClick}
+                        disabled={isDeleting || isOnChain}
+                        className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                      >
+                        <Trash2 className="w-4 h-4 mr-2" />
+                        {isDeleting ? 'Deleting...' : isOnChain ? 'Cannot delete (on-chain)' : 'Delete Basket'}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+              </div>
+            </div>
+
+          {/* Description */}
+          {basket.description && (
+            <p className="text-sm text-muted-foreground mb-3 line-clamp-2">
+              {basket.description}
+            </p>
+          )}
+
+          {/* Tags */}
+          {basket.tags.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-4">
+              {basket.tags.map(tag => (
+                <Badge key={tag} variant="secondary" className="text-xs">
+                  {tag}
+                </Badge>
+              ))}
+            </div>
+          )}
+
+          {/* Stats */}
+          <div className="space-y-3">
+            {/* Live Index */}
+            <div className="flex items-baseline gap-2 flex-wrap">
+              <div className="flex items-center gap-1.5">
+                <span className="text-2xl font-semibold tabular-nums">
+                  {liveIndex.toFixed(3)}
+                </span>
+                {isUpdating || isFetching ? (
+                  <RefreshCw className="w-3 h-3 text-muted-foreground animate-spin" />
+                ) : lastUpdateTime ? (
+                  <span className="text-[10px] text-muted-foreground" title={`Last updated: ${lastUpdateTime.toLocaleTimeString()}`}>
+                    Live
+                  </span>
+                ) : null}
+              </div>
+              <span className="text-xs text-muted-foreground">Index</span>
+            </div>
+            
+            {/* Error indicator */}
+            {error && (
+              <div className="text-xs text-destructive">
+                Error loading live data. Retrying...
+              </div>
+            )}
+            
+            {/* Debug info (only in development) */}
+            {import.meta.env.DEV && (
+              <details className="text-[10px] text-muted-foreground mt-2">
+                <summary className="cursor-pointer">Debug Info</summary>
+                <div className="mt-1 space-y-0.5 pl-2 border-l-2 border-muted">
+                  <div>Creation Index: {indexAtCreation.toFixed(3)}</div>
+                  <div>Live Index: {liveIndex.toFixed(3)}</div>
+                  <div>Change: {indexChange.toFixed(3)} ({indexChangePercent >= 0 ? '+' : ''}{indexChangePercent.toFixed(2)}%)</div>
+                  <div>Markets: {itemMarketsData?.size || 0}/{basket.items.length}</div>
+                  <div>Last Update: {lastUpdateTime?.toLocaleTimeString() || 'never'}</div>
+                  <div>Status: {isFetching ? 'fetching' : error ? 'error' : 'ok'}</div>
+                </div>
+              </details>
+            )}
+
+            {/* Suggested Bet Amount */}
+            <div className="text-xs text-muted-foreground">
+              Suggested bet: <span className="font-medium">{formatVara(suggestedBetAmount)}</span>
+            </div>
+
+            {/* Items & Followers */}
+            <div className="flex items-center justify-between text-muted-foreground text-sm">
+              <div className="flex items-center gap-3">
+                <span className="flex items-center gap-1">
+                  <Layers className="w-3.5 h-3.5" />
+                  {basket.items.length}
+                </span>
+                <span className="flex items-center gap-1">
+                  <Users className="w-3.5 h-3.5" />
+                  {followers}
+                </span>
+                {marketStatuses.size > 0 && (() => {
+                  const closedCount = Array.from(marketStatuses.values()).filter(s => s.closed).length;
+                  const resolvedCount = Array.from(marketStatuses.values()).filter(s => s.resolved !== null && s.resolved !== undefined).length;
+                  const openCount = basket.items.length - closedCount;
+                  return (
+                    <span className="flex items-center gap-1 text-xs" title={`${resolvedCount} resolved, ${closedCount - resolvedCount} closed (unresolved), ${openCount} open`}>
+                      <Circle className={`w-2.5 h-2.5 ${resolvedCount === basket.items.length ? 'fill-green-500 text-green-500' : closedCount > 0 ? 'fill-yellow-500 text-yellow-500' : 'fill-blue-500 text-blue-500'}`} />
+                      {resolvedCount}/{basket.items.length}
+                    </span>
+                  );
+                })()}
+              </div>
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setShowItemDetails(!showItemDetails);
+                }}
+                className="flex items-center gap-1 text-xs hover:text-foreground transition-colors"
+              >
+                {showItemDetails ? (
+                  <>
+                    <ChevronUp className="w-3 h-3" />
+                    Hide items
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown className="w-3 h-3" />
+                    Show items
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Item-by-item changes (expandable) */}
+            {showItemDetails && itemChanges.size > 0 && (
+              <div className="mt-3 pt-3 border-t space-y-2">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-xs font-medium text-muted-foreground">Item Changes (Live)</div>
+                  <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                    <Calculator className="w-3 h-3" />
+                    <span>Hover for math details</span>
+                  </div>
+                </div>
+                {basket.items.map((item, itemIndex) => {
+                  const change = itemChanges.get(itemIndex);
+                  if (!change) return null;
+
+                  const isPositive = change.change >= 0;
+                  const Icon = isPositive ? TrendingUp : TrendingDown;
+                  const polymarketUrl = item.slug ? `https://polymarket.com/event/${item.slug}` : null;
+                  const marketStatus = marketStatuses.get(item.marketId);
+                  const isResolved = marketStatus?.resolved !== null && marketStatus?.resolved !== undefined;
+                  const resolvedOutcome = marketStatus?.resolved;
+                  const isClosed = marketStatus?.closed ?? false;
+
+                  return (
+                    <div 
+                      key={`${item.marketId}-${item.outcome}`}
+                      className="flex items-center justify-between text-xs p-2 rounded bg-muted/50 group"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <div className="truncate font-medium flex-1">{item.question}</div>
+                          {polymarketUrl && (
+                            <a
+                              href={polymarketUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                              title="Verify on Polymarket"
+                            >
+                              <ExternalLink className="w-3 h-3 text-muted-foreground hover:text-foreground" />
+                            </a>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 text-muted-foreground mt-0.5">
+                          <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1 ${
+                            item.outcome === 'YES' ? 'bg-accent' : 'bg-muted-foreground'
+                          }`} />
+                          <span>{item.outcome} • {(item.weightBps / 100).toFixed(1)}%</span>
+                          {marketStatus && (
+                            <span className={`text-[10px] px-1 py-0.5 rounded ${
+                              isResolved 
+                                ? resolvedOutcome === item.outcome 
+                                  ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300'
+                                  : 'bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300'
+                                : isClosed
+                                  ? 'bg-yellow-100 dark:bg-yellow-900 text-yellow-700 dark:text-yellow-300'
+                                  : 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300'
+                            }`}>
+                              {isResolved ? `Resolved ${resolvedOutcome}` : isClosed ? 'Closed' : 'Open'}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[10px] text-muted-foreground mt-0.5">
+                          Original: {(change.originalProb * 100).toFixed(1)}%
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 ml-2">
+                        <div 
+                          className="text-right cursor-help"
+                        >
+                          <div className="font-medium tabular-nums">
+                            {(change.currentProb * 100).toFixed(1)}%
+                          </div>
+                          <div className={`text-[10px] flex items-center gap-0.5 ${
+                            isPositive ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
+                          }`}>
+                            <Icon className="w-2.5 h-2.5" />
+                            {isPositive ? '+' : ''}{change.changePercent.toFixed(1)}%
+                          </div>
+                          <div className="text-[10px] text-muted-foreground">
+                            {isPositive ? '+' : ''}{(change.change * 100).toFixed(1)}pp
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          </CardContent>
+        </Card>
+      </Link>
+    </div>
+  );
+}

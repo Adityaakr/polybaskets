@@ -1,0 +1,456 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&family=Source+Code+Pro:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* PolyBaskets Design System - Dark Terminal Aesthetic with Neon Accents */
+
+@layer base {
+  :root {
+    /* Base Colors - Deep Dark Terminal Theme */
+    --background: 220 25% 8%;
+    --foreground: 0 0% 98%;
+
+    --card: 220 20% 12%;
+    --card-foreground: 0 0% 98%;
+
+    --popover: 220 20% 12%;
+    --popover-foreground: 0 0% 98%;
+
+    /* Primary - Neon Green (Terminal Classic) */
+    --primary: 120 100% 50%;
+    --primary-foreground: 220 25% 8%;
+
+    /* Secondary - Dark Slate */
+    --secondary: 220 15% 15%;
+    --secondary-foreground: 0 0% 95%;
+
+    /* Muted - Darker Gray */
+    --muted: 220 10% 18%;
+    --muted-foreground: 0 0% 65%;
+
+    /* Accent - Electric Amber/Orange */
+    --accent: 35 100% 55%;
+    --accent-foreground: 220 25% 8%;
+
+    /* Semantic Colors - High Contrast Neon */
+    --success: 120 100% 45%;
+    --success-foreground: 220 25% 8%;
+    
+    --warning: 45 100% 55%;
+    --warning-foreground: 220 25% 8%;
+
+    --destructive: 0 85% 60%;
+    --destructive-foreground: 0 0% 98%;
+
+    /* UI Colors - Subtle Borders */
+    --border: 220 15% 20%;
+    --input: 220 15% 20%;
+    --ring: 120 100% 50%;
+
+    --radius: 0.5rem;
+
+    /* Neon Glow Shadows */
+    --shadow-soft: 0 2px 8px -2px rgb(0 0 0 / 0.3);
+    --shadow-card: 0 4px 16px -4px rgb(0 0 0 / 0.4), 0 0 0 1px hsl(120 100% 50% / 0.1);
+    --shadow-elevated: 0 8px 32px -8px rgb(0 0 0 / 0.5), 0 0 0 1px hsl(120 100% 50% / 0.2);
+    --shadow-accent: 0 0 20px hsl(35 100% 55% / 0.4), 0 0 40px hsl(35 100% 55% / 0.2);
+    --shadow-primary: 0 0 20px hsl(120 100% 50% / 0.3), 0 0 40px hsl(120 100% 50% / 0.15);
+
+    /* Sidebar - Dark Terminal Theme */
+    --sidebar-background: 220 20% 12%;
+    --sidebar-foreground: 0 0% 90%;
+    --sidebar-primary: 120 100% 50%;
+    --sidebar-primary-foreground: 220 25% 8%;
+    --sidebar-accent: 220 15% 18%;
+    --sidebar-accent-foreground: 0 0% 95%;
+    --sidebar-border: 220 15% 20%;
+    --sidebar-ring: 120 100% 50%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11", "tnum";
+    font-family: 'Manrope', system-ui, -apple-system, sans-serif;
+    background-image: 
+      radial-gradient(circle at 0% 0%, hsl(120 100% 50% / 0.03) 0%, transparent 50%),
+      radial-gradient(circle at 100% 100%, hsl(35 100% 55% / 0.03) 0%, transparent 50%),
+      linear-gradient(180deg, transparent 0%, hsl(220 25% 8%) 100%);
+    background-attachment: fixed;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Manrope', system-ui, sans-serif;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    text-shadow: 0 0 4px hsl(120 100% 50% / 0.1);
+  }
+
+  /* Monospace for numbers - simpler and more readable */
+  .tabular-nums,
+  code,
+  pre,
+  .mono {
+    font-family: 'Source Code Pro', monospace;
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+  }
+
+  /* Tabular figures for numbers */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  /* Scanline Effect (Terminal Aesthetic) */
+  .scanlines {
+    position: relative;
+  }
+
+  .scanlines::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      hsl(120 100% 50% / 0.03) 2px,
+      hsl(120 100% 50% / 0.03) 4px
+    );
+    pointer-events: none;
+    z-index: 1;
+    animation: scanline-move 8s linear infinite;
+  }
+
+  @keyframes scanline-move {
+    0% { transform: translateY(0); }
+    100% { transform: translateY(4px); }
+  }
+
+  /* Animated Grid Background */
+  .bg-pattern {
+    background-image: 
+      linear-gradient(hsl(120 100% 50% / 0.05) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(120 100% 50% / 0.05) 1px, transparent 1px);
+    background-size: 50px 50px;
+    background-position: 0 0, 0 0;
+    animation: grid-shift 20s linear infinite;
+    position: relative;
+  }
+
+  .bg-pattern::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: 
+      radial-gradient(circle at 20% 30%, hsl(120 100% 50% / 0.08) 0%, transparent 40%),
+      radial-gradient(circle at 80% 70%, hsl(35 100% 55% / 0.08) 0%, transparent 40%);
+    pointer-events: none;
+  }
+
+  @keyframes grid-shift {
+    0% { background-position: 0 0, 0 0; }
+    100% { background-position: 50px 50px, 50px 50px; }
+  }
+
+  /* Card elevation styles with neon borders */
+  .card-soft {
+    box-shadow: var(--shadow-soft);
+    @apply border border-border;
+  }
+  
+  .card-elevated {
+    box-shadow: var(--shadow-card);
+    @apply border border-primary/20 transition-all duration-300;
+    position: relative;
+  }
+
+  .card-elevated::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(135deg, hsl(120 100% 50% / 0.3), hsl(35 100% 55% / 0.3));
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+  }
+
+  .card-hover {
+    @apply transition-all duration-300 ease-out;
+  }
+  
+  .card-hover:hover {
+    box-shadow: var(--shadow-elevated);
+    @apply -translate-y-1 scale-[1.01] border-primary/40;
+  }
+
+  .card-hover:hover::before {
+    opacity: 1;
+  }
+
+  /* Logo glow effect - Neon Green */
+  .logo-glow {
+    filter: drop-shadow(0 0 12px hsl(120 100% 50% / 0.6));
+    transition: filter 0.3s ease;
+  }
+
+  .logo-glow:hover {
+    filter: drop-shadow(0 0 20px hsl(120 100% 50% / 0.9)) drop-shadow(0 0 30px hsl(120 100% 50% / 0.5));
+  }
+
+  /* Index number display - Subtle glow */
+  .index-display {
+    @apply text-4xl font-mono font-bold tracking-tight tabular-nums;
+    text-shadow: 
+      0 0 4px hsl(120 100% 50% / 0.5),
+      0 0 8px hsl(120 100% 50% / 0.3);
+    color: hsl(120 100% 50%);
+  }
+
+  /* Chip/badge for stats */
+  .stat-chip {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full;
+  }
+
+  .stat-chip-positive {
+    @apply bg-green-500/10 text-green-500 dark:bg-green-500/20 dark:text-green-400;
+  }
+
+  .stat-chip-neutral {
+    @apply bg-muted text-muted-foreground;
+  }
+
+  .stat-chip-negative {
+    @apply bg-destructive/10 text-destructive;
+  }
+
+  /* Network indicator */
+  .network-dot {
+    @apply w-2 h-2 rounded-full;
+  }
+
+  .network-dot-vara {
+    @apply bg-accent;
+  }
+
+  .network-dot-varaeth {
+    @apply bg-blue-500;
+  }
+
+  /* Staggered reveal animation with neon fade */
+  .reveal {
+    animation: slide-up-fade-neon 0.8s ease-out backwards;
+  }
+
+  .reveal-delay-1 { animation-delay: 0.1s; }
+  .reveal-delay-2 { animation-delay: 0.2s; }
+  .reveal-delay-3 { animation-delay: 0.3s; }
+  .reveal-delay-4 { animation-delay: 0.4s; }
+  .reveal-delay-5 { animation-delay: 0.5s; }
+
+  @keyframes slide-up-fade-neon {
+    from {
+      opacity: 0;
+      transform: translateY(30px) scale(0.95);
+      filter: blur(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+      filter: blur(0);
+    }
+  }
+
+  /* Glitch effect for special moments */
+  .glitch {
+    position: relative;
+  }
+
+  .glitch::before,
+  .glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  .glitch::before {
+    left: 2px;
+    text-shadow: -2px 0 hsl(120 100% 50%);
+    clip: rect(44px, 450px, 56px, 0);
+    animation: glitch-anim 5s infinite linear alternate-reverse;
+  }
+
+  .glitch::after {
+    left: -2px;
+    text-shadow: -2px 0 hsl(35 100% 55%), 2px 2px hsl(120 100% 50%);
+    animation: glitch-anim2 1s infinite linear alternate-reverse;
+  }
+
+  @keyframes glitch-anim {
+    0% { clip: rect(31px, 9999px, 94px, 0); }
+    20% { clip: rect(33px, 9999px, 14px, 0); }
+    40% { clip: rect(85px, 9999px, 2px, 0); }
+    60% { clip: rect(23px, 9999px, 58px, 0); }
+    80% { clip: rect(1px, 9999px, 94px, 0); }
+    100% { clip: rect(90px, 9999px, 98px, 0); }
+  }
+
+  @keyframes glitch-anim2 {
+    0% { clip: rect(65px, 9999px, 100px, 0); }
+    20% { clip: rect(41px, 9999px, 74px, 0); }
+    40% { clip: rect(66px, 9999px, 5px, 0); }
+    60% { clip: rect(83px, 9999px, 98px, 0); }
+    80% { clip: rect(40px, 9999px, 77px, 0); }
+    100% { clip: rect(25px, 9999px, 13px, 0); }
+  }
+
+  /* Neon gradient text - reduced glow */
+  .gradient-text {
+    background: linear-gradient(135deg, hsl(120 100% 50%), hsl(35 100% 55%));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    filter: drop-shadow(0 0 3px hsl(120 100% 50% / 0.2));
+  }
+
+  /* Subtle text glow - reduced intensity */
+  .neon-text {
+    text-shadow: 
+      0 0 3px hsl(120 100% 50% / 0.4),
+      0 0 6px hsl(120 100% 50% / 0.2);
+    color: hsl(120 100% 50%);
+  }
+
+  .neon-text-amber {
+    text-shadow: 
+      0 0 3px hsl(35 100% 55% / 0.4),
+      0 0 6px hsl(35 100% 55% / 0.2);
+    color: hsl(35 100% 55%);
+  }
+
+  /* Enhanced button hover effects with neon */
+  .btn-primary {
+    @apply bg-primary text-primary-foreground;
+    transition: all 0.3s ease;
+    box-shadow: 0 0 10px hsl(120 100% 50% / 0.3);
+  }
+
+  .btn-primary:hover {
+    @apply shadow-lg;
+    transform: translateY(-1px);
+    box-shadow: 
+      0 0 20px hsl(120 100% 50% / 0.5),
+      0 0 40px hsl(120 100% 50% / 0.3),
+      0 8px 20px -4px hsl(120 100% 50% / 0.4);
+  }
+
+  /* Accent glow effect - Amber */
+  .accent-glow {
+    box-shadow: 0 0 20px hsl(35 100% 55% / 0.4);
+  }
+
+  .accent-glow:hover {
+    box-shadow: 0 0 30px hsl(35 100% 55% / 0.6), 0 0 50px hsl(35 100% 55% / 0.3);
+  }
+
+  /* Terminal cursor blink */
+  .cursor-blink::after {
+    content: '▊';
+    animation: blink 1s step-end infinite;
+    color: hsl(120 100% 50%);
+  }
+
+  @keyframes blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0; }
+  }
+}
+
+@layer utilities {
+  .content-grid {
+    @apply max-w-[1100px] mx-auto px-6;
+  }
+}
+
+/* Gear Wallet Balance Styling - Make balance white */
+/* Override Gear wallet CSS that sets balance to black (#000) */
+/* These classes come from @gear-js/wallet-connect and set color to black */
+[class*="_vara_"],
+[class*="_value_"],
+[class*="_unit_"],
+[class*="_text_"][class*="_vara_"],
+[class*="_balance_"] *,
+/* Target all text in wallet button */
+button [class*="_vara_"],
+button [class*="_value_"],
+button [class*="_unit_"],
+button [class*="_text_"],
+button [class*="_balance_"],
+/* Comprehensive targeting */
+[class*="gear-js"] *,
+[class*="gear-js"] button,
+[class*="gear-js"] [role="button"],
+[class*="gear-js"] button *,
+[class*="gear-js"] [role="button"] *,
+[class*="gear-js"] span,
+[class*="gear-js"] div,
+[class*="gear-js"] p,
+[class*="gear-js"] strong,
+[class*="gear-js"] b,
+[class*="wallet"] *,
+[class*="Wallet"] *,
+button[class*="wallet"] *,
+button[class*="Wallet"] * {
+  color: hsl(0 0% 98%) !important;
+}
+
+/* Force white on all text in header wallet area - maximum specificity */
+header button [class*="_vara_"],
+header button [class*="_value_"],
+header button [class*="_unit_"],
+header button [class*="_text_"],
+header button [class*="_balance_"],
+header [class*="gear-js"] *,
+header button[class*="gear"] *,
+header [class*="wallet"] *,
+header button *,
+header [role="button"] * {
+  color: hsl(0 0% 98%) !important;
+}
+
+/* Override Gear wallet button to match primary green (same as navigation) */
+header [class*="gear-js"] button,
+header [class*="gear-js"] [role="button"],
+header button[class*="gear"],
+header [class*="wallet"] button,
+header [class*="Wallet"] button {
+  background-color: hsl(120 100% 50%) !important;
+  border-color: hsl(120 100% 50%) !important;
+  color: hsl(220 25% 8%) !important;
+}
+
+header [class*="gear-js"] button:hover,
+header [class*="gear-js"] [role="button"]:hover,
+header button[class*="gear"]:hover,
+header [class*="wallet"] button:hover,
+header [class*="Wallet"] button:hover {
+  background-color: hsl(120 100% 45%) !important;
+  box-shadow: 0 0 20px hsl(120 100% 50% / 0.4) !important;
+}
