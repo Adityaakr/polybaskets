@@ -1727,49 +1727,83 @@ export async function fetchCuratedLatest(): Promise<PolymarketMarket[]> {
  * Fetch market details directly from Polymarket API
  * Uses short TTL cache to reduce API calls while keeping data fresh
  */
-const MARKET_DETAILS_CACHE_TTL = 5000; // 5 seconds - short enough for "live" feel
+const MARKET_DETAILS_CACHE_TTL = 3000; // 3 seconds for faster updates
+
+// In-flight request deduplication
+const inFlightRequests = new Map<string, Promise<PolymarketMarket | null>>();
 
 export async function getMarketDetails(marketId: string): Promise<PolymarketMarket | null> {
-  // Check cache first (5s TTL for live-ish data)
+  // Check cache first
   const cacheKey = `market:${marketId}`;
   const cached = cacheGet<PolymarketMarket>(cacheKey);
   if (cached) {
     return cached;
   }
 
-  try {
-    const apiUrl = `${gammaBase}/markets/${marketId}`;
-    
-    const res = await fetch(apiUrl, {
-      method: 'GET',
-      headers: { 
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
-      cache: 'no-store',
-      credentials: 'omit',
-      ...(typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? { signal: AbortSignal.timeout(10000) } : {}),
-    });
-    
-    if (!res.ok) {
-      const errorText = await res.text();
-      console.error(`[Polymarket API] Error ${res.status} for market ${marketId}:`, errorText);
-      throw new Error(`Polymarket API error: ${res.status} ${res.statusText}`);
-    }
-    
-    const m = await res.json();
-    const market = mapMarket(m);
-    
-    if (market) {
-      // Cache for 5 seconds
-      cacheSet(cacheKey, market, MARKET_DETAILS_CACHE_TTL);
-    }
-    
-    return market;
-  } catch (error) {
-    console.error(`[Polymarket API] Failed to fetch market ${marketId}:`, error);
-    return null;
+  // Check if request is already in-flight (deduplication)
+  const inFlight = inFlightRequests.get(marketId);
+  if (inFlight) {
+    return inFlight;
   }
+
+  // Create the fetch promise
+  const fetchPromise = (async (): Promise<PolymarketMarket | null> => {
+    try {
+      const res = await fetch(`${gammaBase}/markets/${marketId}`, {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+        cache: 'no-store',
+      });
+      
+      if (!res.ok) return null;
+      
+      const m = await res.json();
+      const market = mapMarket(m);
+      
+      if (market) {
+        cacheSet(cacheKey, market, MARKET_DETAILS_CACHE_TTL);
+      }
+      
+      return market;
+    } catch {
+      return null;
+    } finally {
+      inFlightRequests.delete(marketId);
+    }
+  })();
+
+  inFlightRequests.set(marketId, fetchPromise);
+  return fetchPromise;
+}
+
+/**
+ * Batch fetch multiple markets in parallel with concurrency limit
+ */
+export async function getMarketDetailsBatch(marketIds: string[]): Promise<Map<string, PolymarketMarket>> {
+  const results = new Map<string, PolymarketMarket>();
+  const uncachedIds: string[] = [];
+  
+  // First, check cache for all markets
+  for (const id of marketIds) {
+    const cached = cacheGet<PolymarketMarket>(`market:${id}`);
+    if (cached) {
+      results.set(id, cached);
+    } else {
+      uncachedIds.push(id);
+    }
+  }
+  
+  // Fetch uncached markets in parallel (max 6 concurrent)
+  const CONCURRENCY = 6;
+  for (let i = 0; i < uncachedIds.length; i += CONCURRENCY) {
+    const batch = uncachedIds.slice(i, i + CONCURRENCY);
+    const fetched = await Promise.all(batch.map(id => getMarketDetails(id)));
+    batch.forEach((id, idx) => {
+      if (fetched[idx]) results.set(id, fetched[idx]!);
+    });
+  }
+  
+  return results;
 }
 
 export function getOutcomeProbabilities(market: PolymarketMarket): OutcomeProbabilities {

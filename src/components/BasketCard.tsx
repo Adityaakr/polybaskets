@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Basket } from '@/types/basket';
 import { getFollowerCount } from '@/lib/basket-storage';
 import { truncateAddress, calculateBasketIndex, formatChange, getChangeClass } from '@/lib/basket-utils';
-import { getMarketDetails, getOutcomeProbabilities, getOutcomePrices } from '@/lib/polymarket';
+import { getMarketDetailsBatch, getOutcomeProbabilities, getOutcomePrices } from '@/lib/polymarket';
 import { OutcomeProbabilities } from '@/types/polymarket';
 import { calculateSuggestedBetAmount, formatVara } from '@/lib/betCalculator';
 import { NETWORKS } from '@/lib/network';
@@ -50,17 +50,7 @@ export function BasketCard({ basket, onDelete, isDeleting }: BasketCardProps) {
     queryFn: async () => {
       setIsUpdating(true);
       try {
-        const markets = new Map<string, any>();
-        await Promise.all(
-          basketMarketIds.map(async (id) => {
-            try {
-              const market = await getMarketDetails(id);
-              if (market) markets.set(id, market);
-            } catch (err) {
-              console.error(`[BasketCard] Failed to fetch market ${id}:`, err);
-            }
-          })
-        );
+        const markets = await getMarketDetailsBatch(basketMarketIds);
         setLastUpdateTime(new Date());
         return markets;
       } finally {
@@ -68,14 +58,13 @@ export function BasketCard({ basket, onDelete, isDeleting }: BasketCardProps) {
       }
     },
     enabled: basketMarketIds.length > 0,
-    staleTime: 5000, // Consider data fresh for 5 seconds
-    refetchInterval: 10000, // Refetch every 10 seconds (reduces API load)
-    refetchIntervalInBackground: false, // Don't refetch when tab is in background
-    refetchOnWindowFocus: true, // Refetch when user returns to tab
-    refetchOnMount: true, // Always refetch on mount
-    gcTime: 30000, // Keep in cache for 30 seconds
-    retry: 2, // Retry failed requests
-    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 5000), // Exponential backoff
+    staleTime: 3000, // Consider data fresh for 3 seconds
+    refetchInterval: 5000, // Refetch every 5 seconds for live feel
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
+    refetchOnMount: true,
+    gcTime: 30000,
+    retry: 1,
   });
 
   // Update last update time when data changes
