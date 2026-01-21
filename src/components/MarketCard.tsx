@@ -23,6 +23,15 @@ export function MarketCard({ market }: MarketCardProps) {
     NO: market.outcomes?.[1] || 'NO',
   };
   
+  // Truncate long labels for buttons (max 8 chars)
+  const truncateLabel = (label: string, max = 8) => 
+    label.length > max ? label.slice(0, max) + '…' : label;
+  
+  const shortLabels = {
+    YES: truncateLabel(outcomeLabels.YES),
+    NO: truncateLabel(outcomeLabels.NO),
+  };
+  
   // Check if this is an "Up or Down" style market
   const isUpDownMarket = market.question?.toLowerCase().includes('up or down');
 
@@ -93,16 +102,16 @@ export function MarketCard({ market }: MarketCardProps) {
             <div className="text-xl font-mono font-semibold tabular-nums text-success">
               {formatProbability(probs.YES)}
             </div>
-            <div className="text-xs text-muted-foreground mt-1.5">
-              {outcomeLabels.YES} {prices && <span className="opacity-75">({formatPrice(prices.YES)})</span>}
+            <div className="text-xs text-muted-foreground mt-1.5 truncate" title={outcomeLabels.YES}>
+              {shortLabels.YES} {prices && <span className="opacity-75">({formatPrice(prices.YES)})</span>}
             </div>
           </div>
           <div className="bg-gradient-to-br from-secondary to-secondary/80 rounded-md p-3 text-center border border-border transition-all duration-300 hover:border-primary/30">
             <div className="text-xl font-mono font-semibold tabular-nums">
               {formatProbability(probs.NO)}
             </div>
-            <div className="text-xs text-muted-foreground mt-1.5">
-              {outcomeLabels.NO} {prices && <span className="opacity-75">({formatPrice(prices.NO)})</span>}
+            <div className="text-xs text-muted-foreground mt-1.5 truncate" title={outcomeLabels.NO}>
+              {shortLabels.NO} {prices && <span className="opacity-75">({formatPrice(prices.NO)})</span>}
             </div>
           </div>
         </div>
@@ -124,24 +133,25 @@ export function MarketCard({ market }: MarketCardProps) {
           )}
         </div>
 
-        {/* Actions - Use actual outcome labels */}
+        {/* Actions - Use truncated outcome labels */}
         <div className="grid grid-cols-2 gap-2">
           <Button
             variant={yesSelected ? 'default' : 'outline'}
             size="sm"
             onClick={() => handleAdd('YES')}
             disabled={yesSelected}
-            className="gap-1.5"
+            className="gap-1 text-xs overflow-hidden"
+            title={`Add ${outcomeLabels.YES}`}
           >
             {yesSelected ? (
               <>
-                <Check className="w-3.5 h-3.5" />
-                Added
+                <Check className="w-3.5 h-3.5 flex-shrink-0" />
+                <span className="truncate">Added</span>
               </>
             ) : (
               <>
-                <Plus className="w-3.5 h-3.5" />
-                Add {outcomeLabels.YES}
+                <Plus className="w-3.5 h-3.5 flex-shrink-0" />
+                <span className="truncate">+ {shortLabels.YES}</span>
               </>
             )}
           </Button>
@@ -150,17 +160,18 @@ export function MarketCard({ market }: MarketCardProps) {
             size="sm"
             onClick={() => handleAdd('NO')}
             disabled={noSelected}
-            className="gap-1.5"
+            className="gap-1 text-xs overflow-hidden"
+            title={`Add ${outcomeLabels.NO}`}
           >
             {noSelected ? (
               <>
-                <Check className="w-3.5 h-3.5" />
-                Added
+                <Check className="w-3.5 h-3.5 flex-shrink-0" />
+                <span className="truncate">Added</span>
               </>
             ) : (
               <>
-                <Plus className="w-3.5 h-3.5" />
-                Add {outcomeLabels.NO}
+                <Plus className="w-3.5 h-3.5 flex-shrink-0" />
+                <span className="truncate">+ {shortLabels.NO}</span>
               </>
             )}
           </Button>
