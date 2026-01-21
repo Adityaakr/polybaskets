@@ -33,11 +33,9 @@ export function BasketCard({ basket, onDelete, isDeleting }: BasketCardProps) {
   const [isUpdating, setIsUpdating] = useState(false);
   const prevLiveIndexRef = useRef<number | null>(null);
 
-  // Fetch market data for this basket's items (refresh every 2 seconds for real-time prices)
+  // Fetch market data for this basket's items
   const basketMarketIds = useMemo(() => {
-    const ids = basket.items.map(item => item.marketId).filter((id, idx, arr) => arr.indexOf(id) === idx);
-    console.log(`[BasketCard] Basket ${basket.id} has ${basket.items.length} items, ${ids.length} unique market IDs:`, ids);
-    return ids;
+    return basket.items.map(item => item.marketId).filter((id, idx, arr) => arr.indexOf(id) === idx);
   }, [basket.items]);
 
   const { 
@@ -70,12 +68,12 @@ export function BasketCard({ basket, onDelete, isDeleting }: BasketCardProps) {
       }
     },
     enabled: basketMarketIds.length > 0,
-    staleTime: 0, // Always consider data stale - fetch fresh data immediately
-    refetchInterval: 2000, // Refetch every 2 seconds for real-time live updates (optimized for rate limits)
-    refetchIntervalInBackground: true, // Continue refetching even when tab is in background
+    staleTime: 5000, // Consider data fresh for 5 seconds
+    refetchInterval: 10000, // Refetch every 10 seconds (reduces API load)
+    refetchIntervalInBackground: false, // Don't refetch when tab is in background
     refetchOnWindowFocus: true, // Refetch when user returns to tab
     refetchOnMount: true, // Always refetch on mount
-    gcTime: 10000, // Keep in cache for 10 seconds
+    gcTime: 30000, // Keep in cache for 30 seconds
     retry: 2, // Retry failed requests
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 5000), // Exponential backoff
   });
@@ -88,33 +86,19 @@ export function BasketCard({ basket, onDelete, isDeleting }: BasketCardProps) {
   }, [dataUpdatedAt]);
 
   // Calculate live index and market prices from REAL Polymarket data
-  // CRITICAL: Only calculate with real data - never use snapshot as "live" index
   const { liveIndex, marketPrices, marketStatuses, hasValidData } = useMemo(() => {
-    console.log(`[BasketCard] Calculating live index for basket ${basket.id}:`, {
-      itemsCount: basket.items.length,
-      snapshotIndex: basket.createdSnapshot?.basketIndex,
-      marketsDataSize: itemMarketsData?.size || 0,
-      basketItems: basket.items.map(item => ({ marketId: item.marketId, outcome: item.outcome, weightBps: item.weightBps }))
-    });
-
-    // CRITICAL: Only calculate if we have REAL live data for ALL markets
-    // Never use snapshot as "live" index - that causes wrong percentage calculations
+    // Only calculate if we have REAL live data for ALL markets
     if (!itemMarketsData || itemMarketsData.size === 0 || basket.items.length === 0) {
-      console.warn(`[BasketCard] No live data for basket ${basket.id} - cannot calculate accurate live index`);
       return {
-        liveIndex: basket.createdSnapshot?.basketIndex ?? 0, // Only for display, NOT for percentage calculation
+        liveIndex: basket.createdSnapshot?.basketIndex ?? 0,
         marketPrices: new Map<string, { YES: number; NO: number }>(),
         marketStatuses: new Map<string, { closed: boolean; active: boolean; resolved?: 'YES' | 'NO' | null }>(),
-        hasValidData: false, // Mark as invalid - don't calculate percentage
+        hasValidData: false,
       };
     }
 
-    // Check if we have data for all markets - if not, calculation will be inaccurate
+    // Check if we have data for all markets
     const missingMarkets = basket.items.filter(item => !itemMarketsData.has(item.marketId));
-    if (missingMarkets.length > 0) {
-      console.warn(`[BasketCard] Missing live data for ${missingMarkets.length} markets in basket ${basket.id}:`, missingMarkets.map(m => m.marketId));
-      // Still calculate but mark as potentially inaccurate
-    }
 
     const probMap = new Map<string, OutcomeProbabilities>();
     const priceMap = new Map<string, { YES: number; NO: number }>();

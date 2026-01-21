@@ -1725,29 +1725,30 @@ export async function fetchCuratedLatest(): Promise<PolymarketMarket[]> {
 
 /**
  * Fetch market details directly from Polymarket API
- * This MUST return live data - no fallbacks or mocks
+ * Uses short TTL cache to reduce API calls while keeping data fresh
  */
+const MARKET_DETAILS_CACHE_TTL = 5000; // 5 seconds - short enough for "live" feel
+
 export async function getMarketDetails(marketId: string): Promise<PolymarketMarket | null> {
+  // Check cache first (5s TTL for live-ish data)
+  const cacheKey = `market:${marketId}`;
+  const cached = cacheGet<PolymarketMarket>(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
   try {
-    // Add cache-busting timestamp with microsecond precision
-    const apiUrl = `${gammaBase}/markets/${marketId}?_t=${Date.now() + (typeof performance !== 'undefined' ? performance.now() : 0)}&_r=${Math.random()}`;
-    console.log('[Polymarket API] Fetching market details:', apiUrl);
+    const apiUrl = `${gammaBase}/markets/${marketId}`;
     
     const res = await fetch(apiUrl, {
       method: 'GET',
       headers: { 
         Accept: 'application/json',
         'Content-Type': 'application/json',
-        'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
-        'Pragma': 'no-cache',
-        'Expires': '0',
-        'If-None-Match': '*',
-        'X-Requested-With': 'XMLHttpRequest',
       },
-      // Ensure we don't use cached responses
       cache: 'no-store',
       credentials: 'omit',
-      ...(typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? { signal: AbortSignal.timeout(10000) } : {}), // 10 second timeout
+      ...(typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? { signal: AbortSignal.timeout(10000) } : {}),
     });
     
     if (!res.ok) {
@@ -1760,15 +1761,13 @@ export async function getMarketDetails(marketId: string): Promise<PolymarketMark
     const market = mapMarket(m);
     
     if (market) {
-      console.log(`[Polymarket API] Successfully fetched market ${marketId}:`, market.question);
-    } else {
-      console.warn(`[Polymarket API] Failed to map market ${marketId}`);
+      // Cache for 5 seconds
+      cacheSet(cacheKey, market, MARKET_DETAILS_CACHE_TTL);
     }
     
     return market;
   } catch (error) {
     console.error(`[Polymarket API] Failed to fetch market ${marketId}:`, error);
-    // Return null - DO NOT return mock/static data
     return null;
   }
 }
