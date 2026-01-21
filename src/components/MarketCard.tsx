@@ -23,9 +23,9 @@ export function MarketCard({ market }: MarketCardProps) {
     NO: market.outcomes?.[1] || 'NO',
   };
   
-  // Truncate long labels for buttons (max 8 chars)
-  const truncateLabel = (label: string, max = 8) => 
-    label.length > max ? label.slice(0, max) + '…' : label;
+  // Truncate long labels for buttons (max 6 chars to fit in button)
+  const truncateLabel = (label: string, max = 6) => 
+    label.length > max ? label.slice(0, max).trim() + '…' : label;
   
   const shortLabels = {
     YES: truncateLabel(outcomeLabels.YES),
@@ -98,7 +98,7 @@ export function MarketCard({ market }: MarketCardProps) {
 
         {/* Prices & Probabilities - Show actual outcome labels */}
         <div className="grid grid-cols-2 gap-3 mb-4">
-          <div className="bg-gradient-to-br from-success/20 to-success/5 rounded-md p-3 text-center border border-success/30 transition-all duration-300 hover:border-success/50">
+          <div className="bg-gradient-to-br from-success/20 to-success/5 rounded-md p-3 text-center border border-success/30 transition-all duration-300 hover:border-success/50 overflow-hidden">
             <div className="text-xl font-mono font-semibold tabular-nums text-success">
               {formatProbability(probs.YES)}
             </div>
@@ -106,7 +106,7 @@ export function MarketCard({ market }: MarketCardProps) {
               {shortLabels.YES} {prices && <span className="opacity-75">({formatPrice(prices.YES)})</span>}
             </div>
           </div>
-          <div className="bg-gradient-to-br from-secondary to-secondary/80 rounded-md p-3 text-center border border-border transition-all duration-300 hover:border-primary/30">
+          <div className="bg-gradient-to-br from-secondary to-secondary/80 rounded-md p-3 text-center border border-border transition-all duration-300 hover:border-primary/30 overflow-hidden">
             <div className="text-xl font-mono font-semibold tabular-nums">
               {formatProbability(probs.NO)}
             </div>
@@ -140,18 +140,18 @@ export function MarketCard({ market }: MarketCardProps) {
             size="sm"
             onClick={() => handleAdd('YES')}
             disabled={yesSelected}
-            className="gap-1 text-xs overflow-hidden"
+            className="w-full min-w-0 gap-1.5 text-xs"
             title={`Add ${outcomeLabels.YES}`}
           >
             {yesSelected ? (
               <>
                 <Check className="w-3.5 h-3.5 flex-shrink-0" />
-                <span className="truncate">Added</span>
+                <span>Added</span>
               </>
             ) : (
               <>
                 <Plus className="w-3.5 h-3.5 flex-shrink-0" />
-                <span className="truncate">+ {shortLabels.YES}</span>
+                <span>{shortLabels.YES}</span>
               </>
             )}
           </Button>
@@ -160,18 +160,18 @@ export function MarketCard({ market }: MarketCardProps) {
             size="sm"
             onClick={() => handleAdd('NO')}
             disabled={noSelected}
-            className="gap-1 text-xs overflow-hidden"
+            className="w-full min-w-0 gap-1.5 text-xs"
             title={`Add ${outcomeLabels.NO}`}
           >
             {noSelected ? (
               <>
                 <Check className="w-3.5 h-3.5 flex-shrink-0" />
-                <span className="truncate">Added</span>
+                <span>Added</span>
               </>
             ) : (
               <>
                 <Plus className="w-3.5 h-3.5 flex-shrink-0" />
-                <span className="truncate">+ {shortLabels.NO}</span>
+                <span>{shortLabels.NO}</span>
               </>
             )}
           </Button>
