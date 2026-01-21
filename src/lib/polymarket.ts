@@ -4,6 +4,36 @@ import { PolymarketMarket, OutcomeProbabilities } from '@/types/polymarket';
 const POLYMARKET_GAMMA_BASE = import.meta.env.VITE_GAMMA_PROXY || 'https://gamma-api.polymarket.com';
 const gammaBase = POLYMARKET_GAMMA_BASE.includes('gamma-api') ? '/gamma' : POLYMARKET_GAMMA_BASE;
 
+// Lightweight session cache to avoid repeated network hits (keeps UI responsive)
+const MARKET_CACHE_TTL_MS = 30_000; // 30s
+type CacheEntry<T> = { data: T; expiresAt: number };
+
+function cacheGet<T>(key: string): T | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.sessionStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as CacheEntry<T>;
+    if (!parsed.expiresAt || parsed.expiresAt < Date.now()) {
+      window.sessionStorage.removeItem(key);
+      return null;
+    }
+    return parsed.data;
+  } catch {
+    return null;
+  }
+}
+
+function cacheSet<T>(key: string, data: T, ttlMs: number = MARKET_CACHE_TTL_MS): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const entry: CacheEntry<T> = { data, expiresAt: Date.now() + ttlMs };
+    window.sessionStorage.setItem(key, JSON.stringify(entry));
+  } catch {
+    // Ignore storage errors (quota, private mode, etc.)
+  }
+}
+
 export interface MarketFilters {
   query?: string;
   category?: string;
@@ -383,6 +413,14 @@ export async function fetchMarkets(filters: MarketFilters = {}): Promise<Polymar
     limit: String(filters.limit || 50),
   };
 
+  // Try session cache first to avoid repeated spinners if the user revisits quickly
+  const cacheKey = `markets:${JSON.stringify(filters || {})}`;
+  const cached = cacheGet<PolymarketMarket[]>(cacheKey);
+  if (cached && cached.length > 0) {
+    console.log(`[Polymarket API] Cache hit for markets`, { filters, count: cached.length });
+    return cached;
+  }
+
   // Add query parameter (this is the search term)
   if (filters.query) {
     params._q = filters.query;
@@ -545,6 +583,9 @@ export async function fetchMarkets(filters: MarketFilters = {}): Promise<Polymar
     // Filter out markets without real data (volume = 0, liquidity = 0, or probabilities are exactly 50/50 default)
     const validMarkets = filterMarketsWithRealData(markets);
     console.log(`[Polymarket API] Filtered to ${validMarkets.length} markets with real data (from ${markets.length} total)`);
+
+    // Cache the normalized markets briefly to keep UI responsive on repeated visits
+    cacheSet(cacheKey, validMarkets);
     
     return validMarkets;
   } catch (error) {

@@ -8,6 +8,7 @@ import { ENV } from '@/env';
 import { truncateAddress } from '@/lib/basket-utils';
 import { NETWORKS } from '@/lib/network';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Link } from 'react-router-dom';
@@ -143,12 +144,25 @@ export default function LeaderboardPage() {
 
         <TabsContent value="baskets">
           {loading ? (
-            <Card>
-              <CardContent className="py-12 text-center">
-                <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-muted-foreground" />
-                <p className="text-muted-foreground">
-                  Loading baskets from blockchain...
-                </p>
+            <Card className="card-elevated">
+              <CardContent className="p-0">
+                <div className="border-b px-6 py-3">
+                  <Skeleton className="h-4 w-32" />
+                </div>
+                <div className="divide-y">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <div key={`lb-skeleton-${i}`} className="grid grid-cols-6 gap-4 px-6 py-4 items-center">
+                      <Skeleton className="h-4 w-6" />
+                      <div className="col-span-2 space-y-2">
+                        <Skeleton className="h-4 w-40" />
+                        <Skeleton className="h-3 w-24" />
+                      </div>
+                      <Skeleton className="h-4 w-16" />
+                      <Skeleton className="h-4 w-16" />
+                      <Skeleton className="h-4 w-20 ml-auto" />
+                    </div>
+                  ))}
+                </div>
               </CardContent>
             </Card>
           ) : topBaskets.length === 0 ? (

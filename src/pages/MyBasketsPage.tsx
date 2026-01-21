@@ -8,6 +8,7 @@ import { ENV } from '@/env';
 import { BasketCard } from '@/components/BasketCard';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Link, useNavigate } from 'react-router-dom';
 import { Wallet, Plus, Heart, Layers, RefreshCw } from 'lucide-react';
@@ -249,8 +250,14 @@ export default function MyBasketsPage() {
           <p className="text-muted-foreground mb-6">
             Connect your wallet to see your baskets and follows
           </p>
-          <Button onClick={connect} disabled={isConnecting} size="lg">
-            {isConnecting ? 'Connecting...' : 'Connect Wallet'}
+          <Button 
+            onClick={connect} 
+            disabled={isConnecting} 
+            size="sm" 
+            variant="outline" 
+            className="whitespace-nowrap px-3 py-1 text-sm"
+          >
+            {isConnecting ? 'Connecting...' : 'Connect'}
           </Button>
         </div>
       </div>
@@ -303,14 +310,30 @@ export default function MyBasketsPage() {
 
         <TabsContent value="created">
           {loadingOnChain && network === 'vara' ? (
-            <Card>
-              <CardContent className="py-12 text-center">
-                <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-4 text-muted-foreground" />
-                <p className="text-muted-foreground">
-                  Loading baskets from blockchain...
-                </p>
-              </CardContent>
-            </Card>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Card key={`skeleton-${i}`} className="h-full">
+                  <CardContent className="p-4 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <Skeleton className="h-4 w-24" />
+                      <Skeleton className="h-4 w-10" />
+                    </div>
+                    <Skeleton className="h-7 w-32" />
+                    <Skeleton className="h-4 w-48" />
+                    <div className="grid grid-cols-2 gap-3 pt-2">
+                      <Skeleton className="h-4 w-full" />
+                      <Skeleton className="h-4 w-full" />
+                      <Skeleton className="h-4 w-20" />
+                      <Skeleton className="h-4 w-24" />
+                    </div>
+                    <div className="flex items-center gap-2 pt-1">
+                      <Skeleton className="h-6 w-20" />
+                      <Skeleton className="h-6 w-16" />
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           ) : myBaskets.length === 0 ? (
             <Card>
               <CardContent className="py-12 text-center">

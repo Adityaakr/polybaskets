@@ -4,7 +4,7 @@ import { calculateBasketIndex, formatChange, getChangeClass } from '@/lib/basket
 import { formatProbability, formatPrice } from '@/lib/polymarket';
 import { OutcomeProbabilities } from '@/types/polymarket';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { TrendingUp, Clock, Layers } from 'lucide-react';
+import { TrendingUp, Clock, Layers, BarChart3 } from 'lucide-react';
 
 interface BasketIndexProps {
   marketProbabilities?: Map<string, OutcomeProbabilities>;
@@ -26,7 +26,11 @@ export function BasketIndex({ marketProbabilities, marketPrices, previousIndex }
     return (
       <Card className="card-elevated">
         <CardContent className="py-8 text-center">
-          <div className="text-4xl mb-2">📊</div>
+          <div className="flex justify-center mb-2">
+            <div className="p-3 rounded-full bg-muted/60 inline-flex">
+              <BarChart3 className="w-8 h-8 text-muted-foreground" />
+            </div>
+          </div>
           <p className="text-muted-foreground">
             Add markets to your basket to see the live index
           </p>

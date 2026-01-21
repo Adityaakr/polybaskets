@@ -129,7 +129,7 @@ export function MarketSearch() {
         <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <Input
           type="text"
-          placeholder="Search markets... (e.g., Trump, Bitcoin, Fed)"
+          placeholder="Search any Polymarket... (e.g., Trump, Bitcoin, Super Bowl, Elections)"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           className="pl-10 h-12 text-base"
@@ -139,13 +139,7 @@ export function MarketSearch() {
         )}
       </div>
 
-      {/* Auto-refresh indicator */}
-      {!isSearchActive && isFetching && (
-        <div className="text-xs text-muted-foreground text-center py-2">
-          <Loader2 className="w-3 h-3 inline animate-spin mr-1" />
-          Checking for new markets...
-        </div>
-      )}
+      {/* Auto-refresh indicator - hidden for cleaner UX, data still refreshes in background */}
 
       {/* Results */}
       {isError ? (
