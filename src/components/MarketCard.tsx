@@ -5,7 +5,8 @@ import { useBasket } from '@/contexts/BasketContext';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Check, ExternalLink } from 'lucide-react';
+import { Plus, Check, ExternalLink, Info } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 interface MarketCardProps {
   market: PolymarketMarket;
@@ -16,16 +17,14 @@ export function MarketCard({ market }: MarketCardProps) {
   const probs = getOutcomeProbabilities(market);
   const prices = getOutcomePrices(market);
   
-  // Debug logging for missing data
-  if (!market.outcomePrices || market.outcomePrices.length < 2) {
-    console.warn(`[MarketCard] Market ${market.id} missing outcomePrices:`, {
-      id: market.id,
-      question: market.question,
-      outcomePrices: market.outcomePrices,
-      probs,
-      prices
-    });
-  }
+  // Get outcome labels from market data (e.g., "Up"/"Down" instead of "YES"/"NO")
+  const outcomeLabels = {
+    YES: market.outcomes?.[0] || 'YES',
+    NO: market.outcomes?.[1] || 'NO',
+  };
+  
+  // Check if this is an "Up or Down" style market
+  const isUpDownMarket = market.question?.toLowerCase().includes('up or down');
 
   const handleAdd = (outcome: Outcome) => {
     addItem(market, outcome);
@@ -57,25 +56,45 @@ export function MarketCard({ market }: MarketCardProps) {
         {/* Header */}
         <div className="flex items-start justify-between gap-3 mb-4">
           <div className="flex-1 min-w-0">
-            {market.category && (
-              <Badge variant="secondary" className="mb-2 text-xs font-medium bg-primary/10 text-primary border-primary/20">
-                {formatCategoryName(market.category)}
-              </Badge>
-            )}
+            <div className="flex items-center gap-2 mb-2">
+              {market.category && (
+                <Badge variant="secondary" className="text-xs font-medium bg-primary/10 text-primary border-primary/20">
+                  {formatCategoryName(market.category)}
+                </Badge>
+              )}
+              {market.description && (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Info className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-xs text-xs">
+                      {market.description.slice(0, 200)}{market.description.length > 200 ? '...' : ''}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+            </div>
             <h3 className="font-display font-semibold text-base leading-snug break-words" title={market.question}>
               {market.question}
             </h3>
+            {/* Show what each outcome means for clarity */}
+            {isUpDownMarket && (
+              <p className="text-xs text-muted-foreground mt-1">
+                {outcomeLabels.YES} = price goes up • {outcomeLabels.NO} = price goes down
+              </p>
+            )}
           </div>
         </div>
 
-        {/* Prices & Probabilities */}
+        {/* Prices & Probabilities - Show actual outcome labels */}
         <div className="grid grid-cols-2 gap-3 mb-4">
           <div className="bg-gradient-to-br from-success/20 to-success/5 rounded-md p-3 text-center border border-success/30 transition-all duration-300 hover:border-success/50">
             <div className="text-xl font-mono font-semibold tabular-nums text-success">
               {formatProbability(probs.YES)}
             </div>
             <div className="text-xs text-muted-foreground mt-1.5">
-              YES {prices && <span className="opacity-75">({formatPrice(prices.YES)})</span>}
+              {outcomeLabels.YES} {prices && <span className="opacity-75">({formatPrice(prices.YES)})</span>}
             </div>
           </div>
           <div className="bg-gradient-to-br from-secondary to-secondary/80 rounded-md p-3 text-center border border-border transition-all duration-300 hover:border-primary/30">
@@ -83,7 +102,7 @@ export function MarketCard({ market }: MarketCardProps) {
               {formatProbability(probs.NO)}
             </div>
             <div className="text-xs text-muted-foreground mt-1.5">
-              NO {prices && <span className="opacity-75">({formatPrice(prices.NO)})</span>}
+              {outcomeLabels.NO} {prices && <span className="opacity-75">({formatPrice(prices.NO)})</span>}
             </div>
           </div>
         </div>
@@ -105,7 +124,7 @@ export function MarketCard({ market }: MarketCardProps) {
           )}
         </div>
 
-        {/* Actions */}
+        {/* Actions - Use actual outcome labels */}
         <div className="grid grid-cols-2 gap-2">
           <Button
             variant={yesSelected ? 'default' : 'outline'}
@@ -122,7 +141,7 @@ export function MarketCard({ market }: MarketCardProps) {
             ) : (
               <>
                 <Plus className="w-3.5 h-3.5" />
-                Add YES
+                Add {outcomeLabels.YES}
               </>
             )}
           </Button>
@@ -141,7 +160,7 @@ export function MarketCard({ market }: MarketCardProps) {
             ) : (
               <>
                 <Plus className="w-3.5 h-3.5" />
-                Add NO
+                Add {outcomeLabels.NO}
               </>
             )}
           </Button>
