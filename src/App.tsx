@@ -13,7 +13,7 @@ import BuilderPage from "./pages/BuilderPage";
 import BasketPage from "./pages/BasketPage";
 import MyBasketsPage from "./pages/MyBasketsPage";
 import LeaderboardPage from "./pages/LeaderboardPage";
-import DocsPage from "./pages/DocsPage";
+// import DocsPage from "./pages/DocsPage"; // Hidden for now
 import NotFound from "./pages/NotFound";
 import { ApiProvider, AlertProvider, AccountProvider } from "@gear-js/react-hooks";
 import { Alert, alertStyles } from "@gear-js/vara-ui";
@@ -57,7 +57,6 @@ function AppInner() {
                 <Route path="/basket/:id" element={<BasketPage />} />
                 <Route path="/me" element={<MyBasketsPage />} />
                 <Route path="/leaderboard" element={<LeaderboardPage />} />
-                <Route path="/docs" element={<DocsPage />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </div>
