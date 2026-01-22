@@ -74,7 +74,7 @@ export function InviteGate({ children }: InviteGateProps) {
           <div className="relative">
             <div className="absolute inset-0 bg-[hsl(120,100%,50%)] opacity-30 blur-3xl rounded-full scale-150" />
             <div className="relative w-20 h-20 rounded-2xl bg-white p-2 animate-pulse">
-              <img src="/poly.png" alt="PolyBaskets" className="w-full h-full object-contain" />
+              <img src="/bask.png" alt="PolyBaskets" className="w-full h-full object-cover object-[center_20%] scale-125" />
             </div>
           </div>
           <div className="flex gap-1">
@@ -137,11 +137,11 @@ export function InviteGate({ children }: InviteGateProps) {
               <div className="relative">
                 <div className="absolute inset-0 bg-[hsl(120,100%,50%)] opacity-40 blur-3xl rounded-full scale-[2]" />
                 <div className="relative w-28 h-28 sm:w-32 sm:h-32 rounded-3xl bg-gradient-to-br from-[hsl(120,60%,20%)] to-[hsl(120,50%,12%)] p-1 shadow-2xl">
-                  <div className="w-full h-full rounded-[20px] bg-white flex items-center justify-center overflow-hidden">
+                  <div className="w-full h-full rounded-[20px] bg-white overflow-hidden">
                     <img 
-                      src="/poly.png" 
+                      src="/bask.png" 
                       alt="PolyBaskets" 
-                      className="w-20 h-20 sm:w-24 sm:h-24 object-contain"
+                      className="w-full h-full object-cover object-[center_20%] scale-125"
                     />
                   </div>
                 </div>
@@ -154,7 +154,7 @@ export function InviteGate({ children }: InviteGateProps) {
                 PolyBaskets
               </h1>
               <p className="text-[hsl(120,30%,60%)] text-lg">
-                Prediction Market Baskets
+                Prediction Market Baskets - Predict, Curate, Profit
               </p>
             </div>
 
