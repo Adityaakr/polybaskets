@@ -154,7 +154,7 @@ export function InviteGate({ children }: InviteGateProps) {
                 PolyBaskets
               </h1>
               <p className="text-[hsl(120,30%,60%)] text-lg">
-                Prediction Market Baskets - Predict, Curate, Profit
+              Curate Predict Profit
               </p>
             </div>
 
