@@ -1872,9 +1872,9 @@ export default function BasketPage() {
                 {/* Show this section even if userPosition is null to show why they can't claim */}
                 {expectedPayout !== null && canClaim && settlement && userPosition && (
                   <div className="p-3 bg-muted/30 rounded-lg border space-y-2">
-                    <div className="text-sm">
-                      <span className="text-muted-foreground">Expected payout: </span>
-                      <span className={`font-semibold text-lg ${expectedPayoutNum > 0 ? '' : 'text-muted-foreground'}`}>
+                    <div className="text-sm flex items-baseline gap-2 flex-wrap">
+                      <span className="text-muted-foreground">Expected payout:</span>
+                      <span className={`font-semibold text-lg whitespace-nowrap ${expectedPayoutNum > 0 ? '' : 'text-muted-foreground'}`}>
                         {expectedPayout} {isVaraEth ? 'wVARA' : 'VARA'}
                       </span>
                     </div>
@@ -1990,9 +1990,9 @@ export default function BasketPage() {
                       )}
                     </ul>
                     {expectedPayout && (
-                      <div className="mt-2 pt-2 border-t">
-                        <span className="text-muted-foreground">Expected payout: </span>
-                        <span className={expectedPayoutNum > 0 ? 'font-semibold' : 'text-yellow-500'}>
+                      <div className="mt-2 pt-2 border-t flex items-baseline gap-2 flex-wrap">
+                        <span className="text-muted-foreground">Expected payout:</span>
+                        <span className={`whitespace-nowrap ${expectedPayoutNum > 0 ? 'font-semibold' : 'text-yellow-500'}`}>
                           {expectedPayout} {isVaraEth ? 'wVARA' : 'VARA'}
                         </span>
                       </div>
