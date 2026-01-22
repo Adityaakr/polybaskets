@@ -214,10 +214,12 @@ export function InviteGate({ children }: InviteGateProps) {
         </div>
 
         {/* Powered by */}
-        <div className="mt-10 text-center">
-          <p className="text-[hsl(120,20%,35%)] text-sm">
-            Built on <span className="text-[hsl(120,40%,50%)]">Vara Network</span>
-          </p>
+        <div className="mt-10 flex items-center justify-center gap-3">
+          <span className="text-[hsl(120,20%,40%)] text-sm">Built on</span>
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[hsl(120,40%,8%)] border border-[hsl(120,50%,20%,0.3)] hover:border-[hsl(120,100%,50%,0.3)] transition-colors">
+            <img src="/toggle.png" alt="Vara" className="w-5 h-5 object-contain" />
+            <span className="text-[hsl(120,60%,55%)] text-sm font-medium">Vara Network</span>
+          </div>
         </div>
       </div>
     </div>
