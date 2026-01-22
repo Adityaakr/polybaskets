@@ -28,6 +28,31 @@ const VALID_CODES = [
 ];
 
 const STORAGE_KEY = 'polybaskets_access_granted';
+const USED_CODES_KEY = 'polybaskets_used_codes';
+
+// Get list of used codes from localStorage
+function getUsedCodes(): string[] {
+  try {
+    const stored = localStorage.getItem(USED_CODES_KEY);
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
+}
+
+// Mark a code as used
+function markCodeAsUsed(code: string): void {
+  const usedCodes = getUsedCodes();
+  if (!usedCodes.includes(code)) {
+    usedCodes.push(code);
+    localStorage.setItem(USED_CODES_KEY, JSON.stringify(usedCodes));
+  }
+}
+
+// Check if a code has been used
+function isCodeUsed(code: string): boolean {
+  return getUsedCodes().includes(code);
+}
 
 interface InviteGateProps {
   children: React.ReactNode;
@@ -57,13 +82,26 @@ export function InviteGate({ children }: InviteGateProps) {
 
     const trimmedCode = code.trim().toUpperCase();
     
-    if (VALID_CODES.includes(trimmedCode)) {
-      localStorage.setItem(STORAGE_KEY, 'true');
-      setHasAccess(true);
-    } else {
+    // Check if code is valid
+    if (!VALID_CODES.includes(trimmedCode)) {
       setError('Invalid invite code');
       setCode('');
+      setIsSubmitting(false);
+      return;
     }
+    
+    // Check if code has already been used
+    if (isCodeUsed(trimmedCode)) {
+      setError('This code has already been used');
+      setCode('');
+      setIsSubmitting(false);
+      return;
+    }
+    
+    // Code is valid and unused - grant access and mark as used
+    markCodeAsUsed(trimmedCode);
+    localStorage.setItem(STORAGE_KEY, 'true');
+    setHasAccess(true);
     setIsSubmitting(false);
   };
 
