@@ -1173,13 +1173,27 @@ export default function BasketPage() {
     }
   };
 
-  if (loadingOnChain && !basket) {
+  // Show loading while:
+  // 1. loadingOnChain is true
+  // 2. API is not ready yet for Vara Network
+  // 3. VaraEth market is still loading
+  const isWaitingForConnection = isOnChain && (
+    loadingOnChain || 
+    (!isVaraEth && !isApiReady) || 
+    (isVaraEth && isLoadingVaraEth)
+  );
+
+  if (isWaitingForConnection && !basket) {
     return (
       <div className="content-grid py-8">
         <div className="text-center py-16">
           <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4" />
           <h1 className="text-2xl font-semibold mb-2">Loading Basket...</h1>
-          <p className="text-muted-foreground">Fetching data from blockchain</p>
+          <p className="text-muted-foreground">
+            {!isApiReady && !isVaraEth ? 'Connecting to Vara Network...' : 
+             isLoadingVaraEth ? 'Connecting to Vara.eth...' : 
+             'Fetching data from blockchain'}
+          </p>
         </div>
       </div>
     );
