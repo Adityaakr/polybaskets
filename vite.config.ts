@@ -29,4 +29,8 @@ export default defineConfig(({ mode }) => ({
   define: {
     global: 'globalThis',
   },
+  // Remove console.log and console.warn (keeps console.error for real errors)
+  esbuild: {
+    pure: ['console.log', 'console.warn', 'console.info', 'console.debug'],
+  },
 }));
