@@ -404,6 +404,31 @@ function filterMarketsWithRealData(markets: PolymarketMarket[]): PolymarketMarke
 }
 
 /**
+ * Process raw API response into markets array
+ */
+function processMarketsResponse(data: unknown, cacheKey: string): PolymarketMarket[] {
+  let marketsArray: unknown[] = [];
+  if (Array.isArray(data)) {
+    marketsArray = data;
+  } else if (data && typeof data === 'object' && Array.isArray((data as Record<string, unknown>).results)) {
+    marketsArray = (data as Record<string, unknown>).results as unknown[];
+  } else if (data && typeof data === 'object' && Array.isArray((data as Record<string, unknown>).markets)) {
+    marketsArray = (data as Record<string, unknown>).markets as unknown[];
+  } else if (data && typeof data === 'object') {
+    marketsArray = [data];
+  }
+  
+  const markets = marketsArray.map(mapMarket).filter(Boolean) as PolymarketMarket[];
+  const validMarkets = filterMarketsWithRealData(markets);
+  
+  if (validMarkets.length > 0) {
+    cacheSet(cacheKey, validMarkets);
+  }
+  
+  return validMarkets;
+}
+
+/**
  * Fetch markets from Polymarket API with comprehensive filtering
  * Makes direct API calls to Polymarket's gamma API
  */
@@ -498,99 +523,50 @@ export async function fetchMarkets(filters: MarketFilters = {}): Promise<Polymar
   const qs = new URLSearchParams(params);
   const apiUrl = `${gammaBase}/markets?${qs.toString()}`;
   
-  console.log('[Polymarket API] Fetching LIVE data from:', apiUrl);
-  
   try {
     const res = await fetch(apiUrl, {
       method: 'GET',
       headers: { 
         Accept: 'application/json',
-        'Content-Type': 'application/json',
-        'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
-        'Pragma': 'no-cache',
-        'Expires': '0',
-        'If-None-Match': '*', // Prevent 304 Not Modified responses
-        'X-Requested-With': 'XMLHttpRequest',
       },
-      // Force fresh data - no cache
       cache: 'no-store',
-      // Don't use cached responses
-      credentials: 'omit',
-      // Add signal for potential abort (for future optimization)
-      ...(typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? { signal: AbortSignal.timeout(10000) } : {}), // 10 second timeout
     });
     
+    // Handle 304 Not Modified - this means we need to retry without cache headers
+    // or the data hasn't changed (which is fine, but we need the data)
+    if (res.status === 304) {
+      // Retry with a fresh URL (add extra random param)
+      const retryUrl = `${apiUrl}&_retry=${Date.now()}`;
+      const retryRes = await fetch(retryUrl, {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+        cache: 'reload',
+      });
+      if (!retryRes.ok && retryRes.status !== 304) {
+        throw new Error(`Polymarket API error: ${retryRes.status} ${retryRes.statusText}`);
+      }
+      if (retryRes.status === 304) {
+        // If still 304, return empty and rely on cache
+        const cached = cacheGet<PolymarketMarket[]>(cacheKey);
+        if (cached) return cached;
+        return [];
+      }
+      const data = await retryRes.json();
+      return processMarketsResponse(data, cacheKey);
+    }
+    
     if (!res.ok) {
-      const errorText = await res.text();
-      console.error(`[Polymarket API] Error ${res.status}:`, errorText);
       throw new Error(`Polymarket API error: ${res.status} ${res.statusText}`);
     }
     
     const data = await res.json();
-    console.log(`[Polymarket API] Raw response data:`, Array.isArray(data) ? `${data.length} items` : typeof data);
-    
-    // Handle both array and object responses
-    let marketsArray = [];
-    if (Array.isArray(data)) {
-      marketsArray = data;
-    } else if (data && typeof data === 'object' && Array.isArray(data.results)) {
-      marketsArray = data.results;
-    } else if (data && typeof data === 'object' && Array.isArray(data.markets)) {
-      marketsArray = data.markets;
-    } else if (data && typeof data === 'object') {
-      // Single market object
-      marketsArray = [data];
-    }
-    
-    // Log raw API response for first market to debug
-    if (marketsArray.length > 0) {
-      console.log('[Polymarket API] Raw API response sample (first market):', JSON.stringify(marketsArray[0], null, 2));
-    }
-    
-    const markets = marketsArray.map(mapMarket).filter(Boolean) as PolymarketMarket[];
-    console.log(`[Polymarket API] Successfully fetched ${markets.length} LIVE markets from Polymarket (from ${marketsArray.length} raw items)`);
-    
-    // Log sample market data for debugging
-    if (markets.length > 0) {
-      const sample = markets[0];
-      const sampleRaw = marketsArray[0];
-      console.log(`[Polymarket API] Sample mapped market data:`, {
-        id: sample.id,
-        question: sample.question,
-        hasOutcomePrices: !!sample.outcomePrices,
-        outcomePricesLength: sample.outcomePrices?.length,
-        outcomePrices: sample.outcomePrices,
-        volume: sample.volume,
-        liquidity: sample.liquidity,
-        endDate: sample.endDate,
-        rawFields: {
-          outcomePrices: sampleRaw.outcomePrices,
-          outcome_prices: sampleRaw.outcome_prices,
-          prices: sampleRaw.prices,
-          tokens: sampleRaw.tokens,
-          volume: sampleRaw.volume,
-          liquidity: sampleRaw.liquidity,
-          poolInfo: sampleRaw.poolInfo,
-          pool: sampleRaw.pool
-        }
-      });
-    }
-    
-    if (markets.length === 0 && marketsArray.length > 0) {
-      console.warn('[Polymarket API] Warning: Received data but mapMarket returned no valid markets. Sample raw data:', marketsArray[0]);
-    }
-    
-    // Filter out markets without real data (volume = 0, liquidity = 0, or probabilities are exactly 50/50 default)
-    const validMarkets = filterMarketsWithRealData(markets);
-    console.log(`[Polymarket API] Filtered to ${validMarkets.length} markets with real data (from ${markets.length} total)`);
-
-    // Cache the normalized markets briefly to keep UI responsive on repeated visits
-    cacheSet(cacheKey, validMarkets);
-    
-    return validMarkets;
+    return processMarketsResponse(data, cacheKey);
   } catch (error) {
-    console.error('[Polymarket API] Fetch error:', error);
-    // DO NOT return mock/static data - throw error so caller knows it failed
+    // On error, try to return cached data if available
+    const cached = cacheGet<PolymarketMarket[]>(cacheKey);
+    if (cached && cached.length > 0) {
+      return cached;
+    }
     throw error;
   }
 }
@@ -1755,6 +1731,11 @@ export async function getMarketDetails(marketId: string): Promise<PolymarketMark
         cache: 'no-store',
       });
       
+      // Handle 304 - return cached if available
+      if (res.status === 304) {
+        return cacheGet<PolymarketMarket>(cacheKey);
+      }
+      
       if (!res.ok) return null;
       
       const m = await res.json();
@@ -1766,7 +1747,8 @@ export async function getMarketDetails(marketId: string): Promise<PolymarketMark
       
       return market;
     } catch {
-      return null;
+      // On error, return cached data if available
+      return cacheGet<PolymarketMarket>(cacheKey);
     } finally {
       inFlightRequests.delete(marketId);
     }
