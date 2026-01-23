@@ -374,7 +374,7 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
               const usdEquivalent = betCalculation ? formatUsd(betCalculation.totalUsd) : '';
               toast({
                 title: 'Basket Created & Bet Placed!',
-                description: `Your basket "${name}" was created and you bet ${betAmountNum.toFixed(2)} VARA${usdEquivalent ? ` (${usdEquivalent})` : ''} on it at index ${(indexAtCreationBps / 100).toFixed(2)}%`,
+                description: `Your basket "${name}" was created and you bet ${betAmountNum.toFixed(2)} TVARA${usdEquivalent ? ` (${usdEquivalent})` : ''} on it at index ${(indexAtCreationBps / 100).toFixed(2)}%`,
               });
             }
           }
@@ -490,7 +490,7 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
       {/* Bet Amount Input */}
       <div className="space-y-2">
         <Label htmlFor="bet-amount" className="text-sm font-medium">
-          Bet Amount ({isVaraEth ? 'wVARA' : 'VARA'}) <span className="text-muted-foreground font-normal">(Optional)</span>
+          Bet Amount ({isVaraEth ? 'wVARA' : 'TVARA'}) <span className="text-muted-foreground font-normal">(Optional)</span>
         </Label>
         <Input
           id="bet-amount"
@@ -530,7 +530,7 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
           </div>
         )}
         <p className="text-xs text-muted-foreground">
-          Bet amount is automatically calculated based on basket composition ({items.length} market{items.length !== 1 ? 's' : ''}, {items.length > 0 ? suggestedBetAmount : 0} {isVaraEth ? 'wVARA' : 'VARA'} suggested). You can adjust this amount.
+          Bet amount is automatically calculated based on basket composition ({items.length} market{items.length !== 1 ? 's' : ''}, {items.length > 0 ? suggestedBetAmount : 0} {isVaraEth ? 'wVARA' : 'TVARA'} suggested). You can adjust this amount.
         </p>
       </div>
 

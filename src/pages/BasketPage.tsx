@@ -971,7 +971,7 @@ export default function BasketPage() {
 
         toast({
           title: 'Bet Placed!',
-          description: `Successfully bet ${amount} VARA on this basket at index ${(indexAtCreationBps / 100).toFixed(2)}%`,
+          description: `Successfully bet ${amount} TVARA on this basket at index ${(indexAtCreationBps / 100).toFixed(2)}%`,
         });
       }
 
@@ -1783,7 +1783,7 @@ export default function BasketPage() {
               <CardContent className="space-y-3">
                 <Input
                   type="number"
-                  placeholder={`Amount (${isVaraEth ? 'wVARA' : 'VARA'})`}
+                  placeholder={`Amount (${isVaraEth ? 'wVARA' : 'TVARA'})`}
                   value={betAmount}
                   onChange={(e) => setBetAmount(e.target.value)}
                   min="0"
@@ -1820,7 +1820,7 @@ export default function BasketPage() {
               <CardContent className="space-y-2 text-xs">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Your Shares:</span>
-                  <span className="font-mono">{fromVara(BigInt(String(userPosition.shares)))} {isVaraEth ? 'wVARA' : 'VARA'}</span>
+                  <span className="font-mono">{fromVara(BigInt(String(userPosition.shares)))} {isVaraEth ? 'wVARA' : 'TVARA'}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Payout per Share:</span>
@@ -1832,7 +1832,7 @@ export default function BasketPage() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Calculated Payout:</span>
-                  <span className="font-mono font-semibold">{expectedPayout || '0'} {isVaraEth ? 'wVARA' : 'VARA'}</span>
+                  <span className="font-mono font-semibold">{expectedPayout || '0'} {isVaraEth ? 'wVARA' : 'TVARA'}</span>
                 </div>
                 {expectedPayoutNum > 0 && parseFloat(fromVara(BigInt(String(userPosition.shares)))) > 0 && (
                   <div className="pt-2 mt-2 border-t">
@@ -1848,7 +1848,7 @@ export default function BasketPage() {
                         {expectedPayoutNum >= parseFloat(fromVara(BigInt(String(userPosition.shares)))) 
                           ? `+${(expectedPayoutNum - parseFloat(fromVara(BigInt(String(userPosition.shares))))).toFixed(4)}`
                           : `${(expectedPayoutNum - parseFloat(fromVara(BigInt(String(userPosition.shares))))).toFixed(4)}`
-                        } {isVaraEth ? 'wVARA' : 'VARA'}
+                        } {isVaraEth ? 'wVARA' : 'TVARA'}
                       </span>
                     </div>
                   </div>
@@ -1865,8 +1865,8 @@ export default function BasketPage() {
                 <CardDescription>
                   {canClaim 
                     ? expectedPayoutNum > 0
-                      ? `Settlement is finalized. Claim your winnings (${expectedPayout} ${isVaraEth ? 'wVARA' : 'VARA'}).`
-                      : `Settlement is finalized. Finalize your position (you lost ${fromVara(BigInt(String(userPosition.shares)))} ${isVaraEth ? 'wVARA' : 'VARA'}).`
+                      ? `Settlement is finalized. Claim your winnings (${expectedPayout} ${isVaraEth ? 'wVARA' : 'TVARA'}).`
+                      : `Settlement is finalized. Finalize your position (you lost ${fromVara(BigInt(String(userPosition.shares)))} ${isVaraEth ? 'wVARA' : 'TVARA'}).`
                     : !settlement 
                       ? 'Waiting for all markets to settle. Once settled, there will be a 12-minute challenge period before you can claim your payout.'
                       : settlementStatus !== 'Finalized'
@@ -1878,7 +1878,7 @@ export default function BasketPage() {
                           : userPosition.claimed
                             ? 'You have already claimed your payout for this basket.'
                             : expectedPayoutNum <= 0
-                              ? `Your payout amount is 0 ${isVaraEth ? 'wVARA' : 'VARA'}. You can still claim to finalize your position (you lost ${fromVara(BigInt(String(userPosition.shares)))} ${isVaraEth ? 'wVARA' : 'VARA'}).`
+                              ? `Your payout amount is 0 ${isVaraEth ? 'wVARA' : 'TVARA'}. You can still claim to finalize your position (you lost ${fromVara(BigInt(String(userPosition.shares)))} ${isVaraEth ? 'wVARA' : 'TVARA'}).`
                               : 'Unable to claim. Check debug info below.'}
                 </CardDescription>
               </CardHeader>
@@ -1889,7 +1889,7 @@ export default function BasketPage() {
                     <div className="text-sm flex items-baseline gap-2 flex-wrap">
                       <span className="text-muted-foreground">Expected payout:</span>
                       <span className={`font-semibold text-lg whitespace-nowrap ${expectedPayoutNum > 0 ? '' : 'text-muted-foreground'}`}>
-                        {expectedPayout} {isVaraEth ? 'wVARA' : 'VARA'}
+                        {expectedPayout} {isVaraEth ? 'wVARA' : 'TVARA'}
                       </span>
                     </div>
                     
@@ -1905,11 +1905,11 @@ export default function BasketPage() {
                             <div className="flex items-center justify-between">
                               <span className="text-sm font-semibold text-red-600 dark:text-red-400">Total Loss</span>
                               <span className="text-lg font-bold text-red-600 dark:text-red-400">
-                                -{betAmount.toFixed(4)} {isVaraEth ? 'wVARA' : 'VARA'}
+                                -{betAmount.toFixed(4)} {isVaraEth ? 'wVARA' : 'TVARA'}
                               </span>
                             </div>
                             <div className="text-xs text-muted-foreground mt-1">
-                              You lost 100% of your bet ({betAmount.toFixed(4)} {isVaraEth ? 'wVARA' : 'VARA'})
+                              You lost 100% of your bet ({betAmount.toFixed(4)} {isVaraEth ? 'wVARA' : 'TVARA'})
                             </div>
                           </div>
                         );
@@ -1919,7 +1919,7 @@ export default function BasketPage() {
                             <div className="flex items-center justify-between">
                               <span className="text-sm font-semibold text-green-600 dark:text-green-400">Profit</span>
                               <span className="text-lg font-bold text-green-600 dark:text-green-400">
-                                +{profitLoss.toFixed(4)} {isVaraEth ? 'wVARA' : 'VARA'}
+                                +{profitLoss.toFixed(4)} {isVaraEth ? 'wVARA' : 'TVARA'}
                               </span>
                             </div>
                             <div className="text-xs text-muted-foreground mt-1">
@@ -1933,7 +1933,7 @@ export default function BasketPage() {
                             <div className="flex items-center justify-between">
                               <span className="text-sm font-semibold text-red-600 dark:text-red-400">Loss</span>
                               <span className="text-lg font-bold text-red-600 dark:text-red-400">
-                                {profitLoss.toFixed(4)} {isVaraEth ? 'wVARA' : 'VARA'}
+                                {profitLoss.toFixed(4)} {isVaraEth ? 'wVARA' : 'TVARA'}
                               </span>
                             </div>
                             <div className="text-xs text-muted-foreground mt-1">
@@ -1947,7 +1947,7 @@ export default function BasketPage() {
                             <div className="flex items-center justify-between">
                               <span className="text-sm font-semibold text-yellow-600 dark:text-yellow-400">Break Even</span>
                               <span className="text-lg font-bold text-yellow-600 dark:text-yellow-400">
-                                0.0000 {isVaraEth ? 'wVARA' : 'VARA'}
+                                0.0000 {isVaraEth ? 'wVARA' : 'TVARA'}
                               </span>
                             </div>
                             <div className="text-xs text-muted-foreground mt-1">
@@ -1976,7 +1976,7 @@ export default function BasketPage() {
                     <>
                       <CheckCircle2 className="w-4 h-4" />
                       {expectedPayoutNum > 0 
-                        ? `Claim Payout (${expectedPayout} ${isVaraEth ? 'wVARA' : 'VARA'})`
+                        ? `Claim Payout (${expectedPayout} ${isVaraEth ? 'wVARA' : 'TVARA'})`
                         : expectedPayoutNum === 0
                           ? 'Finalize Position'
                           : 'Claim Payout'
@@ -2007,7 +2007,7 @@ export default function BasketPage() {
                       <div className="mt-2 pt-2 border-t flex items-baseline gap-2 flex-wrap">
                         <span className="text-muted-foreground">Expected payout:</span>
                         <span className={`whitespace-nowrap ${expectedPayoutNum > 0 ? 'font-semibold' : 'text-yellow-500'}`}>
-                          {expectedPayout} {isVaraEth ? 'wVARA' : 'VARA'}
+                          {expectedPayout} {isVaraEth ? 'wVARA' : 'TVARA'}
                         </span>
                       </div>
                     )}
@@ -2126,7 +2126,7 @@ export default function BasketPage() {
           }))}
           indexAtCreation={indexAtCreation}
           settlementIndex={Number(settlement.payout_per_share) / 10000}
-          currency={isVaraEth ? 'wVARA' : 'VARA'}
+          currency={isVaraEth ? 'wVARA' : 'TVARA'}
           txHash={claimedTxHash}
         />
       )}

@@ -30,7 +30,7 @@ interface PayoutCelebrationProps {
   markets: MarketItem[];
   indexAtCreation: number;
   settlementIndex: number;
-  currency: 'VARA' | 'wVARA';
+  currency: 'TVARA' | 'wVARA';
   txHash?: string;
 }
 
