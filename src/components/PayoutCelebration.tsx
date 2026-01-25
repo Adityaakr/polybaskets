@@ -152,12 +152,12 @@ Entry: ${(indexAtCreation * 100).toFixed(1)}% → Settlement: ${(settlementIndex
 Next time! Build your basket 👇`;
 
   const handleShareTwitter = () => {
-    const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent('https://polybaskets.xyz')}`;
+    const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent('http://www.polybaskets.xyz/')}`;
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   const handleShareTelegram = () => {
-    const url = `https://t.me/share/url?url=${encodeURIComponent('https://polybaskets.xyz')}&text=${encodeURIComponent(shareText)}`;
+    const url = `https://t.me/share/url?url=${encodeURIComponent('http://www.polybaskets.xyz/')}&text=${encodeURIComponent(shareText)}`;
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
