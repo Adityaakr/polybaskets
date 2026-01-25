@@ -9,29 +9,60 @@ export default function ExplorePage() {
   const { items } = useBasket();
 
   return (
-    <div className="content-grid py-8">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-8 reveal">
-        <div>
-          <h1 className="text-5xl font-display font-bold mb-3 tracking-tight gradient-text">Explore Markets</h1>
-          <p className="text-muted-foreground text-base">
-            Discover Polymarket predictions and build your basket
-          </p>
+    <>
+      <div className="content-grid py-8">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-8 reveal">
+          <div>
+            <h1 className="text-5xl font-display font-bold mb-3 tracking-tight gradient-text">Explore Markets</h1>
+            <p className="text-muted-foreground text-base">
+              Discover Polymarket predictions and build your basket
+            </p>
+          </div>
         </div>
-        
-        {items.length > 0 && (
-          <Link to="/builder">
-            <Button className="gap-2">
-              <Layers className="w-4 h-4" />
-              {items.length} in basket
-              <ArrowRight className="w-4 h-4" />
-            </Button>
-          </Link>
-        )}
+
+        {/* Search & Results */}
+        <MarketSearch />
       </div>
 
-      {/* Search & Results */}
-      <MarketSearch />
-    </div>
+      {/* Floating basket button - only shows when items are added */}
+      {items.length > 0 && (
+        <>
+          {/* Desktop: right sidebar area */}
+          <div 
+            className="fixed z-[9999] hidden lg:block animate-in slide-in-from-right-4 duration-300"
+            style={{ bottom: '9%', right: '60px' }}
+          >
+            <Link to="/builder">
+              <Button 
+                size="lg" 
+                className="gap-2 shadow-2xl hover:shadow-xl transition-all border border-primary/30"
+              >
+                <Layers className="w-5 h-5" />
+                {items.length} in basket
+                <ArrowRight className="w-5 h-5" />
+              </Button>
+            </Link>
+          </div>
+
+          {/* Mobile: bottom center */}
+          <div 
+            className="fixed z-[9999] lg:hidden animate-in slide-in-from-bottom-4 duration-300"
+            style={{ bottom: '20px', left: '50%', transform: 'translateX(-50%)' }}
+          >
+            <Link to="/builder">
+              <Button 
+                size="lg" 
+                className="gap-2 shadow-2xl transition-all border border-primary/30"
+              >
+                <Layers className="w-5 h-5" />
+                {items.length} in basket
+                <ArrowRight className="w-5 h-5" />
+              </Button>
+            </Link>
+          </div>
+        </>
+      )}
+    </>
   );
 }
