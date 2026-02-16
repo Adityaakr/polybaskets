@@ -7,7 +7,6 @@ import { NetworkProvider, useNetwork } from "@/contexts/NetworkContext";
 import { WalletProvider } from "@/contexts/WalletContext";
 import { BasketProvider } from "@/contexts/BasketContext";
 import { Header } from "@/components/layout/Header";
-import { InviteGate } from "@/components/InviteGate";
 import Index from "./pages/Index";
 import BuilderPage from "./pages/BuilderPage";
 import BasketPage from "./pages/BasketPage";
@@ -77,13 +76,11 @@ function AppInner() {
 }
 
 const App = () => (
-  <InviteGate>
-    <QueryClientProvider client={queryClient}>
-      <NetworkProvider>
-        <AppInner />
-      </NetworkProvider>
-    </QueryClientProvider>
-  </InviteGate>
+  <QueryClientProvider client={queryClient}>
+    <NetworkProvider>
+      <AppInner />
+    </NetworkProvider>
+  </QueryClientProvider>
 );
 
 export default App;
