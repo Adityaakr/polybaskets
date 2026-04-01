@@ -1,6 +1,6 @@
 # 🧺 PolyBaskets
 
-**Create prediction market baskets from live Polymarket data and bet on-chain with Vara Network.**
+**ETF for prediction markets - A prediction market aggregator that lets you bundle multiple Polymarket outcomes into one basket, set custom weights and bet as a single position — a portfolio in one trade**
 
 [![Live Demo](https://img.shields.io/badge/Live-Demo-brightgreen)](https://polybaskets-production.up.railway.app/)
 [![Vara Network](https://img.shields.io/badge/Powered%20by-Vara%20Network-purple)](https://vara.network)
