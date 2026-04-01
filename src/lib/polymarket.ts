@@ -188,6 +188,78 @@ export function formatCategoryName(category: string | undefined): string {
   return category.charAt(0).toUpperCase() + category.slice(1).toLowerCase();
 }
 
+function extractPriceToBeat(m: any): string | undefined {
+  const question = (m.question || m.title || '').toLowerCase();
+  const isUpDown = question.includes('up or down')
+    || (() => {
+      try {
+        const outcomes = typeof m.outcomes === 'string' ? JSON.parse(m.outcomes) : m.outcomes;
+        return Array.isArray(outcomes) && outcomes.some((o: string) => /^(up|down)$/i.test(o));
+      } catch { return false; }
+    })();
+
+  if (!isUpDown) return undefined;
+
+  // Gather ALL text sources where the price might appear
+  const texts: string[] = [];
+
+  // Market-level description
+  if (m.description) texts.push(m.description);
+
+  // Event-level descriptions and titles (events array embedded in market response)
+  if (Array.isArray(m.events)) {
+    for (const ev of m.events) {
+      if (ev.description) texts.push(ev.description);
+      if (ev.title) texts.push(ev.title);
+    }
+  }
+
+  // groupItemThreshold — could be the strike price or just a sort index
+  if (m.groupItemThreshold != null) {
+    const raw = String(m.groupItemThreshold);
+    const val = parseFloat(raw);
+    // Accept if it looks like a real price (has decimal OR is a big number)
+    if (!isNaN(val) && val > 0 && (raw.includes('.') || val >= 10)) {
+      return `$${raw}`;
+    }
+  }
+
+  // Search text sources for price patterns
+  const combined = texts.join(' ');
+  if (combined) {
+    const pricePatterns = [
+      /(?:opening\s+price|initial\s+price|starting\s+price|price\s+at\s+open|snapshot\s+price|reference\s+price)[\s:]*\$?([\d,]+(?:\.\d+)?)/i,
+      /(?:higher|above|greater|over|exceed|at\s+or\s+above)\s+(?:than\s+)?\$?([\d,]+(?:\.\d+)?)/i,
+      /(?:price|level|value|threshold)\s+(?:of|is|was|at)\s+\$?([\d,]+(?:\.\d+)?)/i,
+      /(?:lower|below|under|at\s+or\s+below)\s+(?:than\s+)?\$?([\d,]+(?:\.\d+)?)/i,
+    ];
+    for (const pattern of pricePatterns) {
+      const match = combined.match(pattern);
+      if (match) {
+        const val = parseFloat(match[1].replace(/,/g, ''));
+        if (!isNaN(val) && val > 0) return `$${match[1].replace(/,/g, '')}`;
+      }
+    }
+
+    // Fallback: any dollar amount that isn't $1 (payout reference)
+    const dollars = [...combined.matchAll(/\$([\d,]+(?:\.\d+)?)/g)];
+    for (const d of dollars) {
+      const val = parseFloat(d[1].replace(/,/g, ''));
+      if (!isNaN(val) && val > 0 && val !== 1) return `$${d[1].replace(/,/g, '')}`;
+    }
+  }
+
+  // Check other raw fields that might contain a price
+  for (const field of ['strike', 'strikePrice', 'strike_price', 'openPrice', 'open_price', 'referencePrice', 'reference_price', 'benchmarkPrice', 'benchmark_price', 'startPrice', 'start_price']) {
+    if (m[field] != null) {
+      const val = parseFloat(String(m[field]));
+      if (!isNaN(val) && val > 0) return `$${m[field]}`;
+    }
+  }
+
+  return undefined;
+}
+
 function mapMarket(m: any): PolymarketMarket | null {
   // Skip if no question or id (required fields)
   if (!m.question && !m.questionID && !m.id && !m.condition_id && !m.slug) {
@@ -304,6 +376,15 @@ function mapMarket(m: any): PolymarketMarket | null {
     }
   }
 
+  let clobTokenIds: string[] | undefined;
+  if (m.clobTokenIds) {
+    if (typeof m.clobTokenIds === 'string') {
+      try { clobTokenIds = JSON.parse(m.clobTokenIds); } catch { clobTokenIds = undefined; }
+    } else if (Array.isArray(m.clobTokenIds)) {
+      clobTokenIds = m.clobTokenIds;
+    }
+  }
+
   const mappedMarket = {
     id: marketId,
     slug: m.slug || m.id || marketId,
@@ -318,6 +399,18 @@ function mapMarket(m: any): PolymarketMarket | null {
     liquidity: parseFloat(m.liquidity || m.liquidityNum || m.totalLiquidity || m.liquidityUSD || m.liquidity_usd || '0') || 0,
     endDate: m.end_date_iso || m.endDate || m.end_date || m.endDateISO,
     image: m.image || m.imageUrl || m.img,
+    startDate: m.start_date_iso || m.startDate || m.startDateIso,
+    gameStartTime: m.gameStartTime || m.game_start_time,
+    volume24hr: parseFloat(m.volume24hr || m.volume_24hr || '0') || 0,
+    volume1wk: parseFloat(m.volume1wk || m.volume_1wk || '0') || 0,
+    acceptingOrders: m.acceptingOrders ?? m.accepting_orders ?? true,
+    enableOrderBook: m.enableOrderBook ?? m.enable_order_book ?? false,
+    competitive: parseFloat(m.competitive || '0') || 0,
+    icon: m.icon,
+    clobTokenIds,
+    groupItemThreshold: m.groupItemThreshold || m.group_item_threshold || undefined,
+    groupItemTitle: m.groupItemTitle || m.group_item_title || undefined,
+    priceToBeat: extractPriceToBeat(m),
   };
   
   // Log if critical data is missing for debugging

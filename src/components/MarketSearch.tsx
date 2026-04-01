@@ -1,11 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Input } from '@/components/ui/input';
 import { Search, Loader2 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { searchMarkets, fetchCuratedLatest, fetchMarketsByCategory, POLYMARKET_CATEGORIES, type MarketCategory } from '@/lib/polymarket';
 import { MarketCard } from './MarketCard';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useCallback } from 'react';
+import { Card, CardContent } from '@/components/ui/card';
 import type { PolymarketMarket } from '@/types/polymarket';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -154,13 +154,36 @@ export function MarketSearch() {
       ) : isLoading ? (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {[...Array(6)].map((_, i) => (
-            <Skeleton key={i} className="h-64 rounded-xl" />
+            <Card key={i} className="overflow-hidden border-border/50">
+              <CardContent className="p-6 space-y-4">
+                <div className="flex items-center gap-2">
+                  <Skeleton className="h-5 w-16 rounded-full" />
+                  <Skeleton className="h-2 w-2 rounded-full" />
+                </div>
+                <Skeleton className="h-5 w-3/4" />
+                <Skeleton className="h-4 w-1/2" />
+                <div className="grid grid-cols-2 gap-3">
+                  <Skeleton className="h-16 rounded-md" />
+                  <Skeleton className="h-16 rounded-md" />
+                </div>
+                <Skeleton className="h-1.5 w-full rounded-full" />
+                <div className="flex gap-4">
+                  <Skeleton className="h-3 w-16" />
+                  <Skeleton className="h-3 w-16" />
+                  <Skeleton className="h-5 w-20 ml-auto rounded-full" />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Skeleton className="h-8 rounded-md" />
+                  <Skeleton className="h-8 rounded-md" />
+                </div>
+              </CardContent>
+            </Card>
           ))}
         </div>
       ) : data && data.length > 0 ? (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {data.map((market, index) => (
-            <MarketCard key={`${market.id}-${index}`} market={market} />
+            <MarketCard key={`${market.id}-${index}`} market={market} index={index} />
           ))}
         </div>
       ) : (

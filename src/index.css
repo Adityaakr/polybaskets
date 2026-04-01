@@ -454,3 +454,17 @@ header [class*="Wallet"] button:hover {
   background-color: hsl(120 100% 45%) !important;
   box-shadow: 0 0 20px hsl(120 100% 50% / 0.4) !important;
 }
+
+/* ── Price flash animations ── */
+@keyframes price-flash-green {
+  0% { color: hsl(142 71% 45%); text-shadow: 0 0 8px hsl(142 71% 45% / 0.6); }
+  50% { color: hsl(142 71% 65%); text-shadow: 0 0 12px hsl(142 71% 45% / 0.8); }
+  100% { color: inherit; text-shadow: none; }
+}
+@keyframes price-flash-red {
+  0% { color: hsl(0 84% 60%); text-shadow: 0 0 8px hsl(0 84% 60% / 0.6); }
+  50% { color: hsl(0 84% 70%); text-shadow: 0 0 12px hsl(0 84% 60% / 0.8); }
+  100% { color: inherit; text-shadow: none; }
+}
+.animate-price-flash-green { animation: price-flash-green 1.2s ease-out; }
+.animate-price-flash-red { animation: price-flash-red 1.2s ease-out; }

@@ -12,6 +12,18 @@ export interface PolymarketMarket {
   liquidity?: number;
   endDate?: string;
   image?: string;
+  startDate?: string;
+  gameStartTime?: string;
+  volume24hr?: number;
+  volume1wk?: number;
+  acceptingOrders?: boolean;
+  enableOrderBook?: boolean;
+  competitive?: number;
+  icon?: string;
+  clobTokenIds?: string[];
+  groupItemThreshold?: string;
+  groupItemTitle?: string;
+  priceToBeat?: string;
 }
 
 export interface OutcomeProbabilities {
