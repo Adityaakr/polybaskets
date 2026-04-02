@@ -28,7 +28,10 @@ export interface Basket {
   items: BasketItem[];
   createdSnapshot: Snapshot;
   network: NetworkType;
+  assetKind?: BasketAssetKind;
 }
+
+export type BasketAssetKind = 'Vara' | 'Bet';
 
 export interface BasketDraft {
   items: BasketItem[];

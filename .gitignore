@@ -39,6 +39,10 @@ Thumbs.db
 
 # Rust/Cargo build artifacts
 program/target
+bet-lane/target
+bet-token/target
+bet-lane/Cargo.lock
+bet-token/Cargo.lock
 test-app/
 
 # Lock files (keep package-lock.json)

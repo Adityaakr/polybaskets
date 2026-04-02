@@ -14,7 +14,8 @@ export class SailsProgram {
       BasketItem: {"poly_market_id":"String","poly_slug":"String","weight_bps":"u16"},
       ItemResolution: {"item_index":"u8","resolved":"Outcome","poly_slug":"String","poly_condition_id":"Option<String>","poly_price_yes":"u16","poly_price_no":"u16"},
       Outcome: {"_enum":["YES","NO"]},
-      Basket: {"id":"u64","creator":"[u8;32]","name":"String","description":"String","items":"Vec<BasketItem>","created_at":"u64","status":"BasketStatus"},
+      Basket: {"id":"u64","creator":"[u8;32]","name":"String","description":"String","items":"Vec<BasketItem>","created_at":"u64","status":"BasketStatus","asset_kind":"BasketAssetKind"},
+      BasketAssetKind: {"_enum":["Vara","Bet"]},
       BasketStatus: {"_enum":["Active","Settled","Closed"]},
       Position: {"basket_id":"u64","user":"[u8;32]","shares":"u128","claimed":"bool","index_at_creation_bps":"u16"},
       Settlement: {"basket_id":"u64","proposer":"[u8;32]","item_resolutions":"Vec<ItemResolution>","payout_per_share":"u128","payload":"String","proposed_at":"u64","challenge_deadline":"u64","finalized_at":"Option<u64>","status":"SettlementStatus"},
@@ -106,7 +107,7 @@ export class BasketMarket {
     );
   }
 
-  public createBasket(name: string, description: string, items: Array<BasketItem>): TransactionBuilder<{ ok: number | string | bigint } | { err: string }> {
+  public createBasket(name: string, description: string, items: Array<BasketItem>, asset_kind: BasketAssetKind): TransactionBuilder<{ ok: number | string | bigint } | { err: string }> {
     if (!this._program.programId) throw new Error('Program ID is not set');
     return new TransactionBuilder<{ ok: number | string | bigint } | { err: string }>(
       this._program.api,
@@ -114,8 +115,8 @@ export class BasketMarket {
       'send_message',
       'BasketMarket',
       'CreateBasket',
-      [name, description, items],
-      '(String, String, Vec<BasketItem>)',
+      [name, description, items, asset_kind],
+      '(String, String, Vec<BasketItem>, BasketAssetKind)',
       'Result<u64, String>',
       this._program.programId,
     );

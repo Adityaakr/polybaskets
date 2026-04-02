@@ -22,6 +22,12 @@ pub enum BasketStatus {
 }
 
 #[derive(Debug, Clone, Encode, Decode, TypeInfo, PartialEq, Eq)]
+pub enum BasketAssetKind {
+    Vara,
+    Bet,
+}
+
+#[derive(Debug, Clone, Encode, Decode, TypeInfo, PartialEq, Eq)]
 pub enum SettlementStatus {
     Proposed,
     Finalized,
@@ -44,6 +50,7 @@ pub struct Basket {
     pub items: Vec<BasketItem>,
     pub created_at: u64,
     pub status: BasketStatus,
+    pub asset_kind: BasketAssetKind,
 }
 
 #[derive(Debug, Clone, Encode, Decode, TypeInfo)]
@@ -199,6 +206,7 @@ impl<'a> BasketMarketService<'a> {
         name: String,
         description: String,
         items: Vec<BasketItem>,
+        asset_kind: BasketAssetKind,
     ) -> Result<u64, String> {
         // Validate items
         if items.is_empty() {
@@ -229,6 +237,7 @@ impl<'a> BasketMarketService<'a> {
             items,
             created_at: now,
             status: BasketStatus::Active,
+            asset_kind,
         };
 
         let basket_id = self.state.next_basket_id;

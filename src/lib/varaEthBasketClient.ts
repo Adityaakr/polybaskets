@@ -70,7 +70,8 @@ export class VaraEthBasketMarket {
       BasketItem: {"poly_market_id":"String","poly_slug":"String","weight_bps":"u16"},
       ItemResolution: {"item_index":"u8","resolved":"Outcome","poly_slug":"String","poly_condition_id":"Option<String>","poly_price_yes":"u16","poly_price_no":"u16"},
       Outcome: {"_enum":["YES","NO"]},
-      Basket: {"id":"u64","creator":"[u8;32]","name":"String","description":"String","items":"Vec<BasketItem>","created_at":"u64","status":"BasketStatus"},
+      Basket: {"id":"u64","creator":"[u8;32]","name":"String","description":"String","items":"Vec<BasketItem>","created_at":"u64","status":"BasketStatus","asset_kind":"BasketAssetKind"},
+      BasketAssetKind: {"_enum":["Vara","Bet"]},
       BasketStatus: {"_enum":["Active","Settled","Closed"]},
       Position: {"basket_id":"u64","user":"[u8;32]","shares":"u128","claimed":"bool"},
       Settlement: {"basket_id":"u64","proposer":"[u8;32]","item_resolutions":"Vec<ItemResolution>","payout_per_share":"u128","payload":"String","proposed_at":"u64","challenge_deadline":"u64","finalized_at":"Option<u64>","status":"SettlementStatus"},
@@ -178,7 +179,7 @@ export class VaraEthBasketMarket {
     }
     
     // Use Sails to encode the message
-    // Format: CreateBasket { name, description, items }
+    // Format: CreateBasket { name, description, items, asset_kind }
     const payload = await this.encodeCreateBasket(name, description, items);
     
     // Try injected transaction first (gasless, pre-confirmed)
@@ -745,7 +746,7 @@ export class VaraEthBasketMarket {
     try {
       const sails = await this.getSails();
       if (sails && sails.services?.BasketMarket?.functions?.CreateBasket) {
-        const payload = sails.services.BasketMarket.functions.CreateBasket.encodePayload(name, description, items);
+        const payload = sails.services.BasketMarket.functions.CreateBasket.encodePayload(name, description, items, 'Vara');
         // Convert hex to Uint8Array for logging (browser-compatible)
         const payloadBytes = this.hexToUint8Array(payload);
         console.log('[VaraEth] CreateBasket encoding (via sails-js IDL):', {

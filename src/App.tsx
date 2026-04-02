@@ -9,6 +9,7 @@ import { BasketProvider } from "@/contexts/BasketContext";
 import { Header } from "@/components/layout/Header";
 import Index from "./pages/Index";
 import BuilderPage from "./pages/BuilderPage";
+import ClaimPage from "./pages/ClaimPage";
 import BasketPage from "./pages/BasketPage";
 import MyBasketsPage from "./pages/MyBasketsPage";
 import LeaderboardPage from "./pages/LeaderboardPage";
@@ -53,6 +54,7 @@ function AppInner() {
               <Routes>
                 <Route path="/" element={<Index />} />
                 <Route path="/builder" element={<BuilderPage />} />
+                <Route path="/claim" element={<ClaimPage />} />
                 <Route path="/basket/:id" element={<BasketPage />} />
                 <Route path="/me" element={<MyBasketsPage />} />
                 <Route path="/leaderboard" element={<LeaderboardPage />} />

@@ -312,7 +312,7 @@ npm run dev
 ### Environment Variables
 
 ```env
-VITE_PROGRAM_ID=0x28965d25d00e0081f43a0bc5ff9faa12ce7a525b8e6679cfe0b5065ec009d8c0
+VITE_PROGRAM_ID=0x36cbc8f30e84f2a3fbf60655175fb0673aedba686299fafbcbd9659df6c20577
 VITE_VARA_NODE_ADDRESS=wss://testnet.vara.network
 VITE_GAMMA_PROXY=/gamma
 ```
