@@ -21,6 +21,29 @@ import {
 
 const LOW_BASE_PROBABILITY_THRESHOLD = 0.05;
 
+function getReadyOutcomeProbabilities(market: { outcomePrices?: string[] | null }): OutcomeProbabilities | null {
+  const prices = market.outcomePrices;
+  if (!prices || prices.length < 2) {
+    return null;
+  }
+
+  const yesProb = Number.parseFloat(prices[0]);
+  const noProb = Number.parseFloat(prices[1]);
+  if (!Number.isFinite(yesProb) || !Number.isFinite(noProb) || yesProb < 0 || noProb < 0) {
+    return null;
+  }
+
+  const sum = yesProb + noProb;
+  if (sum <= 0) {
+    return null;
+  }
+
+  return {
+    YES: yesProb / sum,
+    NO: noProb / sum,
+  };
+}
+
 interface BasketCardProps {
   basket: Basket;
   onDelete?: () => void;
@@ -180,12 +203,14 @@ export function BasketCard({ basket, onDelete, isDeleting }: BasketCardProps) {
       const market = itemMarketsData.get(item.marketId);
       if (!market) return;
 
-      const probs = getOutcomeProbabilities(market);
-      const currentProb = item.outcome === 'YES' ? probs.YES : probs.NO;
-      
-      // Find original probability from snapshot
+      const probs = getReadyOutcomeProbabilities(market);
+      if (!probs) return;
+
       const snapshotComponent = basket.createdSnapshot.components.find(c => c.itemIndex === itemIndex);
-      const originalProb = snapshotComponent?.prob ?? currentProb; // Fallback to current if not found
+      if (!snapshotComponent) return;
+
+      const currentProb = item.outcome === 'YES' ? probs.YES : probs.NO;
+      const originalProb = snapshotComponent.prob;
       
       const change = currentProb - originalProb;
       const isLowBase = originalProb > 0 && originalProb < LOW_BASE_PROBABILITY_THRESHOLD;
@@ -523,11 +548,6 @@ export function BasketCard({ basket, onDelete, isDeleting }: BasketCardProps) {
                             <Icon className="w-2.5 h-2.5" />
                             {isPositive ? '+' : ''}{(change.change * 100).toFixed(1)}%
                           </div>
-                          {change.isLowBase && change.multiple && (
-                            <div className="text-[10px] text-muted-foreground">
-                              {change.multiple.toFixed(2)}x from low base
-                            </div>
-                          )}
                         </div>
                       </div>
                     </div>

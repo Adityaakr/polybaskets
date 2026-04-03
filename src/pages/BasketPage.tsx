@@ -14,6 +14,7 @@ import { basketMarketProgramFromApi, toVara, fromVara, actorIdFromAddress } from
 import { extractOnChainBasketId, fetchOnChainBasket, fetchOnChainPositions, fetchOnChainSettlement, getUserPositionForBasket, calculatePayout, onChainBasketToFrontend } from '@/lib/basket-onchain';
 import { ENV, isBasketAssetKindEnabled, isVaraEnabled } from '@/env';
 import { isFtAssetKind, normalizeAssetKind, type ContractBasketAssetKind } from '@/lib/assetKind';
+import { betLaneProgramFromApi, isBetProgramsConfigured, readSailsQuery } from '@/lib/betPrograms';
 import { useVaraEthBasketMarket } from '@/hooks/useVaraEthBasketMarket';
 import { toWVara, fromWVara } from '@/lib/varaEthClient';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -31,6 +32,29 @@ import { PayoutCelebration } from '@/components/PayoutCelebration';
 import { BetLanePanel } from '@/components/BetLanePanel';
 
 const LOW_BASE_PROBABILITY_THRESHOLD = 0.05;
+
+function getReadyOutcomeProbabilities(market: { outcomePrices?: string[] | null }): OutcomeProbabilities | null {
+  const prices = market.outcomePrices;
+  if (!prices || prices.length < 2) {
+    return null;
+  }
+
+  const yesProb = Number.parseFloat(prices[0]);
+  const noProb = Number.parseFloat(prices[1]);
+  if (!Number.isFinite(yesProb) || !Number.isFinite(noProb) || yesProb < 0 || noProb < 0) {
+    return null;
+  }
+
+  const sum = yesProb + noProb;
+  if (sum <= 0) {
+    return null;
+  }
+
+  return {
+    YES: yesProb / sum,
+    NO: noProb / sum,
+  };
+}
 
 export default function BasketPage() {
   const { id } = useParams<{ id: string }>();
@@ -78,6 +102,40 @@ export default function BasketPage() {
   
   // Use on-chain basket if available, otherwise localStorage basket
   const basket = isOnChain ? onChainBasket : localBasket;
+  const basketAssetKind = normalizeAssetKind(
+    basket?.assetKind || ((basket as { asset_kind?: ContractBasketAssetKind } | null)?.asset_kind ?? 'Vara'),
+  );
+  const isFtAssetBasket = isFtAssetKind(basketAssetKind);
+  const isNativeAssetBasket = !isFtAssetBasket;
+  const isBasketSupportedInUi = isBasketAssetKindEnabled(basketAssetKind);
+  const canUseNativeVaraFlow = varaEnabled && isNativeAssetBasket;
+  const walletActorId = useMemo(
+    () => (address && !isVaraEth ? actorIdFromAddress(address) : null),
+    [address, isVaraEth],
+  );
+  const betLaneProgram = useMemo(() => {
+    if (!api || !isApiReady || isVaraEth || !isOnChain || !isFtAssetBasket || !isBetProgramsConfigured()) {
+      return null;
+    }
+
+    try {
+      return betLaneProgramFromApi(api);
+    } catch (err) {
+      console.error('[BasketPage] Failed to create bet lane program:', err);
+      return null;
+    }
+  }, [api, isApiReady, isFtAssetBasket, isOnChain, isVaraEth]);
+  const lanePositionQuery = useQuery({
+    queryKey: ['bet-lane-position', walletActorId, onChainId, betLaneProgram?.programId],
+    enabled: !!betLaneProgram && !!walletActorId && onChainId !== null,
+    queryFn: async () =>
+      readSailsQuery(betLaneProgram!.betLane.getPosition(walletActorId!, onChainId!)),
+    refetchInterval: 10_000,
+  });
+  const lanePosition = lanePositionQuery.data;
+  const lanePositionEntryIndex = lanePosition?.index_at_creation_bps !== undefined
+    ? lanePosition.index_at_creation_bps / 10000
+    : null;
   
   // Safely get following status and followers count
   let following = false;
@@ -798,12 +856,18 @@ export default function BasketPage() {
         return;
       }
 
-      const marketProbs = getOutcomeProbabilities(market);
-      const currentProb = item.outcome === 'YES' ? marketProbs.YES : marketProbs.NO;
-      
-      // Find original probability from snapshot
+      const marketProbs = getReadyOutcomeProbabilities(market);
+      if (!marketProbs) {
+        return;
+      }
+
       const snapshotComponent = basket.createdSnapshot.components.find(c => c.itemIndex === itemIndex);
-      const originalProb = snapshotComponent?.prob ?? currentProb; // Fallback to current if not found
+      if (!snapshotComponent) {
+        return;
+      }
+
+      const currentProb = item.outcome === 'YES' ? marketProbs.YES : marketProbs.NO;
+      const originalProb = snapshotComponent.prob;
       
       const change = currentProb - originalProb;
       const isLowBase = originalProb > 0 && originalProb < LOW_BASE_PROBABILITY_THRESHOLD;
@@ -826,13 +890,18 @@ export default function BasketPage() {
   }, [basket, itemMarketsData]);
 
   const creationSnapshotIndex = getCreationSnapshotIndex(basket);
-  const positionEntryIndex = userPosition?.index_at_creation_bps !== undefined
+  const nativePositionEntryIndex = userPosition?.index_at_creation_bps !== undefined
     ? userPosition.index_at_creation_bps / 10000
     : null;
+  const positionEntryIndex = isFtAssetBasket ? lanePositionEntryIndex : nativePositionEntryIndex;
   const payoutReferenceIndex = positionEntryIndex ?? creationSnapshotIndex ?? 0;
+  const entryIndexSource = isFtAssetBasket ? 'CHIP lane position' : 'on-chain position';
+  const entryIndexBps = isFtAssetBasket ? lanePosition?.index_at_creation_bps : userPosition?.index_at_creation_bps;
 
   if (positionEntryIndex !== null) {
-    console.log(`[BasketPage] Position entry index from ON-CHAIN position: ${userPosition!.index_at_creation_bps} bps = ${positionEntryIndex.toFixed(4)}`);
+    console.log(
+      `[BasketPage] Position entry index from ${entryIndexSource}: ${entryIndexBps} bps = ${positionEntryIndex.toFixed(4)}`,
+    );
   }
 
   if (creationSnapshotIndex !== null) {
@@ -1318,13 +1387,6 @@ export default function BasketPage() {
   }
 
   const networkConfig = NETWORKS[basket?.network || 'vara'];
-  const basketAssetKind = normalizeAssetKind(
-    basket?.assetKind || ((basket as { asset_kind?: ContractBasketAssetKind } | null)?.asset_kind ?? 'Vara'),
-  );
-  const isFtAssetBasket = isFtAssetKind(basketAssetKind);
-  const isNativeAssetBasket = !isFtAssetBasket;
-  const isBasketSupportedInUi = isBasketAssetKindEnabled(basketAssetKind);
-  const canUseNativeVaraFlow = varaEnabled && isNativeAssetBasket;
   const canBet = isOnChain && basket?.status === 'Active' && canUseNativeVaraFlow;
   
   // Can claim only if: on-chain, finalized, has position, not claimed, AND payout > 0
@@ -1713,14 +1775,9 @@ export default function BasketPage() {
                             }`}>
                               {isPositive ? '+' : ''}{(change.change * 100).toFixed(1)}%
                             </span>
-                            {change.isLowBase && change.multiple && (
-                              <span className="text-[10px] text-muted-foreground">
-                                {change.multiple.toFixed(2)}x from low base
-                              </span>
-                            )}
                           </div>
                         ) : (
-                          <span className="text-muted-foreground">-</span>
+                          <span className="text-muted-foreground">—</span>
                         )}
                       </span>
                     </div>
@@ -1774,12 +1831,12 @@ export default function BasketPage() {
 
                 {positionEntryIndex !== null && (
                   <div className="p-3 rounded-lg border bg-muted/20">
-                    <div className="text-xs text-muted-foreground">Your Entry Index (on-chain position)</div>
+                    <div className="text-xs text-muted-foreground">Your Entry Index ({entryIndexSource})</div>
                     <div className="text-lg font-semibold tabular-nums mt-1">
                       {positionEntryIndex.toFixed(3)}
                     </div>
                     <div className="text-[10px] text-muted-foreground mt-1">
-                      {userPosition?.index_at_creation_bps} bps. This value is used for payout, not for basket "since creation" stats.
+                      {entryIndexBps} bps. This value is used for payout, not for basket "since creation" stats.
                     </div>
                   </div>
                 )}
@@ -1864,7 +1921,7 @@ export default function BasketPage() {
                       {positionEntryIndex.toFixed(3)}
                     </p>
                     <p className="text-[10px] text-muted-foreground">
-                      {userPosition.index_at_creation_bps} bps from contract
+                      {entryIndexBps} bps from {entryIndexSource}
                     </p>
                   </div>
                 )}
