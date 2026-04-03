@@ -26,7 +26,10 @@ declare global {
     items: Array<BasketItem>;
     created_at: number | string | bigint;
     status: BasketStatus;
+    asset_kind: BasketAssetKind;
   }
+
+  export type BasketAssetKind = "Vara" | "Bet";
 
   export type BasketStatus = "Active" | "Settled" | "Closed";
 

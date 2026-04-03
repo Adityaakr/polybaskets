@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["app"]
+members = ["app", "client"]
 
 [package]
 name = "polymarket-mirror"
@@ -12,8 +12,8 @@ build = "build.rs"
 polymarket-mirror-app = { path = "app" }
 
 [build-dependencies]
-sails-rs = { version = "0.9.1", features = ["wasm-builder"] }
-sails-idl-gen = "0.9.1"
+sails-rs = { version = "=0.10.2", features = ["build"] }
+sails-idl-gen = "=0.10.2"
 polymarket-mirror-app = { path = "app" }
 
 [features]

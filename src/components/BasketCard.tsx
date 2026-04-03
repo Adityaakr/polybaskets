@@ -254,6 +254,13 @@ export function BasketCard({ basket, onDelete, isDeleting }: BasketCardProps) {
   const suggestedBetAmount = useMemo(() => {
     return calculateSuggestedBetAmount(basket.items);
   }, [basket.items]);
+  const suggestedBetDisplay = useMemo(() => {
+    if (basket.assetKind === 'Bet') {
+      return `${suggestedBetAmount.toFixed(2)} CHIP`;
+    }
+
+    return formatVara(suggestedBetAmount);
+  }, [basket.assetKind, suggestedBetAmount]);
 
   // State for expanding item details
   const [showItemDetails, setShowItemDetails] = useState(false);
@@ -381,7 +388,7 @@ export function BasketCard({ basket, onDelete, isDeleting }: BasketCardProps) {
 
             {/* Suggested Bet Amount */}
             <div className="text-xs text-muted-foreground">
-              Suggested bet: <span className="font-medium">{formatVara(suggestedBetAmount)}</span>
+              Suggested bet: <span className="font-medium">{suggestedBetDisplay}</span>
             </div>
 
             {/* Items & Followers */}

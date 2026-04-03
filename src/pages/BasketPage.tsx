@@ -27,6 +27,7 @@ import {
   Layers, Clock, Users, Check, Loader2, TrendingUp, Coins, AlertCircle, CheckCircle2, Trash2, Calculator, CheckCircle, XCircle, Trophy
 } from 'lucide-react';
 import { PayoutCelebration } from '@/components/PayoutCelebration';
+import { BetLanePanel } from '@/components/BetLanePanel';
 
 export default function BasketPage() {
   const { id } = useParams<{ id: string }>();
@@ -125,34 +126,19 @@ export default function BasketPage() {
       return;
     }
     
-    const expectedProgramId = '0x28965d25d00e0081f43a0bc5ff9faa12ce7a525b8e6679cfe0b5065ec009d8c0';
-    
     console.log(`[BasketPage] Starting fetch for basket onchain-${onChainId}`, {
       programId: ENV.PROGRAM_ID,
       programIdShort: ENV.PROGRAM_ID?.slice(0, 20) + '...',
       network,
       isVaraEth,
-      expectedProgramId: expectedProgramId.slice(0, 20) + '...',
-      programIdMatch: ENV.PROGRAM_ID === expectedProgramId
+      configuredProgramId: ENV.PROGRAM_ID?.slice(0, 20) + '...'
     });
-    
-    // Validate we're using the correct program ID
-    if (ENV.PROGRAM_ID !== expectedProgramId) {
-      const errorMsg = `Program ID mismatch! Current: ${ENV.PROGRAM_ID?.slice(0, 20)}..., Expected: ${expectedProgramId.slice(0, 20)}...`;
-      console.error(`[BasketPage] ${errorMsg}`, {
-        current: ENV.PROGRAM_ID,
-        expected: expectedProgramId
-      });
-      setError(errorMsg);
-      setLoadingOnChain(false);
-      return;
-    }
-    
-    // Verify program instance is using the correct ID
+
+    // Verify program instance is using the configured env ID
     if (program && 'programId' in program) {
       const programInstanceId = (program as any).programId;
-      if (programInstanceId !== expectedProgramId) {
-        const errorMsg = `Program instance ID mismatch! Instance: ${programInstanceId?.slice(0, 20)}..., Expected: ${expectedProgramId.slice(0, 20)}...`;
+      if (programInstanceId !== ENV.PROGRAM_ID) {
+        const errorMsg = `Program instance ID mismatch! Instance: ${programInstanceId?.slice(0, 20)}..., Env: ${ENV.PROGRAM_ID?.slice(0, 20)}...`;
         console.error(`[BasketPage] ${errorMsg}`);
         setError(errorMsg);
         setLoadingOnChain(false);
@@ -372,11 +358,22 @@ export default function BasketPage() {
         
         setOnChainBasket(converted);
 
+        const resolvedBasket = basketData && typeof basketData === 'object' && 'ok' in basketData
+          ? basketData.ok
+          : basketData;
+        const resolvedBasketAssetKind =
+          resolvedBasket?.asset_kind || resolvedBasket?.assetKind || 'Vara';
+        const isResolvedBetBasket = resolvedBasketAssetKind === 'Bet';
+
         // Find user's position
         // IMPORTANT: Handle basket ID 0 correctly - use strict equality, not falsy checks
         // For Vara.eth, positions are already filtered by basket_id in the response
         let userPos: any = null;
-        if (isVaraEth) {
+        if (isResolvedBetBasket) {
+          console.log(
+            `[BasketPage] Token-lane basket ${onChainId} uses lane positions; native program positions are not expected.`,
+          );
+        } else if (isVaraEth) {
           // For Vara.eth, ensure proper type conversion for basket ID 0
           userPos = positions.find((p: any) => {
             const pBasketId = typeof p.basket_id === 'bigint' ? Number(p.basket_id) : Number(p.basket_id);
@@ -405,7 +402,7 @@ export default function BasketPage() {
           console.warn(`[BasketPage] ⚠️ Position found for basket ${onChainId} but missing index_at_creation_bps! This is an old position from before the update.`);
         } else if (userPos && userPos.index_at_creation_bps !== undefined) {
           console.log(`[BasketPage] ✅ Position found with index_at_creation_bps: ${userPos.index_at_creation_bps} (${(userPos.index_at_creation_bps / 100).toFixed(2)}%)`);
-        } else if (!userPos && positions.length === 0) {
+        } else if (!userPos && positions.length === 0 && !isResolvedBetBasket) {
           console.warn(`[BasketPage] ⚠️ No positions found for user ${address?.slice(0, 10)}... on basket ${onChainId}. User may not have placed a bet.`);
         }
         
@@ -872,6 +869,15 @@ export default function BasketPage() {
 
   // Handle betting
   const handleBet = async () => {
+    if (isBetAssetBasket) {
+      toast({
+        title: 'CHIP Basket',
+        description: 'This basket accepts CHIP via the CHIP lane panel, not native VARA.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     // IMPORTANT: Check for null explicitly, not falsy (0 is a valid basket ID)
     if (!address || onChainId === null) {
       toast({
@@ -995,6 +1001,15 @@ export default function BasketPage() {
 
   // Handle claiming
   const handleClaim = async () => {
+    if (isBetAssetBasket) {
+      toast({
+        title: 'CHIP Basket',
+        description: 'Claim CHIP payouts from the CHIP lane panel.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     // IMPORTANT: Check for null explicitly, not falsy (0 is a valid basket ID)
     if (!address || onChainId === null || !userPosition || !settlement) {
       toast({
@@ -1204,8 +1219,8 @@ export default function BasketPage() {
       <div className="content-grid py-8">
         <div className="text-center py-16">
           <h1 className="text-2xl font-semibold mb-2">Basket Not Found</h1>
-          <p className="text-muted-foreground mb-6">
-            {error || "This basket doesn't exist or has been removed."}
+          <div className="text-muted-foreground mb-6">
+            <p>{error || "This basket doesn't exist or has been removed."}</p>
             {isOnChain && onChainId !== null && (
               <div className="mt-4 space-y-2 text-sm">
                 <div>Basket ID: onchain-{onChainId}</div>
@@ -1220,7 +1235,7 @@ export default function BasketPage() {
                 )}
               </div>
             )}
-          </p>
+          </div>
           {loadingOnChain && (
             <div className="mb-4">
               <Loader2 className="w-6 h-6 animate-spin mx-auto text-muted-foreground" />
@@ -1247,13 +1262,17 @@ export default function BasketPage() {
   }
 
   const networkConfig = NETWORKS[basket?.network || 'vara'];
-  const canBet = isOnChain && basket?.status === 'Active';
+  const basketAssetKind = basket?.assetKind || ((basket as { asset_kind?: 'Vara' | 'Bet' } | null)?.asset_kind ?? 'Vara');
+  const isBetAssetBasket = basketAssetKind === 'Bet';
+  const isNativeAssetBasket = !isBetAssetBasket;
+  const canBet = isOnChain && basket?.status === 'Active' && isNativeAssetBasket;
   
   // Can claim only if: on-chain, finalized, has position, not claimed, AND payout > 0
   // Allow claiming even if payout is 0 (user lost money, but needs to finalize position)
   // Allow claiming even if payout is 0 (user lost money, but needs to finalize position)
   // The contract allows claiming 0 payouts to mark position as claimed
   const canClaim = isOnChain && 
+                   isNativeAssetBasket &&
                    settlementStatus === 'Finalized' && 
                    userPosition && 
                    !userPosition.claimed;
@@ -1811,8 +1830,19 @@ export default function BasketPage() {
             </Card>
           )}
 
+          {isOnChain && isBetAssetBasket && (
+            <BetLanePanel
+              basketId={onChainId}
+              basketStatus={basket?.status}
+              settlement={settlement}
+              hasValidData={hasValidData}
+              liveIndex={liveIndex}
+              snapshotIndex={basket?.createdSnapshot?.basketIndex ?? null}
+            />
+          )}
+
           {/* Debug Info Card - Shows why claim button isn't visible */}
-          {isOnChain && settlement && userPosition && (
+          {isOnChain && isNativeAssetBasket && settlement && userPosition && (
             <Card className="card-elevated border-border/50 bg-muted/30">
               <CardHeader>
                 <CardTitle className="text-sm">Payout Calculation Debug</CardTitle>
@@ -1858,7 +1888,7 @@ export default function BasketPage() {
           )}
 
           {/* Claim UI (on-chain only) - ALWAYS SHOW WHEN ON-CHAIN */}
-          {isOnChain && (
+          {isOnChain && isNativeAssetBasket && (
             <Card className={`card-elevated ${canClaim ? 'border-accent' : 'border-border/50'}`}>
               <CardHeader>
                 <CardTitle className="text-base">Claim Payout</CardTitle>
@@ -2018,7 +2048,7 @@ export default function BasketPage() {
           )}
 
           {/* User Position (on-chain only) */}
-          {isOnChain && userPosition && (
+          {isOnChain && isNativeAssetBasket && userPosition && (
             <Card className="card-elevated">
               <CardHeader>
                 <CardTitle className="text-base">Your Position</CardTitle>

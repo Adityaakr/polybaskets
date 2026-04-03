@@ -5,6 +5,7 @@ import { WalletButton } from '@/components/WalletButton';
 const NAV_ITEMS = [
   { path: '/', label: 'Explore' },
   { path: '/builder', label: 'Builder' },
+  { path: '/claim', label: 'Claim' },
   { path: '/leaderboard', label: 'Leaderboard' },
   { path: '/me', label: 'Baskets' },
 ];

@@ -26,6 +26,12 @@ type Basket = struct {
   items: vec BasketItem,
   created_at: u64,
   status: BasketStatus,
+  asset_kind: BasketAssetKind,
+};
+
+type BasketAssetKind = enum {
+  Vara,
+  Bet,
 };
 
 type BasketStatus = enum {
@@ -39,6 +45,7 @@ type Position = struct {
   user: actor_id,
   shares: u128,
   claimed: bool,
+  index_at_creation_bps: u16,
 };
 
 type Settlement = struct {
@@ -64,9 +71,9 @@ constructor {
 };
 
 service BasketMarket {
-  BetOnBasket : (basket_id: u64) -> result (u128, str);
+  BetOnBasket : (basket_id: u64, index_at_creation_bps: u16) -> result (u128, str);
   Claim : (basket_id: u64) -> result (u128, str);
-  CreateBasket : (name: str, description: str, items: vec BasketItem) -> result (u64, str);
+  CreateBasket : (name: str, description: str, items: vec BasketItem, asset_kind: BasketAssetKind) -> result (u64, str);
   FinalizeSettlement : (basket_id: u64) -> result (null, str);
   ProposeSettlement : (basket_id: u64, item_resolutions: vec ItemResolution, payload: str) -> result (null, str);
   query GetBasket : (basket_id: u64) -> result (Basket, str);
@@ -75,4 +82,3 @@ service BasketMarket {
   query GetPositions : (user: actor_id) -> vec Position;
   query GetSettlement : (basket_id: u64) -> result (Settlement, str);
 };
-
