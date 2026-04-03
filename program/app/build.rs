@@ -2,7 +2,6 @@ use std::{
     env,
     fs::File,
     io::{BufRead, BufReader},
-    path::PathBuf,
 };
 
 fn main() {

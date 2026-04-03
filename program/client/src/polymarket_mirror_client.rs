@@ -25,8 +25,7 @@ pub trait PolymarketMirrorCtors {
     #[allow(clippy::wrong_self_convention)]
     fn new(
         self,
-        settler_role: ActorId,
-        liveness_seconds: u64,
+        init: BasketMarketInit,
     ) -> sails_rs::client::PendingCtor<PolymarketMirrorProgram, io::New, Self::Env>;
 }
 impl<E: sails_rs::client::GearEnv> PolymarketMirrorCtors
@@ -35,16 +34,15 @@ impl<E: sails_rs::client::GearEnv> PolymarketMirrorCtors
     type Env = E;
     fn new(
         self,
-        settler_role: ActorId,
-        liveness_seconds: u64,
+        init: BasketMarketInit,
     ) -> sails_rs::client::PendingCtor<PolymarketMirrorProgram, io::New, Self::Env> {
-        self.pending_ctor((settler_role, liveness_seconds))
+        self.pending_ctor((init,))
     }
 }
 
 pub mod io {
     use super::*;
-    sails_rs::io_struct_impl!(New (settler_role: ActorId, liveness_seconds: u64) -> ());
+    sails_rs::io_struct_impl!(New (init: super::BasketMarketInit) -> ());
 }
 
 pub mod basket_market {
@@ -74,6 +72,10 @@ pub mod basket_market {
             item_resolutions: Vec<ItemResolution>,
             payload: String,
         ) -> sails_rs::client::PendingCall<io::ProposeSettlement, Self::Env>;
+        fn set_vara_enabled(
+            &mut self,
+            enabled: bool,
+        ) -> sails_rs::client::PendingCall<io::SetVaraEnabled, Self::Env>;
         fn get_basket(
             &self,
             basket_id: u64,
@@ -88,6 +90,7 @@ pub mod basket_market {
             &self,
             basket_id: u64,
         ) -> sails_rs::client::PendingCall<io::GetSettlement, Self::Env>;
+        fn is_vara_enabled(&self) -> sails_rs::client::PendingCall<io::IsVaraEnabled, Self::Env>;
     }
     pub struct BasketMarketImpl;
     impl<E: sails_rs::client::GearEnv> BasketMarket for sails_rs::client::Service<BasketMarketImpl, E> {
@@ -125,6 +128,12 @@ pub mod basket_market {
         ) -> sails_rs::client::PendingCall<io::ProposeSettlement, Self::Env> {
             self.pending_call((basket_id, item_resolutions, payload))
         }
+        fn set_vara_enabled(
+            &mut self,
+            enabled: bool,
+        ) -> sails_rs::client::PendingCall<io::SetVaraEnabled, Self::Env> {
+            self.pending_call((enabled,))
+        }
         fn get_basket(
             &self,
             basket_id: u64,
@@ -149,21 +158,87 @@ pub mod basket_market {
         ) -> sails_rs::client::PendingCall<io::GetSettlement, Self::Env> {
             self.pending_call((basket_id,))
         }
+        fn is_vara_enabled(&self) -> sails_rs::client::PendingCall<io::IsVaraEnabled, Self::Env> {
+            self.pending_call(())
+        }
     }
 
     pub mod io {
         use super::*;
-        sails_rs::io_struct_impl!(BetOnBasket (basket_id: u64, index_at_creation_bps: u16) -> Result<u128, String>);
-        sails_rs::io_struct_impl!(Claim (basket_id: u64) -> Result<u128, String>);
-        sails_rs::io_struct_impl!(CreateBasket (name: String, description: String, items: Vec<super::BasketItem>, asset_kind: super::BasketAssetKind) -> Result<u64, String>);
-        sails_rs::io_struct_impl!(FinalizeSettlement (basket_id: u64) -> Result<(), String>);
-        sails_rs::io_struct_impl!(ProposeSettlement (basket_id: u64, item_resolutions: Vec<super::ItemResolution>, payload: String) -> Result<(), String>);
-        sails_rs::io_struct_impl!(GetBasket (basket_id: u64) -> Result<super::Basket, String>);
+        sails_rs::io_struct_impl!(BetOnBasket (basket_id: u64, index_at_creation_bps: u16) -> u128);
+        sails_rs::io_struct_impl!(Claim (basket_id: u64) -> u128);
+        sails_rs::io_struct_impl!(CreateBasket (name: String, description: String, items: Vec<super::BasketItem>, asset_kind: super::BasketAssetKind) -> u64);
+        sails_rs::io_struct_impl!(FinalizeSettlement (basket_id: u64) -> ());
+        sails_rs::io_struct_impl!(ProposeSettlement (basket_id: u64, item_resolutions: Vec<super::ItemResolution>, payload: String) -> ());
+        sails_rs::io_struct_impl!(SetVaraEnabled (enabled: bool) -> ());
+        sails_rs::io_struct_impl!(GetBasket (basket_id: u64) -> Result<super::Basket, super::BasketMarketError>);
         sails_rs::io_struct_impl!(GetBasketCount () -> u64);
-        sails_rs::io_struct_impl!(GetConfig () -> (ActorId,u64,));
+        sails_rs::io_struct_impl!(GetConfig () -> super::BasketMarketConfig);
         sails_rs::io_struct_impl!(GetPositions (user: ActorId) -> Vec<super::Position>);
-        sails_rs::io_struct_impl!(GetSettlement (basket_id: u64) -> Result<super::Settlement, String>);
+        sails_rs::io_struct_impl!(GetSettlement (basket_id: u64) -> Result<super::Settlement, super::BasketMarketError>);
+        sails_rs::io_struct_impl!(IsVaraEnabled () -> bool);
     }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub mod events {
+        use super::*;
+        #[derive(PartialEq, Debug, Encode, Decode)]
+        #[codec(crate = sails_rs::scale_codec)]
+        pub enum BasketMarketEvents {
+            BasketCreated {
+                basket_id: u64,
+                creator: ActorId,
+                asset_kind: BasketAssetKind,
+            },
+            VaraBetPlaced {
+                basket_id: u64,
+                user: ActorId,
+                amount: u128,
+                user_total: u128,
+                index_at_creation_bps: u16,
+            },
+            SettlementProposed {
+                basket_id: u64,
+                proposer: ActorId,
+                payout_per_share: u128,
+                challenge_deadline: u64,
+            },
+            SettlementFinalized {
+                basket_id: u64,
+                finalized_at: u64,
+                payout_per_share: u128,
+            },
+            Claimed {
+                basket_id: u64,
+                user: ActorId,
+                amount: u128,
+            },
+            VaraSupportUpdated {
+                enabled: bool,
+            },
+        }
+        impl sails_rs::client::Event for BasketMarketEvents {
+            const EVENT_NAMES: &'static [Route] = &[
+                "BasketCreated",
+                "VaraBetPlaced",
+                "SettlementProposed",
+                "SettlementFinalized",
+                "Claimed",
+                "VaraSupportUpdated",
+            ];
+        }
+        impl sails_rs::client::ServiceWithEvents for BasketMarketImpl {
+            type Event = BasketMarketEvents;
+        }
+    }
+}
+#[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
+pub struct BasketMarketInit {
+    pub admin_role: ActorId,
+    pub settler_role: ActorId,
+    pub liveness_ms: u64,
 }
 #[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]
 #[codec(crate = sails_rs::scale_codec)]
@@ -172,6 +247,14 @@ pub struct BasketItem {
     pub poly_market_id: String,
     pub poly_slug: String,
     pub weight_bps: u16,
+    pub selected_outcome: Outcome,
+}
+#[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
+pub enum Outcome {
+    YES,
+    NO,
 }
 #[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]
 #[codec(crate = sails_rs::scale_codec)]
@@ -194,13 +277,6 @@ pub struct ItemResolution {
 #[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]
 #[codec(crate = sails_rs::scale_codec)]
 #[scale_info(crate = sails_rs::scale_info)]
-pub enum Outcome {
-    YES,
-    NO,
-}
-#[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]
-#[codec(crate = sails_rs::scale_codec)]
-#[scale_info(crate = sails_rs::scale_info)]
 pub struct Basket {
     pub id: u64,
     pub creator: ActorId,
@@ -216,8 +292,54 @@ pub struct Basket {
 #[scale_info(crate = sails_rs::scale_info)]
 pub enum BasketStatus {
     Active,
+    SettlementPending,
     Settled,
-    Closed,
+}
+#[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
+pub enum BasketMarketError {
+    Unauthorized,
+    BasketNotFound,
+    BasketNotActive,
+    BasketAssetMismatch,
+    NoItems,
+    InvalidWeights,
+    DuplicateBasketItem,
+    TooManyItems,
+    NameTooLong,
+    DescriptionTooLong,
+    MarketIdTooLong,
+    SlugTooLong,
+    PayloadTooLong,
+    VaraDisabled,
+    SettlementAlreadyExists,
+    SettlementNotFound,
+    SettlementNotProposed,
+    SettlementNotFinalized,
+    ChallengeDeadlineNotPassed,
+    InvalidIndexAtCreation,
+    InvalidBetAmount,
+    InvalidResolutionCount,
+    DuplicateResolutionIndex,
+    ResolutionIndexOutOfBounds,
+    ResolutionSlugMismatch,
+    InvalidResolution,
+    AlreadyClaimed,
+    NothingToClaim,
+    TransferFailed,
+    MathOverflow,
+    EventEmitFailed,
+    InvalidConfig,
+}
+#[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
+pub struct BasketMarketConfig {
+    pub admin_role: ActorId,
+    pub settler_role: ActorId,
+    pub liveness_ms: u64,
+    pub vara_enabled: bool,
 }
 #[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]
 #[codec(crate = sails_rs::scale_codec)]
@@ -249,5 +371,4 @@ pub struct Settlement {
 pub enum SettlementStatus {
     Proposed,
     Finalized,
-    Disputed,
 }

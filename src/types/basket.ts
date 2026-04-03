@@ -31,7 +31,7 @@ export interface Basket {
   assetKind?: BasketAssetKind;
 }
 
-export type BasketAssetKind = 'Vara' | 'Bet';
+export type BasketAssetKind = 'Vara' | 'FT';
 
 export interface BasketDraft {
   items: BasketItem[];

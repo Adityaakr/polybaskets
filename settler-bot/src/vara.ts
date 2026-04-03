@@ -13,9 +13,11 @@ export interface VaraBasket {
     poly_market_id: string;
     poly_slug: string;
     weight_bps: number;
+    selected_outcome: Outcome;
   }>;
   created_at: number;
   status: BasketStatus;
+  asset_kind: BasketAssetKind;
 }
 
 export interface VaraSettlement {
@@ -154,18 +156,21 @@ export class BasketMarketVaraClient {
     return { api: this.api, program: this.program };
   }
 
-  async getConfig(): Promise<{ settlerRole: string; livenessSeconds: number } | null> {
+  async getConfig(): Promise<{ adminRole: string; settlerRole: string; livenessMs: number; varaEnabled: boolean } | null> {
     try {
       const { program } = await this.ctx();
-      // GetConfig returns a struct directly (not wrapped in result), so it's a tuple [actor_id, u64]
       const result = await program.basketMarket.getConfig().call();
-      // result is the tuple directly: [settlerRole, livenessSeconds]
-      const [settlerRole, livenessSeconds] = result as [any, string | number | bigint];
+
+      const toHex = (value: any) =>
+        Array.isArray(value)
+          ? '0x' + value.map((byte: number) => byte.toString(16).padStart(2, '0')).join('')
+          : String(value);
+
       return {
-        settlerRole: Array.isArray(settlerRole)
-          ? '0x' + settlerRole.map((byte: number) => byte.toString(16).padStart(2, '0')).join('')
-          : String(settlerRole),
-        livenessSeconds: Number(livenessSeconds),
+        adminRole: toHex((result as BasketMarketConfig).admin_role),
+        settlerRole: toHex((result as BasketMarketConfig).settler_role),
+        livenessMs: Number((result as BasketMarketConfig).liveness_ms),
+        varaEnabled: Boolean((result as BasketMarketConfig).vara_enabled),
       };
     } catch (error) {
       console.error('Error getting config:', error);
@@ -209,9 +214,11 @@ export class BasketMarketVaraClient {
         poly_market_id: item.poly_market_id,
         poly_slug: item.poly_slug,
         weight_bps: item.weight_bps,
+        selected_outcome: item.selected_outcome,
       })),
       created_at: Number(b.created_at),
       status: b.status,
+      asset_kind: b.asset_kind,
     };
     } catch (error) {
       console.error(`Error getting basket ${basketId}:`, error);
@@ -275,11 +282,7 @@ export class BasketMarketVaraClient {
 
       await tx.calculateGas();
       const { txHash, response } = await tx.signAndSend();
-      const result = await response();
-      
-      if (result && typeof result === 'object' && 'err' in result) {
-        throw new Error(`ProposeSettlement error: ${result.err}`);
-      }
+      await response();
       
       return txHash;
     } catch (error) {
@@ -302,11 +305,7 @@ export class BasketMarketVaraClient {
 
       await tx.calculateGas();
       const { txHash, response } = await tx.signAndSend();
-      const result = await response();
-      
-      if (result && typeof result === 'object' && 'err' in result) {
-        throw new Error(`FinalizeSettlement error: ${result.err}`);
-      }
+      await response();
       
       return txHash;
     } catch (error) {

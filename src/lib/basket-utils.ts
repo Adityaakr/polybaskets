@@ -50,6 +50,52 @@ export function createSnapshot(
   };
 }
 
+export function hasCreationSnapshot(
+  basket?: Pick<Basket, 'items' | 'createdSnapshot'> | null,
+): boolean {
+  if (!basket || basket.items.length === 0) {
+    return false;
+  }
+
+  const snapshot = basket.createdSnapshot;
+  if (!snapshot || !Number.isFinite(snapshot.basketIndex) || snapshot.basketIndex < 0 || snapshot.basketIndex > 1) {
+    return false;
+  }
+
+  if (!Array.isArray(snapshot.components) || snapshot.components.length !== basket.items.length) {
+    return false;
+  }
+
+  const seenIndexes = new Set<number>();
+  for (const component of snapshot.components) {
+    if (!Number.isInteger(component.itemIndex)) {
+      return false;
+    }
+
+    if (component.itemIndex < 0 || component.itemIndex >= basket.items.length) {
+      return false;
+    }
+
+    if (!Number.isFinite(component.prob) || component.prob < 0 || component.prob > 1) {
+      return false;
+    }
+
+    if (seenIndexes.has(component.itemIndex)) {
+      return false;
+    }
+
+    seenIndexes.add(component.itemIndex);
+  }
+
+  return true;
+}
+
+export function getCreationSnapshotIndex(
+  basket?: Pick<Basket, 'items' | 'createdSnapshot'> | null,
+): number | null {
+  return hasCreationSnapshot(basket) ? basket!.createdSnapshot.basketIndex : null;
+}
+
 export function normalizeWeights(items: BasketItem[]): BasketItem[] {
   if (items.length === 0) return items;
 

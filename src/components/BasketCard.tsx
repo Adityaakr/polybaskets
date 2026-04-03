@@ -3,11 +3,12 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Basket } from '@/types/basket';
 import { getFollowerCount } from '@/lib/basket-storage';
-import { truncateAddress, calculateBasketIndex, formatChange, getChangeClass } from '@/lib/basket-utils';
+import { truncateAddress, calculateBasketIndex, getChangeClass, getCreationSnapshotIndex } from '@/lib/basket-utils';
 import { getMarketDetailsBatch, getOutcomeProbabilities, getOutcomePrices } from '@/lib/polymarket';
 import { OutcomeProbabilities } from '@/types/polymarket';
 import { calculateSuggestedBetAmount, formatVara } from '@/lib/betCalculator';
 import { NETWORKS } from '@/lib/network';
+import { isFtAssetKind } from '@/lib/assetKind';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Users, Layers, Circle, RefreshCw, ChevronDown, ChevronUp, TrendingUp, TrendingDown, ExternalLink, Calculator, Trash2, MoreVertical } from 'lucide-react';
@@ -17,6 +18,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+
+const LOW_BASE_PROBABILITY_THRESHOLD = 0.05;
 
 interface BasketCardProps {
   basket: Basket;
@@ -76,10 +79,12 @@ export function BasketCard({ basket, onDelete, isDeleting }: BasketCardProps) {
 
   // Calculate live index and market prices from REAL Polymarket data
   const { liveIndex, marketPrices, marketStatuses, hasValidData } = useMemo(() => {
+    const snapshotIndex = getCreationSnapshotIndex(basket);
+
     // Only calculate if we have REAL live data for ALL markets
     if (!itemMarketsData || itemMarketsData.size === 0 || basket.items.length === 0) {
       return {
-        liveIndex: basket.createdSnapshot?.basketIndex ?? 0,
+        liveIndex: snapshotIndex ?? 0,
         marketPrices: new Map<string, { YES: number; NO: number }>(),
         marketStatuses: new Map<string, { closed: boolean; active: boolean; resolved?: 'YES' | 'NO' | null }>(),
         hasValidData: false,
@@ -141,24 +146,35 @@ export function BasketCard({ basket, onDelete, isDeleting }: BasketCardProps) {
     prevLiveIndexRef.current = calculatedLiveIndex;
 
     // Only mark as valid if we have data for all or most markets
-    const hasDataForAllMarkets = missingMarkets.length === 0;
-    const hasDataForMostMarkets = itemMarketsData.size >= basket.items.length * 0.8; // At least 80% of markets
-    
     return { 
       liveIndex: calculatedLiveIndex, 
       marketPrices: priceMap, 
       marketStatuses: statusMap,
-      hasValidData: hasDataForAllMarkets || hasDataForMostMarkets // Valid only if we have most/all data
+      hasValidData: missingMarkets.length === 0
     };
   }, [itemMarketsData, basket.items, basket.createdSnapshot?.basketIndex, basket.id]);
 
   // Calculate per-item changes since creation
   const itemChanges = useMemo(() => {
     if (!basket.createdSnapshot?.components || !itemMarketsData) {
-      return new Map<number, { currentProb: number; originalProb: number; change: number; changePercent: number }>();
+      return new Map<number, {
+        currentProb: number;
+        originalProb: number;
+        change: number;
+        changePercent: number | null;
+        multiple: number | null;
+        isLowBase: boolean;
+      }>();
     }
 
-    const changes = new Map<number, { currentProb: number; originalProb: number; change: number; changePercent: number }>();
+    const changes = new Map<number, {
+      currentProb: number;
+      originalProb: number;
+      change: number;
+      changePercent: number | null;
+      multiple: number | null;
+      isLowBase: boolean;
+    }>();
     
     basket.items.forEach((item, itemIndex) => {
       const market = itemMarketsData.get(item.marketId);
@@ -172,15 +188,19 @@ export function BasketCard({ basket, onDelete, isDeleting }: BasketCardProps) {
       const originalProb = snapshotComponent?.prob ?? currentProb; // Fallback to current if not found
       
       const change = currentProb - originalProb;
-      const changePercent = originalProb !== 0 
-        ? (change / originalProb) * 100 
-        : 0;
+      const isLowBase = originalProb > 0 && originalProb < LOW_BASE_PROBABILITY_THRESHOLD;
+      const changePercent = change * 100;
+      const multiple = originalProb > 0 && isLowBase
+        ? currentProb / originalProb
+        : null;
 
       changes.set(itemIndex, {
         currentProb,
         originalProb,
         change,
         changePercent,
+        multiple,
+        isLowBase,
       });
     });
 
@@ -189,19 +209,16 @@ export function BasketCard({ basket, onDelete, isDeleting }: BasketCardProps) {
 
   // Calculate percentage change since creation - EXACT calculation
   // CRITICAL: Only calculate if we have valid live data - never use snapshot as live index
-  const indexAtCreation = basket.createdSnapshot?.basketIndex ?? 0;
-  
-  // Validate snapshot index is reasonable (between 0 and 1 for probability-based index)
-  const isValidSnapshot = indexAtCreation >= 0 && indexAtCreation <= 1 && isFinite(indexAtCreation);
+  const indexAtCreation = getCreationSnapshotIndex(basket);
   
   // Only calculate percentage if we have valid live data AND valid snapshot
   // If hasValidData is false, we don't have real market data, so percentage would be wrong
   let indexChange = 0;
   let indexChangePercent = 0;
   
-  if (hasValidData && isValidSnapshot && indexAtCreation > 0) {
+  if (hasValidData && indexAtCreation !== null) {
     indexChange = liveIndex - indexAtCreation;
-    indexChangePercent = (indexChange / indexAtCreation) * 100;
+    indexChangePercent = indexChange * 100;
     
     // Validate calculation is reasonable (sanity check)
     if (isNaN(indexChangePercent) || !isFinite(indexChangePercent)) {
@@ -213,24 +230,13 @@ export function BasketCard({ basket, onDelete, isDeleting }: BasketCardProps) {
       });
       indexChangePercent = 0;
     }
-    
-    // Additional validation: percentage should be reasonable (not extreme outliers)
-    // If percentage is > 1000% or < -100%, something is wrong
-    if (Math.abs(indexChangePercent) > 1000) {
-      console.error(`[BasketCard] Extreme percentage value for ${basket.id}: ${indexChangePercent.toFixed(2)}% - likely data error`, {
-        liveIndex,
-        indexAtCreation,
-        indexChange
-      });
-      // Still show it but log the error
-    }
   } else {
     // Don't show percentage if we don't have valid data
     if (!hasValidData) {
       console.warn(`[BasketCard] Cannot calculate accurate percentage for ${basket.id} - missing live market data`);
     }
-    if (!isValidSnapshot) {
-      console.warn(`[BasketCard] Cannot calculate accurate percentage for ${basket.id} - invalid snapshot index: ${indexAtCreation}`);
+    if (indexAtCreation === null) {
+      console.warn(`[BasketCard] Cannot calculate accurate percentage for ${basket.id} - missing basket creation snapshot`);
     }
   }
   
@@ -238,7 +244,7 @@ export function BasketCard({ basket, onDelete, isDeleting }: BasketCardProps) {
   useEffect(() => {
     console.log(`[BasketCard] ${basket.id} - Live Update:`, {
       basketName: basket.name,
-      indexAtCreation: indexAtCreation.toFixed(3),
+      indexAtCreation: indexAtCreation?.toFixed(3) ?? null,
       liveIndex: liveIndex.toFixed(3),
       absoluteChange: indexChange.toFixed(3),
       percentChange: indexChangePercent.toFixed(2) + '%',
@@ -255,7 +261,7 @@ export function BasketCard({ basket, onDelete, isDeleting }: BasketCardProps) {
     return calculateSuggestedBetAmount(basket.items);
   }, [basket.items]);
   const suggestedBetDisplay = useMemo(() => {
-    if (basket.assetKind === 'Bet') {
+    if (isFtAssetKind(basket.assetKind)) {
       return `${suggestedBetAmount.toFixed(2)} CHIP`;
     }
 
@@ -376,9 +382,11 @@ export function BasketCard({ basket, onDelete, isDeleting }: BasketCardProps) {
               <details className="text-[10px] text-muted-foreground mt-2">
                 <summary className="cursor-pointer">Debug Info</summary>
                 <div className="mt-1 space-y-0.5 pl-2 border-l-2 border-muted">
-                  <div>Creation Index: {indexAtCreation.toFixed(3)}</div>
+                  <div>Creation Index: {indexAtCreation !== null ? indexAtCreation.toFixed(3) : '—'}</div>
                   <div>Live Index: {liveIndex.toFixed(3)}</div>
-                  <div>Change: {indexChange.toFixed(3)} ({indexChangePercent >= 0 ? '+' : ''}{indexChangePercent.toFixed(2)}%)</div>
+                  <div>
+                    Change: {indexChange.toFixed(3)} ({indexChangePercent >= 0 ? '+' : ''}{indexChangePercent.toFixed(2)}%)
+                  </div>
                   <div>Markets: {itemMarketsData?.size || 0}/{basket.items.length}</div>
                   <div>Last Update: {lastUpdateTime?.toLocaleTimeString() || 'never'}</div>
                   <div>Status: {isFetching ? 'fetching' : error ? 'error' : 'ok'}</div>
@@ -513,11 +521,13 @@ export function BasketCard({ basket, onDelete, isDeleting }: BasketCardProps) {
                             isPositive ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
                           }`}>
                             <Icon className="w-2.5 h-2.5" />
-                            {isPositive ? '+' : ''}{change.changePercent.toFixed(1)}%
+                            {isPositive ? '+' : ''}{(change.change * 100).toFixed(1)}%
                           </div>
-                          <div className="text-[10px] text-muted-foreground">
-                            {isPositive ? '+' : ''}{(change.change * 100).toFixed(1)}pp
-                          </div>
+                          {change.isLowBase && change.multiple && (
+                            <div className="text-[10px] text-muted-foreground">
+                              {change.multiple.toFixed(2)}x from low base
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>

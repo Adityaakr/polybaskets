@@ -4,7 +4,7 @@ import { useNetwork } from '@/contexts/NetworkContext';
 import { getFollowerCount, getBasketById } from '@/lib/basket-storage';
 import { fetchAllOnChainBaskets } from '@/lib/basket-onchain';
 import { basketMarketProgramFromApi } from '@/lib/varaClient';
-import { ENV } from '@/env';
+import { ENV, isBasketAssetKindEnabled } from '@/env';
 import { truncateAddress } from '@/lib/basket-utils';
 import { NETWORKS } from '@/lib/network';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -56,7 +56,7 @@ export default function LeaderboardPage() {
             // Ignore localStorage errors, use on-chain data
           }
           return basket;
-        });
+        }).filter((basket) => isBasketAssetKindEnabled(basket.assetKind));
         
         console.log(`[LeaderboardPage] Processed ${mergedBaskets.length} baskets for leaderboard`);
         setOnChainBaskets(mergedBaskets);

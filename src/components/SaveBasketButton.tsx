@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useBasket } from '@/contexts/BasketContext';
@@ -11,28 +11,31 @@ import type { BasketAssetKind } from '@/types/basket';
 import { createSnapshot, validateBasket } from '@/lib/basket-utils';
 import { OutcomeProbabilities } from '@/types/polymarket';
 import { basketMarketProgramFromApi, toVara } from '@/lib/varaClient';
-import { calculateBetAllocationFromVara, calculateSuggestedBetAmount, formatVara, formatUsd, VARA_PRICE_USD } from '@/lib/betCalculator';
+import { calculateBetAllocationFromVara, formatVara, formatUsd, VARA_PRICE_USD } from '@/lib/betCalculator';
 import {
   betLaneProgramFromApi,
   betTokenProgramFromApi,
   fromTokenUnits,
   isBetProgramsConfigured,
+  isRateLimitError,
   readSailsQuery,
   signAndSendBatch,
   toBigIntValue,
   toTokenUnits,
   waitForQueryMatch,
+  withRateLimitRetry,
 } from '@/lib/betPrograms';
-import { ENV } from '@/env';
+import { ENV, getDefaultBasketAssetKind, isVaraEnabled } from '@/env';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Save, Circle, CheckCircle2, Clock, Coins, Sparkles } from 'lucide-react';
+import { Loader2, Save, Circle, CheckCircle2, Clock } from 'lucide-react';
 import { useVaraEthBasketMarket } from '@/hooks/useVaraEthBasketMarket';
 import { toWVara } from '@/lib/varaEthClient';
 import { Badge } from '@/components/ui/badge';
 import { actorIdFromAddress } from '@/lib/varaClient';
+import { normalizeAssetKind, toContractAssetKind } from '@/lib/assetKind';
 
 interface SaveBasketButtonProps {
   marketProbabilities: Map<string, OutcomeProbabilities>;
@@ -50,11 +53,12 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
   const { account } = useAccount();
   const { toast } = useToast();
   const { basketMarket: varaEthBasketMarket, isLoading: isLoadingVaraEth } = useVaraEthBasketMarket();
+  const varaEnabled = isVaraEnabled();
+  const didAutofillDefaultBetRef = useRef(false);
   
   const [status, setStatus] = useState<TxStatus>('idle');
   const [betAmount, setBetAmount] = useState('');
-  const [assetKind, setAssetKind] = useState<BasketAssetKind>('Vara');
-  const [claimingBet, setClaimingBet] = useState(false);
+  const [assetKind, setAssetKind] = useState<BasketAssetKind>(getDefaultBasketAssetKind());
   
   const isVaraEth = network === 'varaeth';
   const betProgramsConfigured = isBetProgramsConfigured();
@@ -93,24 +97,30 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
     staleTime: 60_000,
   });
 
-  const tokenName = tokenMetaQuery.data?.name || 'Chip';
   const tokenSymbol = tokenMetaQuery.data?.symbol || 'CHIP';
   const tokenDecimals = tokenMetaQuery.data?.decimals ?? 12;
 
   const errors = validateBasket(items, name);
   const isValid = errors.length === 0;
   
-  // Calculate suggested bet amount based on basket composition
-  const suggestedBetAmount = useMemo(() => {
-    return calculateSuggestedBetAmount(items);
-  }, [items]);
-  
-  // Auto-fill suggested bet amount when basket items change
+  // Auto-fill a fixed default amount when basket items appear
   useEffect(() => {
-    if (items.length > 0 && !betAmount) {
-      setBetAmount(suggestedBetAmount.toString());
+    if (items.length === 0) {
+      didAutofillDefaultBetRef.current = false;
+      return;
     }
-  }, [items.length, suggestedBetAmount]); // Only trigger when items count changes, not on every render
+
+    if (!didAutofillDefaultBetRef.current && !betAmount) {
+      setBetAmount('10');
+      didAutofillDefaultBetRef.current = true;
+    }
+  }, [items.length, betAmount]);
+
+  useEffect(() => {
+    if (!varaEnabled && assetKind !== 'FT') {
+      setAssetKind('FT');
+    }
+  }, [assetKind, varaEnabled]);
   
   // Calculate allocation from VARA bet amount (based on basket weights)
   const betCalculation = useMemo(() => {
@@ -146,62 +156,29 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
 
   const betBalanceQuery = useQuery({
     queryKey: ['builder-bet-balance', walletActorId, betTokenProgram?.programId],
-    enabled: assetKind === 'Bet' && !!betTokenProgram && !!walletActorId,
+    enabled: assetKind === 'FT' && !!betTokenProgram && !!walletActorId,
     queryFn: async () => readSailsQuery(betTokenProgram!.betToken.balanceOf(walletActorId!)),
     refetchInterval: 10_000,
   });
 
-  const betClaimPreviewQuery = useQuery({
-    queryKey: ['builder-bet-claim-preview', walletActorId, betTokenProgram?.programId],
-    enabled: assetKind === 'Bet' && !!betTokenProgram && !!walletActorId,
-    queryFn: async () => readSailsQuery(betTokenProgram!.betToken.getClaimPreview(walletActorId!)),
-    refetchInterval: 10_000,
-  });
-
   const betBalanceUnits = toBigIntValue(betBalanceQuery.data);
-  const betClaimPreview = betClaimPreviewQuery.data;
-  const canClaimBetNow = Boolean(betClaimPreview?.can_claim_now);
   const hasEnoughBetForInitialStake = parsedBetUnits > 0n && betBalanceUnits >= parsedBetUnits;
+  const isMissingRequiredFtAmount =
+    assetKind === 'FT' && (!betAmount.trim() || betAmountNum <= 0 || Number.isNaN(betAmountNum));
+  const hasInsufficientFtBalance =
+    assetKind === 'FT' && parsedBetUnits > 0n && parsedBetUnits > betBalanceUnits;
   
   // Validate bet amount if provided
   const isValidBetAmount = !betAmount || (betAmountNum > 0 && !isNaN(betAmountNum));
-
-  const handleClaimBet = async () => {
-    if (!address) {
-      await connect();
-      return;
-    }
-
-    if (!betTokenProgram || !account || !canClaimBetNow) {
-      return;
-    }
-
-    setClaimingBet(true);
-    try {
-      const tx = betTokenProgram.betToken
-        .claim()
-        .withAccount(account.address, { signer: (account as any).signer });
-
-      await tx.calculateGas();
-      const { response } = await tx.signAndSend();
-      await response();
-      await betBalanceQuery.refetch();
-      await betClaimPreviewQuery.refetch();
-
-      toast({
-        title: `${tokenSymbol} Claimed`,
-        description: `Daily ${tokenName} was credited to your wallet.`,
-      });
-    } catch (error) {
-      toast({
-        title: `${tokenSymbol} Claim Failed`,
-        description: error instanceof Error ? error.message : `Failed to claim ${tokenSymbol}`,
-        variant: 'destructive',
-      });
-    } finally {
-      setClaimingBet(false);
-    }
-  };
+  const disabledReason =
+    !isValid ? errors[0] :
+    isMissingRequiredFtAmount ? `${tokenSymbol} amount is required.` :
+    !isValidBetAmount ? 'Enter a valid bet amount.' :
+    hasInsufficientFtBalance ? `Not enough ${tokenSymbol}. Enter ${fromTokenUnits(betBalanceUnits, tokenDecimals)} ${tokenSymbol} or less.` :
+    status !== 'idle' ? 'Wait for the current transaction to finish.' :
+    null;
+  const isSaveDisabled =
+    !isValid || isMissingRequiredFtAmount || !isValidBetAmount || hasInsufficientFtBalance || status !== 'idle';
 
   const handleSave = async () => {
     if (!address) {
@@ -227,7 +204,7 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
       return;
     }
 
-    if (assetKind === 'Bet') {
+    if (assetKind === 'FT') {
       if (!betAmount || betAmountNum <= 0) {
         toast({
           title: `${tokenSymbol} Amount Required`,
@@ -247,6 +224,15 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
       }
     }
 
+    if (!varaEnabled && assetKind === 'Vara') {
+      toast({
+        title: 'CHIP-Only Mode',
+        description: 'Native VARA baskets are disabled in this deployment.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     // Network-specific validation
     if (isVaraEth) {
       if (!varaEthBasketMarket || isLoadingVaraEth) {
@@ -258,7 +244,7 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
         return;
       }
 
-      if (assetKind === 'Bet' && isVaraEth) {
+      if (assetKind === 'FT' && isVaraEth) {
         toast({
           title: `${tokenSymbol} Is Vara-Only`,
           description: `${tokenSymbol} baskets are currently available only on Vara Network, not Vara.eth.`,
@@ -294,7 +280,7 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
         return;
       }
 
-      if (assetKind === 'Bet' && !betProgramsConfigured) {
+      if (assetKind === 'FT' && !betProgramsConfigured) {
         toast({
           title: `${tokenSymbol} Contracts Not Configured`,
           description: `Set ${tokenSymbol} token and lane program IDs before creating ${tokenSymbol} baskets.`,
@@ -312,6 +298,7 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
         poly_market_id: item.marketId,
         poly_slug: item.slug,
         weight_bps: item.weightBps,
+        selected_outcome: item.outcome,
       }));
 
       console.log('Creating basket on-chain...', { name, description, items: contractItems, network });
@@ -391,14 +378,19 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
         // Vara Network - use Gear API
         const program = basketMarketProgramFromApi(api);
         const tx = program.basketMarket
-          .createBasket(name, description, contractItems, assetKind)
+          .createBasket(name, description, contractItems, toContractAssetKind(assetKind))
           .withAccount(account.address, { signer: (account as any).signer });
 
         console.log('Calculating gas...');
-        await tx.calculateGas();
+        await withRateLimitRetry(() => tx.calculateGas(), {
+          label: 'basket creation gas estimation',
+        });
         
         console.log('Signing and sending transaction...');
-        const { response } = await tx.signAndSend();
+        const { response } = await withRateLimitRetry(() => tx.signAndSend(), {
+          label: 'basket creation transaction submission',
+          baseDelayMs: 1_500,
+        });
         
         toast({
           title: 'Transaction Submitted',
@@ -406,7 +398,9 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
         });
 
         console.log('Waiting for response...');
-        const res = await response();
+        const res = await withRateLimitRetry(() => response(), {
+          label: 'basket creation transaction response',
+        });
         console.log('Transaction response:', res);
 
         // Handle error response
@@ -444,7 +438,7 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
         basketId = extractedBasketId;
         console.log('Basket created successfully on Vara Network with ID:', basketId);
 
-        if (assetKind === 'Bet') {
+        if (assetKind === 'FT') {
           await waitForQueryMatch(
             async () => readSailsQuery(program.basketMarket.getBasket(basketId)),
             (result) =>
@@ -452,7 +446,7 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
               result !== null &&
               'ok' in result &&
               !!result.ok &&
-              result.ok.asset_kind === 'Bet' &&
+              normalizeAssetKind(result.ok.asset_kind) === 'FT' &&
               result.ok.status === 'Active',
             {
               attempts: 10,
@@ -475,7 +469,7 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
       if (betAmount && betAmountNum > 0) {
         console.log(`[SaveBasketButton] Bet amount provided: ${betAmountNum}, placing bet with index ${indexAtCreationBps} bps`);
         try {
-          if (assetKind === 'Bet') {
+          if (assetKind === 'FT') {
             if (!api || !account) {
               throw new Error(`Wallet is not ready for ${tokenSymbol} betting`);
             }
@@ -487,8 +481,14 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
             const betLaneProgram = betLaneProgramFromApi(api);
             const betUnits = toTokenUnits(betAmount, tokenDecimals);
             const liveAllowance = toBigIntValue(
-              await readSailsQuery(
-                betTokenProgram.betToken.allowance(walletActorId, betLaneProgram.programId),
+              await withRateLimitRetry(
+                () =>
+                  readSailsQuery(
+                    betTokenProgram.betToken.allowance(walletActorId, betLaneProgram.programId),
+                  ),
+                {
+                  label: `${tokenSymbol} allowance query`,
+                },
               ),
             );
 
@@ -497,7 +497,9 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
                 .approve(betLaneProgram.programId, betUnits)
                 .withAccount(account.address, { signer: (account as any).signer });
 
-              await approveTx.calculateGas();
+              await withRateLimitRetry(() => approveTx.calculateGas(), {
+                label: `${tokenSymbol} approve gas estimation`,
+              });
 
               const placeBetTx = betLaneProgram.betLane
                 .placeBet(basketId, betUnits, indexAtCreationBps)
@@ -516,7 +518,9 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
                 .withAccount(account.address, { signer: (account as any).signer });
 
               try {
-                await placeBetTx.calculateGas();
+                await withRateLimitRetry(() => placeBetTx.calculateGas(), {
+                  label: `${tokenSymbol} bet gas estimation`,
+                });
               } catch (gasError) {
                 throw new Error(
                   gasError instanceof Error
@@ -524,8 +528,16 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
                     : `${tokenSymbol} bet simulation failed`
                 );
               }
-              const { response: placeBetResponse } = await placeBetTx.signAndSend();
-              await placeBetResponse();
+              const { response: placeBetResponse } = await withRateLimitRetry(
+                () => placeBetTx.signAndSend(),
+                {
+                  label: `${tokenSymbol} bet transaction submission`,
+                  baseDelayMs: 1_500,
+                },
+              );
+              await withRateLimitRetry(() => placeBetResponse(), {
+                label: `${tokenSymbol} bet transaction response`,
+              });
             }
             await waitForQueryMatch(
               async () =>
@@ -537,10 +549,9 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
                 label: `${tokenSymbol} position for basket ${basketId}`,
               },
             );
-            await Promise.all([
-              betBalanceQuery.refetch(),
-              betClaimPreviewQuery.refetch(),
-            ]);
+            await withRateLimitRetry(() => betBalanceQuery.refetch(), {
+              label: `${tokenSymbol} balance refresh`,
+            });
 
             toast({
               title: `${tokenSymbol} Basket Created`,
@@ -590,11 +601,18 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
               .withValue(value);
             
             console.log(`[SaveBasketButton] Calculating gas for bet transaction...`);
-            await betTx.calculateGas();
+            await withRateLimitRetry(() => betTx.calculateGas(), {
+              label: 'VARA bet gas estimation',
+            });
             console.log(`[SaveBasketButton] Gas calculated, signing and sending bet transaction...`);
-            const { response: betResponse } = await betTx.signAndSend();
+            const { response: betResponse } = await withRateLimitRetry(() => betTx.signAndSend(), {
+              label: 'VARA bet transaction submission',
+              baseDelayMs: 1_500,
+            });
             console.log(`[SaveBasketButton] Bet transaction sent, waiting for response...`);
-            const betRes = await betResponse();
+            const betRes = await withRateLimitRetry(() => betResponse(), {
+              label: 'VARA bet transaction response',
+            });
             console.log(`[SaveBasketButton] Bet transaction response received:`, betRes);
             
             if (betRes && typeof betRes === 'object' && 'err' in betRes) {
@@ -640,7 +658,9 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
           });
           toast({
             title: 'Basket Created',
-            description: `Basket created successfully, but bet failed: ${betError?.message || 'Unknown error'}. You can bet later from the basket page.`,
+            description: isRateLimitError(betError)
+              ? 'Basket created successfully, but the wallet or RPC provider hit a rate limit while placing the bet. Wait a few seconds and try the bet again from the basket page.'
+              : `Basket created successfully, but bet failed: ${betError?.message || 'Unknown error'}. You can bet later from the basket page.`,
             variant: 'default',
           });
         }
@@ -741,7 +761,7 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
       {/* Bet Amount Input */}
       <div className="space-y-2">
         <Label htmlFor="bet-amount" className="text-sm font-medium">
-          Bet Amount ({assetKind === 'Bet' ? tokenSymbol : isVaraEth ? 'wVARA' : 'TVARA'}) <span className="text-muted-foreground font-normal">{assetKind === 'Bet' ? '(Required)' : '(Optional)'}</span>
+          Bet Amount ({assetKind === 'FT' ? tokenSymbol : isVaraEth ? 'wVARA' : 'TVARA'}) <span className="text-muted-foreground font-normal">{assetKind === 'FT' || !varaEnabled ? '(Required)' : '(Optional)'}</span>
         </Label>
         <Input
           id="bet-amount"
@@ -750,17 +770,22 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
           value={betAmount}
           onChange={(e) => setBetAmount(e.target.value)}
           min="0"
-          max={assetKind === 'Bet' ? fromTokenUnits(betBalanceUnits, tokenDecimals, tokenDecimals) : undefined}
+          max={assetKind === 'FT' ? fromTokenUnits(betBalanceUnits, tokenDecimals, tokenDecimals) : undefined}
           step="0.1"
           disabled={status !== 'idle'}
           className="w-full"
         />
+        {hasInsufficientFtBalance && (
+          <p className="text-sm text-destructive">
+            Not enough {tokenSymbol}. Enter {fromTokenUnits(betBalanceUnits, tokenDecimals)} {tokenSymbol} or less.
+          </p>
+        )}
         {betCalculation && betCalculation.allocations.length > 0 && (
           <div className="bg-muted/50 rounded-lg p-3 space-y-2">
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">Total:</span>
               <span className="font-semibold">
-                {assetKind === 'Bet'
+                {assetKind === 'FT'
                   ? `${betAmountNum.toFixed(4)} ${tokenSymbol}`
                   : `${formatVara(betCalculation.totalVara)} (${formatUsd(betCalculation.totalUsd)})`}
               </span>
@@ -769,7 +794,7 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
             </div>
             <div className="mt-2 pt-2 border-t border-border/50">
               <div className="text-xs text-muted-foreground mb-1">
-                {assetKind === 'Bet'
+                {assetKind === 'FT'
                   ? `Allocation by market (weight split in ${tokenSymbol}):`
                   : 'Allocation by market (based on weights):'}
               </div>
@@ -783,7 +808,7 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
                         {item?.question.slice(0, 30)}...
                       </span>
                       <span className="ml-2 font-medium tabular-nums">
-                        {assetKind === 'Bet'
+                        {assetKind === 'FT'
                           ? `${betAllocation.toFixed(4)} ${tokenSymbol}`
                           : formatVara(alloc.varaAmount)}
                       </span>
@@ -794,109 +819,61 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
             </div>
           </div>
         )}
-        {assetKind === 'Bet' && parsedBetUnits > 0n && parsedBetUnits > betBalanceUnits && (
-          <p className="text-xs text-destructive">
-            Entered amount is above your current {tokenSymbol} balance.
-          </p>
-        )}
-        <p className="text-xs text-muted-foreground">
-          Bet amount follows the selected asset lane. For {tokenSymbol} baskets, creation stays in the main registry but the initial stake is sent through the token lane after basket creation.
-        </p>
       </div>
 
-      <div className="space-y-2">
-        <Label className="text-sm font-medium">Settlement Asset</Label>
-        <div className="grid grid-cols-2 gap-2">
-          <Button
-            type="button"
-            variant={assetKind === 'Vara' ? 'default' : 'outline'}
+      {varaEnabled ? (
+        <div className="space-y-2">
+          <Label className="text-sm font-medium">Settlement Asset</Label>
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              type="button"
+              variant={assetKind === 'Vara' ? 'default' : 'outline'}
             onClick={() => setAssetKind('Vara')}
             disabled={status !== 'idle'}
             className="justify-between"
           >
             <span>VARA</span>
-            {assetKind === 'Vara' && <Badge variant="secondary">Default</Badge>}
           </Button>
-          <Button
-            type="button"
-            variant={assetKind === 'Bet' ? 'default' : 'outline'}
-            onClick={() => setAssetKind('Bet')}
+            <Button
+              type="button"
+              variant={assetKind === 'FT' ? 'default' : 'outline'}
+              onClick={() => setAssetKind('FT')}
             disabled={status !== 'idle' || isVaraEth || !betProgramsConfigured}
             className="justify-between"
           >
             <span>{tokenSymbol}</span>
-            {assetKind === 'Bet' && <Badge variant="secondary">FT lane</Badge>}
           </Button>
-        </div>
-        {isVaraEth && (
-          <p className="text-xs text-muted-foreground">
-            {tokenSymbol} baskets are currently disabled on Vara.eth.
-          </p>
-        )}
-        {!isVaraEth && !betProgramsConfigured && (
-          <p className="text-xs text-muted-foreground">
-            Configure {tokenSymbol} token and lane contract IDs to enable {tokenSymbol} baskets.
-          </p>
-        )}
-      </div>
-
-      {assetKind === 'Bet' && !isVaraEth && betProgramsConfigured && (
-        <div className="rounded-lg border bg-muted/20 p-3 space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <div className="text-sm font-medium flex items-center gap-2">
-                <Coins className="w-4 h-4 text-amber-500" />
-                {tokenSymbol} Wallet
-              </div>
-              <div className="text-xs text-muted-foreground mt-1">
-                Preflight checks run before basket creation. If {tokenSymbol} is insufficient, no basket transaction is sent.
-              </div>
-            </div>
-            <Badge variant={hasEnoughBetForInitialStake ? 'default' : 'secondary'}>
-              {hasEnoughBetForInitialStake ? 'Ready' : `Need ${tokenSymbol}`}
-            </Badge>
           </div>
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">Balance</span>
-            <span className="font-medium">{fromTokenUnits(betBalanceUnits, tokenDecimals)} {tokenSymbol}</span>
-          </div>
-          {betClaimPreview && (
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">Daily claim</span>
-              <span className="font-medium">{fromTokenUnits(betClaimPreview.amount, tokenDecimals)} {tokenSymbol}</span>
-            </div>
+          {isVaraEth && (
+            <p className="text-xs text-muted-foreground">
+              {tokenSymbol} baskets are currently disabled on Vara.eth.
+            </p>
           )}
-          <Button
-            type="button"
-            variant={canClaimBetNow ? 'outline' : 'secondary'}
-            onClick={handleClaimBet}
-            disabled={claimingBet || !canClaimBetNow}
-            className="w-full gap-2"
-          >
-            {claimingBet ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Claiming {tokenSymbol}...
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-4 h-4" />
-                {canClaimBetNow ? `Claim ${tokenSymbol}` : `${tokenSymbol} Claim on Cooldown`}
-              </>
-            )}
-          </Button>
+          {!isVaraEth && !betProgramsConfigured && (
+            <p className="text-xs text-muted-foreground">
+              Configure {tokenSymbol} token and lane contract IDs to enable {tokenSymbol} baskets.
+            </p>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <Label className="text-sm font-medium">Settlement Asset</Label>
+          <div className="rounded-lg border bg-muted/20 p-3 font-medium">{tokenSymbol}</div>
         </div>
       )}
 
       {/* Save Button */}
       <Button
         onClick={handleSave}
-        disabled={!isValid || !isValidBetAmount || status !== 'idle'}
+        disabled={isSaveDisabled}
         className="w-full gap-2"
         size="lg"
       >
         {getStatusDisplay()}
       </Button>
+      {disabledReason && (
+        <p className="text-sm text-muted-foreground">{disabledReason}</p>
+      )}
       
       {status !== 'idle' && (
         <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">

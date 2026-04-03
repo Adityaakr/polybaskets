@@ -4,7 +4,7 @@ import { fetchMarketBySlug, fetchMarketById, checkMarketResolution, type Polymar
 
 // Hardcoded config (to avoid Railway env var issues)
 const VARA_RPC = 'wss://testnet.vara.network';
-const PROGRAM_ID = '0x36cbc8f30e84f2a3fbf60655175fb0673aedba686299fafbcbd9659df6c20577';
+const PROGRAM_ID = '0xa978905cf582606f76ddf16fc0143a17e5d174974438a5219e26830f69ea0c6e';
 const SETTLER_SEED = process.env.SETTLER_SEED?.trim() || 'grocery usual immune burger vote wheat build slot unit lamp client tornado';
 const POLL_INTERVAL = 30000;
 const SHOULD_FINALIZE = true;
@@ -198,9 +198,9 @@ async function processSettlements(): Promise<void> {
   try {
     // Get contract config to show actual liveness_seconds
     const config = await varaClient.getConfig();
-    const livenessMinutes = config ? (config.livenessSeconds / 60).toFixed(0) : 'unknown';
+    const livenessMinutes = config ? (config.livenessMs / 60_000).toFixed(0) : 'unknown';
     if (config) {
-      console.log(`[processSettlements] Contract liveness_seconds: ${config.livenessSeconds} (${livenessMinutes} minutes challenge period)`);
+      console.log(`[processSettlements] Contract liveness_ms: ${config.livenessMs} (${livenessMinutes} minutes challenge period)`);
     }
 
     const basketCount = await varaClient.getBasketCount();
