@@ -27,6 +27,14 @@ pub struct BetLaneConfig {
     pub payouts_allowed_while_paused: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
+pub struct BetLaneDependencies {
+    pub basket_program_id: ActorId,
+    pub bet_token_id: ActorId,
+}
+
 impl Default for BetLaneConfig {
     fn default() -> Self {
         Self {
@@ -40,6 +48,16 @@ impl Default for BetLaneConfig {
 impl BetLaneConfig {
     fn validate(&self) -> Result<(), BetLaneError> {
         if self.min_bet.is_zero() || self.max_bet.is_zero() || self.min_bet > self.max_bet {
+            return Err(BetLaneError::InvalidConfig);
+        }
+
+        Ok(())
+    }
+}
+
+impl BetLaneDependencies {
+    fn validate(&self) -> Result<(), BetLaneError> {
+        if self.basket_program_id == ActorId::zero() || self.bet_token_id == ActorId::zero() {
             return Err(BetLaneError::InvalidConfig);
         }
 
@@ -182,6 +200,14 @@ impl<'a> BetLaneService<'a> {
     #[export]
     pub fn get_config(&self) -> BetLaneConfig {
         InfallibleStorage::get(&self.config).clone()
+    }
+
+    #[export]
+    pub fn get_dependencies(&self) -> BetLaneDependencies {
+        BetLaneDependencies {
+            basket_program_id: *InfallibleStorage::get(&self.basket_program_id),
+            bet_token_id: *InfallibleStorage::get(&self.bet_token_id),
+        }
     }
 
     #[export]
@@ -478,6 +504,25 @@ impl<'a> BetLaneService<'a> {
     }
 
     #[export(unwrap_result)]
+    pub fn set_dependencies(
+        &mut self,
+        dependencies: BetLaneDependencies,
+    ) -> Result<(), BetLaneError> {
+        self.require_role(CONFIG_ROLE, Syscall::message_source())?;
+        dependencies.validate()?;
+
+        InfallibleStorageMut::replace(
+            &mut self.basket_program_id,
+            dependencies.basket_program_id,
+        );
+        InfallibleStorageMut::replace(&mut self.bet_token_id, dependencies.bet_token_id);
+
+        self.emit_event(Event::DependenciesUpdated(dependencies))
+            .map_err(|_| BetLaneError::EventEmitFailed)?;
+        Ok(())
+    }
+
+    #[export(unwrap_result)]
     pub fn add_admin(&mut self, account: ActorId) -> Result<(), BetLaneError> {
         self.access_control
             .grant_role(DEFAULT_ADMIN_ROLE, account)
@@ -660,6 +705,7 @@ pub enum Event {
     Paused,
     Resumed,
     ConfigUpdated(BetLaneConfig),
+    DependenciesUpdated(BetLaneDependencies),
 }
 
 #[derive(Default)]
@@ -692,6 +738,12 @@ impl Program {
 
         let config = config.unwrap_or_default();
         config.validate().expect("invalid initial bet lane config");
+        BetLaneDependencies {
+            basket_program_id,
+            bet_token_id,
+        }
+        .validate()
+        .expect("invalid initial bet lane dependencies");
 
         Self {
             roles: RefCell::new(roles),

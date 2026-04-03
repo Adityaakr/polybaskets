@@ -84,11 +84,17 @@ pub mod bet_lane {
             &mut self,
             config: BetLaneConfig,
         ) -> sails_rs::client::PendingCall<io::SetConfig, Self::Env>;
+        fn set_dependencies(
+            &mut self,
+            dependencies: BetLaneDependencies,
+        ) -> sails_rs::client::PendingCall<io::SetDependencies, Self::Env>;
         fn basket_program_id(
             &self,
         ) -> sails_rs::client::PendingCall<io::BasketProgramId, Self::Env>;
         fn bet_token_id(&self) -> sails_rs::client::PendingCall<io::BetTokenId, Self::Env>;
         fn get_config(&self) -> sails_rs::client::PendingCall<io::GetConfig, Self::Env>;
+        fn get_dependencies(&self)
+        -> sails_rs::client::PendingCall<io::GetDependencies, Self::Env>;
         fn get_position(
             &self,
             user: ActorId,
@@ -148,6 +154,12 @@ pub mod bet_lane {
         ) -> sails_rs::client::PendingCall<io::SetConfig, Self::Env> {
             self.pending_call((config,))
         }
+        fn set_dependencies(
+            &mut self,
+            dependencies: BetLaneDependencies,
+        ) -> sails_rs::client::PendingCall<io::SetDependencies, Self::Env> {
+            self.pending_call((dependencies,))
+        }
         fn basket_program_id(
             &self,
         ) -> sails_rs::client::PendingCall<io::BasketProgramId, Self::Env> {
@@ -157,6 +169,11 @@ pub mod bet_lane {
             self.pending_call(())
         }
         fn get_config(&self) -> sails_rs::client::PendingCall<io::GetConfig, Self::Env> {
+            self.pending_call(())
+        }
+        fn get_dependencies(
+            &self,
+        ) -> sails_rs::client::PendingCall<io::GetDependencies, Self::Env> {
             self.pending_call(())
         }
         fn get_position(
@@ -189,9 +206,11 @@ pub mod bet_lane {
         sails_rs::io_struct_impl!(Resume () -> ());
         sails_rs::io_struct_impl!(RevokeRole (role_id: [u8; 32], account: ActorId) -> ());
         sails_rs::io_struct_impl!(SetConfig (config: super::BetLaneConfig) -> ());
+        sails_rs::io_struct_impl!(SetDependencies (dependencies: super::BetLaneDependencies) -> ());
         sails_rs::io_struct_impl!(BasketProgramId () -> ActorId);
         sails_rs::io_struct_impl!(BetTokenId () -> ActorId);
         sails_rs::io_struct_impl!(GetConfig () -> super::BetLaneConfig);
+        sails_rs::io_struct_impl!(GetDependencies () -> super::BetLaneDependencies);
         sails_rs::io_struct_impl!(GetPosition (user: ActorId, basket_id: u64) -> super::Position);
         sails_rs::io_struct_impl!(GetPositions (user: ActorId, offset: u32, limit: u32) -> Result<Vec<super::UserPositionView>, super::BetLaneError>);
         sails_rs::io_struct_impl!(IsPaused () -> bool);
@@ -218,10 +237,17 @@ pub mod bet_lane {
             Paused,
             Resumed,
             ConfigUpdated(BetLaneConfig),
+            DependenciesUpdated(BetLaneDependencies),
         }
         impl sails_rs::client::Event for BetLaneEvents {
-            const EVENT_NAMES: &'static [Route] =
-                &["BetPlaced", "Claimed", "Paused", "Resumed", "ConfigUpdated"];
+            const EVENT_NAMES: &'static [Route] = &[
+                "BetPlaced",
+                "Claimed",
+                "Paused",
+                "Resumed",
+                "ConfigUpdated",
+                "DependenciesUpdated",
+            ];
         }
         impl sails_rs::client::ServiceWithEvents for BetLaneImpl {
             type Event = BetLaneEvents;
@@ -550,6 +576,13 @@ pub struct BetLaneConfig {
     pub min_bet: U256,
     pub max_bet: U256,
     pub payouts_allowed_while_paused: bool,
+}
+#[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
+pub struct BetLaneDependencies {
+    pub basket_program_id: ActorId,
+    pub bet_token_id: ActorId,
 }
 #[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]
 #[codec(crate = sails_rs::scale_codec)]

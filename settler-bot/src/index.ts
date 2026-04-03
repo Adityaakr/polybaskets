@@ -4,7 +4,7 @@ import { fetchMarketBySlug, fetchMarketById, checkMarketResolution, type Polymar
 
 // Hardcoded config (to avoid Railway env var issues)
 const VARA_RPC = 'wss://testnet.vara.network';
-const PROGRAM_ID = '0xa978905cf582606f76ddf16fc0143a17e5d174974438a5219e26830f69ea0c6e';
+const PROGRAM_ID = '0x4d47cb784a0b1e3788181a6cedb52db11aad0cef4268848e612670f7d950f089';
 const SETTLER_SEED = process.env.SETTLER_SEED?.trim() || 'grocery usual immune burger vote wheat build slot unit lamp client tornado';
 const POLL_INTERVAL = 30000;
 const SHOULD_FINALIZE = true;

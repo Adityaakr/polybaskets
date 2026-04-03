@@ -136,6 +136,27 @@ impl Harness {
         .is_err();
         assert!(failed);
     }
+
+    fn set_config(&self, actor: u64, config: BasketMarketConfig) {
+        block_on(
+            self.program
+                .basket_market()
+                .set_config(config)
+                .with_actor_id(actor.into()),
+        )
+        .expect("set config transport");
+    }
+
+    fn set_config_fails(&self, actor: u64, config: BasketMarketConfig) {
+        let failed = block_on(
+            self.program
+                .basket_market()
+                .set_config(config)
+                .with_actor_id(actor.into()),
+        )
+        .is_err();
+        assert!(failed);
+    }
 }
 
 fn single_item(outcome: Outcome) -> Vec<BasketItem> {
@@ -248,6 +269,76 @@ fn only_admin_can_toggle_vara_support() {
 
     harness.set_vara_enabled(ADMIN, true);
     assert!(harness.vara_enabled());
+}
+
+#[test]
+fn admin_can_replace_runtime_config_and_handover_admin_role() {
+    let harness = Harness::new(1_000);
+
+    harness.set_config_fails(
+        SETTLER,
+        BasketMarketConfig {
+            admin_role: OTHER_USER.into(),
+            settler_role: USER.into(),
+            liveness_ms: 12_345,
+            vara_enabled: true,
+        },
+    );
+
+    harness.set_config(
+        ADMIN,
+        BasketMarketConfig {
+            admin_role: OTHER_USER.into(),
+            settler_role: USER.into(),
+            liveness_ms: 12_345,
+            vara_enabled: true,
+        },
+    );
+
+    let config = harness
+        .program
+        .basket_market()
+        .get_config()
+        .query()
+        .expect("config query after update");
+    assert_eq!(
+        config,
+        BasketMarketConfig {
+            admin_role: OTHER_USER.into(),
+            settler_role: USER.into(),
+            liveness_ms: 12_345,
+            vara_enabled: true,
+        }
+    );
+
+    harness.set_vara_enabled_fails(ADMIN, false);
+    harness.set_vara_enabled(OTHER_USER, false);
+    assert!(!harness.vara_enabled());
+}
+
+#[test]
+fn config_update_rejects_zero_roles() {
+    let harness = Harness::new(1_000);
+
+    harness.set_config_fails(
+        ADMIN,
+        BasketMarketConfig {
+            admin_role: ActorId::zero(),
+            settler_role: SETTLER.into(),
+            liveness_ms: 1_000,
+            vara_enabled: false,
+        },
+    );
+
+    harness.set_config_fails(
+        ADMIN,
+        BasketMarketConfig {
+            admin_role: ADMIN.into(),
+            settler_role: ActorId::zero(),
+            liveness_ms: 1_000,
+            vara_enabled: false,
+        },
+    );
 }
 
 #[test]

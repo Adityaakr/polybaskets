@@ -30,6 +30,13 @@ type ItemResolution = struct {
   poly_price_no: u16,
 };
 
+type BasketMarketConfig = struct {
+  admin_role: actor_id,
+  settler_role: actor_id,
+  liveness_ms: u64,
+  vara_enabled: bool,
+};
+
 type Basket = struct {
   id: u64,
   creator: actor_id,
@@ -82,13 +89,6 @@ type BasketMarketError = enum {
   InvalidConfig,
 };
 
-type BasketMarketConfig = struct {
-  admin_role: actor_id,
-  settler_role: actor_id,
-  liveness_ms: u64,
-  vara_enabled: bool,
-};
-
 type Position = struct {
   basket_id: u64,
   user: actor_id,
@@ -124,6 +124,7 @@ service BasketMarket {
   CreateBasket : (name: str, description: str, items: vec BasketItem, asset_kind: BasketAssetKind) -> u64;
   FinalizeSettlement : (basket_id: u64) -> null;
   ProposeSettlement : (basket_id: u64, item_resolutions: vec ItemResolution, payload: str) -> null;
+  SetConfig : (config: BasketMarketConfig) -> null;
   SetVaraEnabled : (enabled: bool) -> null;
   query GetBasket : (basket_id: u64) -> result (Basket, BasketMarketError);
   query GetBasketCount : () -> u64;
@@ -163,6 +164,9 @@ service BasketMarket {
     };
     VaraSupportUpdated: struct {
       enabled: bool
+    };
+    ConfigUpdated: struct {
+      config: BasketMarketConfig
     };
   }
 };
