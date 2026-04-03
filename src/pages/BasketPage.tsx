@@ -844,6 +844,7 @@ export default function BasketPage() {
   // Only calculate displayed change if we have complete live data and a real basket creation snapshot.
   let indexChange = 0;
   let indexChangePercent = 0;
+  let stakeReturnPercent = 0;
   const isLowBaseIndex = creationSnapshotIndex !== null
     && creationSnapshotIndex > 0
     && creationSnapshotIndex < LOW_BASE_PROBABILITY_THRESHOLD;
@@ -872,6 +873,24 @@ export default function BasketPage() {
       console.warn(`[BasketPage] Cannot calculate accurate index delta for ${basket?.id} - missing basket creation snapshot`);
     }
   }
+
+  if (hasValidData && positionEntryIndex !== null && positionEntryIndex > 0 && basket) {
+    const stakeReturnRatio = liveIndex / positionEntryIndex;
+    stakeReturnPercent = (stakeReturnRatio - 1) * 100;
+
+    if (isNaN(stakeReturnPercent) || !isFinite(stakeReturnPercent)) {
+      console.error(`[BasketPage] Invalid stake return calculation for ${basket.id}:`, {
+        liveIndex,
+        positionEntryIndex,
+        stakeReturnPercent,
+      });
+      stakeReturnPercent = 0;
+    }
+  }
+
+  const showStakeReturn = hasValidData && positionEntryIndex !== null && positionEntryIndex > 0;
+  const headlineChange = showStakeReturn ? stakeReturnPercent : indexChangePercent;
+  const headlineChangeBase = showStakeReturn ? liveIndex - positionEntryIndex : indexChange;
   
   console.log(`[BasketPage] Index change for ${basket?.id}:`, {
     creationSnapshotIndex: creationSnapshotIndex?.toFixed(3) ?? null,
@@ -879,6 +898,7 @@ export default function BasketPage() {
     liveIndex: liveIndex.toFixed(3),
     absoluteChange: indexChange.toFixed(3),
     percentChange: indexChangePercent.toFixed(2) + '%',
+    stakeReturnPercent: `${stakeReturnPercent.toFixed(2)}%`,
     growthMultiple: indexGrowthMultiple ? `${indexGrowthMultiple.toFixed(2)}x` : null,
     isLowBaseIndex,
     hasValidData,
@@ -1451,9 +1471,11 @@ export default function BasketPage() {
                 <span className="index-display">
                   {liveIndex.toFixed(3)}
                 </span>
-                {hasValidData && creationSnapshotIndex !== null ? (
-                  <span className={`stat-chip ${getChangeClass(indexChange)}`}>
-                    {`${indexChangePercent >= 0 ? '+' : ''}${indexChangePercent.toFixed(2)}% since creation`}
+                {hasValidData && (showStakeReturn || creationSnapshotIndex !== null) ? (
+                  <span className={`stat-chip ${getChangeClass(headlineChangeBase)}`}>
+                    {showStakeReturn
+                      ? `${headlineChange >= 0 ? '+' : ''}${headlineChange.toFixed(2)}% stake return`
+                      : `${headlineChange >= 0 ? '+' : ''}${headlineChange.toFixed(2)}% since creation`}
                   </span>
                 ) : creationSnapshotIndex === null ? (
                   <span className="stat-chip stat-chip-neutral">
