@@ -124,6 +124,7 @@ service BasketMarket {
   CreateBasket : (name: str, description: str, items: vec BasketItem, asset_kind: BasketAssetKind) -> u64;
   FinalizeSettlement : (basket_id: u64) -> null;
   ProposeSettlement : (basket_id: u64, item_resolutions: vec ItemResolution, payload: str) -> null;
+  SetConfig : (config: BasketMarketConfig) -> null;
   SetVaraEnabled : (enabled: bool) -> null;
   query GetBasket : (basket_id: u64) -> result (Basket, BasketMarketError);
   query GetBasketCount : () -> u64;
@@ -161,9 +162,11 @@ service BasketMarket {
       user: actor_id,
       amount: u128,
     };
+    ConfigUpdated: struct {
+      config: BasketMarketConfig,
+    };
     VaraSupportUpdated: struct {
       enabled: bool
     };
   }
 };
-

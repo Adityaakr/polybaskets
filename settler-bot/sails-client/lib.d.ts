@@ -19,6 +19,7 @@ export declare class BasketMarket {
     createBasket(name: string, description: string, items: Array<BasketItem>, asset_kind: BasketAssetKind): TransactionBuilder<number | string | bigint>;
     finalizeSettlement(basket_id: number | string | bigint): TransactionBuilder<null>;
     proposeSettlement(basket_id: number | string | bigint, item_resolutions: Array<ItemResolution>, payload: string): TransactionBuilder<null>;
+    setConfig(config: BasketMarketConfig): TransactionBuilder<null>;
     setVaraEnabled(enabled: boolean): TransactionBuilder<null>;
     getBasket(basket_id: number | string | bigint): QueryBuilder<BasketMarketResult<Basket>>;
     getBasketCount(): QueryBuilder<bigint>;

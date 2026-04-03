@@ -231,6 +231,9 @@ pub enum Event {
     VaraSupportUpdated {
         enabled: bool,
     },
+    ConfigUpdated {
+        config: BasketMarketConfig,
+    },
 }
 
 #[derive(Debug, Clone, Encode, Decode, TypeInfo)]
@@ -304,6 +307,14 @@ impl<'a> BasketMarketService<'a> {
     fn ensure_settler(&self) -> Result<(), BasketMarketError> {
         if sails_rs::gstd::msg::source() != self.state.config.settler_role {
             return Err(BasketMarketError::Unauthorized);
+        }
+
+        Ok(())
+    }
+
+    fn validate_config(config: &BasketMarketConfig) -> Result<(), BasketMarketError> {
+        if config.admin_role == ActorId::zero() || config.settler_role == ActorId::zero() {
+            return Err(BasketMarketError::InvalidConfig);
         }
 
         Ok(())
@@ -740,6 +751,29 @@ impl<'a> BasketMarketService<'a> {
             .map_err(|_| BasketMarketError::EventEmitFailed)?;
         Ok(())
     }
+
+    #[export(unwrap_result)]
+    pub fn set_config(&mut self, config: BasketMarketConfig) -> Result<(), BasketMarketError> {
+        self.ensure_admin()?;
+        BasketMarketService::validate_config(&config)?;
+
+        let vara_enabled_changed = self.state.config.vara_enabled != config.vara_enabled;
+        self.state.config = config.clone();
+
+        self.emit_event(Event::ConfigUpdated {
+            config: config.clone(),
+        })
+        .map_err(|_| BasketMarketError::EventEmitFailed)?;
+
+        if vara_enabled_changed {
+            self.emit_event(Event::VaraSupportUpdated {
+                enabled: config.vara_enabled,
+            })
+            .map_err(|_| BasketMarketError::EventEmitFailed)?;
+        }
+
+        Ok(())
+    }
 }
 
 pub struct BasketMarketProgram {
@@ -749,10 +783,13 @@ pub struct BasketMarketProgram {
 #[sails_rs::program]
 impl BasketMarketProgram {
     pub fn new(init: BasketMarketInit) -> Self {
-        assert!(
-            init.admin_role != ActorId::zero() && init.settler_role != ActorId::zero(),
-            "admin_role and settler_role must be non-zero"
-        );
+        BasketMarketService::validate_config(&BasketMarketConfig {
+            admin_role: init.admin_role,
+            settler_role: init.settler_role,
+            liveness_ms: init.liveness_ms,
+            vara_enabled: false,
+        })
+        .expect("invalid initial config");
 
         Self {
             state: State {

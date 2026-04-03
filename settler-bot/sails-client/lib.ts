@@ -245,6 +245,21 @@ export class BasketMarket {
     );
   }
 
+  public setConfig(config: BasketMarketConfig): TransactionBuilder<null> {
+    if (!this._program.programId) throw new Error('Program ID is not set');
+    return new TransactionBuilder<null>(
+      this._program.api,
+      this._program.registry,
+      'send_message',
+      'BasketMarket',
+      'SetConfig',
+      config,
+      'BasketMarketConfig',
+      'Null',
+      this._program.programId,
+    );
+  }
+
   public setVaraEnabled(enabled: boolean): TransactionBuilder<null> {
     if (!this._program.programId) throw new Error('Program ID is not set');
     return new TransactionBuilder<null>(

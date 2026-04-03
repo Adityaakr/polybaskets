@@ -1,6 +1,6 @@
 use awesome_sails_vft_admin::MINTER_ROLE;
 use bet_lane::WASM_BINARY as BET_LANE_WASM_BINARY;
-use bet_lane_client::{BetLaneClient, BetLaneClientCtors, BetLaneConfig, bet_lane::BetLane};
+use bet_lane_client::{BetLaneClient, BetLaneClientCtors, BetLaneConfig, BetLaneDependencies, bet_lane::BetLane};
 use bet_token::WASM_BINARY as BET_TOKEN_WASM_BINARY;
 use bet_token_client::{
     BetTokenClient, BetTokenClientCtors,
@@ -356,4 +356,46 @@ async fn vara_baskets_reject_bet_lane_positions() {
         .await;
 
     assert!(result.is_err());
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn config_role_can_update_dependency_addresses() {
+    let harness = Harness::new().await;
+    let outsider = ActorId::from([9u8; 32]);
+
+    let mut lane = harness.bet_lane.bet_lane();
+
+    let unauthorized = lane
+        .set_dependencies(BetLaneDependencies {
+            basket_program_id: outsider,
+            bet_token_id: harness.bet_token.id(),
+        })
+        .with_actor_id(harness.bob)
+        .await;
+    assert!(unauthorized.is_err());
+
+    lane
+        .set_dependencies(BetLaneDependencies {
+            basket_program_id: outsider,
+            bet_token_id: harness.bet_token.id(),
+        })
+        .with_actor_id(harness.admin)
+        .await
+        .expect("admin should update dependencies");
+
+    let deps = lane
+        .get_dependencies()
+        .await
+        .expect("dependencies query should succeed");
+    assert_eq!(deps.basket_program_id, outsider);
+    assert_eq!(deps.bet_token_id, harness.bet_token.id());
+
+    let invalid = lane
+        .set_dependencies(BetLaneDependencies {
+            basket_program_id: ActorId::zero(),
+            bet_token_id: harness.bet_token.id(),
+        })
+        .with_actor_id(harness.admin)
+        .await;
+    assert!(invalid.is_err());
 }

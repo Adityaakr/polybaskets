@@ -4,6 +4,11 @@ type BetLaneConfig = struct {
   payouts_allowed_while_paused: bool,
 };
 
+type BetLaneDependencies = struct {
+  basket_program_id: actor_id,
+  bet_token_id: actor_id,
+};
+
 type Position = struct {
   shares: u256,
   claimed: bool,
@@ -63,9 +68,11 @@ service BetLane {
   Resume : () -> null;
   RevokeRole : (role_id: [u8, 32], account: actor_id) -> null;
   SetConfig : (config: BetLaneConfig) -> null;
+  SetDependencies : (dependencies: BetLaneDependencies) -> null;
   query BasketProgramId : () -> actor_id;
   query BetTokenId : () -> actor_id;
   query GetConfig : () -> BetLaneConfig;
+  query GetDependencies : () -> BetLaneDependencies;
   query GetPosition : (user: actor_id, basket_id: u64) -> Position;
   query GetPositions : (user: actor_id, offset: u32, limit: u32) -> result (vec UserPositionView, BetLaneError);
   query IsPaused : () -> bool;
@@ -86,6 +93,7 @@ service BetLane {
     Paused;
     Resumed;
     ConfigUpdated: BetLaneConfig;
+    DependenciesUpdated: BetLaneDependencies;
   }
 };
 
