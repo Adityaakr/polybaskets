@@ -11,6 +11,7 @@ export interface BasketItem {
   poly_market_id: string;
   poly_slug: string;
   weight_bps: number;
+  selected_outcome: 'YES' | 'NO';
 }
 
 export interface Basket {
@@ -20,7 +21,8 @@ export interface Basket {
   description: string;
   items: BasketItem[];
   created_at: bigint;
-  status: 'Active' | 'Settled' | 'Closed';
+  status: 'Active' | 'SettlementPending' | 'Settled';
+  asset_kind: 'Vara' | 'Bet';
 }
 
 export interface Position {
@@ -49,7 +51,7 @@ export interface Settlement {
   proposed_at: bigint;
   challenge_deadline: bigint;
   finalized_at: bigint | null;
-  status: 'Proposed' | 'Finalized' | 'Disputed';
+  status: 'Proposed' | 'Finalized';
 }
 
 export class VaraEthBasketMarket {
@@ -67,15 +69,15 @@ export class VaraEthBasketMarket {
   ) {
     // Initialize type registry with program types
     const types: Record<string, any> = {
-      BasketItem: {"poly_market_id":"String","poly_slug":"String","weight_bps":"u16"},
+      BasketItem: {"poly_market_id":"String","poly_slug":"String","weight_bps":"u16","selected_outcome":"Outcome"},
       ItemResolution: {"item_index":"u8","resolved":"Outcome","poly_slug":"String","poly_condition_id":"Option<String>","poly_price_yes":"u16","poly_price_no":"u16"},
       Outcome: {"_enum":["YES","NO"]},
       Basket: {"id":"u64","creator":"[u8;32]","name":"String","description":"String","items":"Vec<BasketItem>","created_at":"u64","status":"BasketStatus","asset_kind":"BasketAssetKind"},
       BasketAssetKind: {"_enum":["Vara","Bet"]},
-      BasketStatus: {"_enum":["Active","Settled","Closed"]},
-      Position: {"basket_id":"u64","user":"[u8;32]","shares":"u128","claimed":"bool"},
+      BasketStatus: {"_enum":["Active","SettlementPending","Settled"]},
+      Position: {"basket_id":"u64","user":"[u8;32]","shares":"u128","claimed":"bool","index_at_creation_bps":"u16"},
       Settlement: {"basket_id":"u64","proposer":"[u8;32]","item_resolutions":"Vec<ItemResolution>","payout_per_share":"u128","payload":"String","proposed_at":"u64","challenge_deadline":"u64","finalized_at":"Option<u64>","status":"SettlementStatus"},
-      SettlementStatus: {"_enum":["Proposed","Finalized","Disputed"]},
+      SettlementStatus: {"_enum":["Proposed","Finalized"]},
     };
 
     this.registry = new TypeRegistry();

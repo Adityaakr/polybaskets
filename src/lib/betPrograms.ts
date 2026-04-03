@@ -30,11 +30,13 @@ export const betLaneProgramFromApi = (api: GearApi) => {
 };
 
 export async function readSailsQuery<T>(builder: QueryLike<T>): Promise<T> {
-  try {
-    return await builder.call();
-  } catch {
-    return builder.run();
-  }
+  return withRateLimitRetry(async () => {
+    try {
+      return await builder.call();
+    } catch {
+      return builder.run();
+    }
+  }, { label: 'Sails query' });
 }
 
 export async function waitForQueryMatch<T>(
@@ -53,7 +55,11 @@ export async function waitForQueryMatch<T>(
   let lastValue: T | undefined;
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    lastValue = await read();
+    lastValue = await withRateLimitRetry(read, {
+      attempts: 3,
+      baseDelayMs: delayMs,
+      label,
+    });
     if (matches(lastValue)) {
       return lastValue;
     }
@@ -64,6 +70,54 @@ export async function waitForQueryMatch<T>(
   }
 
   throw new Error(`Timed out while waiting for ${label}`);
+}
+
+export function isRateLimitError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  const normalized = message.toLowerCase();
+
+  return (
+    normalized.includes('rate limit') ||
+    normalized.includes('too many requests') ||
+    normalized.includes('try again later') ||
+    normalized.includes('429')
+  );
+}
+
+export async function withRateLimitRetry<T>(
+  operation: () => Promise<T>,
+  options?: {
+    attempts?: number;
+    baseDelayMs?: number;
+    label?: string;
+  },
+): Promise<T> {
+  const attempts = options?.attempts ?? 3;
+  const baseDelayMs = options?.baseDelayMs ?? 1_200;
+  const label = options?.label ?? 'operation';
+
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+
+      if (!isRateLimitError(error) || attempt === attempts) {
+        throw error;
+      }
+
+      const retryDelayMs = baseDelayMs * attempt;
+      console.warn(
+        `[betPrograms] ${label} hit a rate limit (attempt ${attempt}/${attempts}). Retrying in ${retryDelayMs}ms...`,
+        error,
+      );
+      await new Promise((resolve) => globalThis.setTimeout(resolve, retryDelayMs));
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
 type BatchSendParams = {
@@ -105,33 +159,37 @@ export async function signAndSendBatch({
 
     void (async () => {
       try {
-        unsubscribe = await batchTx.signAndSend(
-          account,
-          { signer },
-          ({ events, status }) => {
-            if (!status.isInBlock) {
-              return;
-            }
+        unsubscribe = await withRateLimitRetry(
+          () =>
+            batchTx.signAndSend(
+              account,
+              { signer },
+              ({ events, status }) => {
+                if (!status.isInBlock) {
+                  return;
+                }
 
-            for (const { event } of events) {
-              const { method } = event;
+                for (const { event } of events) {
+                  const { method } = event;
 
-              if (method === 'ExtrinsicFailed') {
-                finish(() => reject(api.getExtrinsicFailedError(event)));
-                return;
-              }
+                  if (method === 'ExtrinsicFailed') {
+                    finish(() => reject(api.getExtrinsicFailedError(event)));
+                    return;
+                  }
 
-              if (method === 'ExtrinsicSuccess') {
-                finish(() =>
-                  resolve({
-                    txHash: batchTx.hash.toHex(),
-                    blockHash: status.asInBlock.toHex(),
-                  }),
-                );
-                return;
-              }
-            }
-          },
+                  if (method === 'ExtrinsicSuccess') {
+                    finish(() =>
+                      resolve({
+                        txHash: batchTx.hash.toHex(),
+                        blockHash: status.asInBlock.toHex(),
+                      }),
+                    );
+                    return;
+                  }
+                }
+              },
+            ),
+          { label: 'batch transaction submission', baseDelayMs: 1_500 },
         );
       } catch (error) {
         finish(() =>

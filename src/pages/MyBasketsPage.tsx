@@ -4,7 +4,7 @@ import { useApi } from '@gear-js/react-hooks';
 import { getBasketsByOwner, getFollows, getBasketById, deleteBasket, getBaskets } from '@/lib/basket-storage';
 import { extractOnChainBasketId, fetchAllOnChainBaskets } from '@/lib/basket-onchain';
 import { basketMarketProgramFromApi } from '@/lib/varaClient';
-import { ENV } from '@/env';
+import { ENV, isBasketAssetKindEnabled } from '@/env';
 import { BasketCard } from '@/components/BasketCard';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -44,7 +44,7 @@ export default function MyBasketsPage() {
     try {
       if (network === 'vara' && onChainBaskets.length > 0) {
         // Use on-chain baskets (the source of truth)
-        baskets = onChainBaskets;
+        baskets = onChainBaskets.filter((basket) => isBasketAssetKindEnabled(basket.assetKind));
         console.log(`[MyBasketsPage] Using ${baskets.length} on-chain baskets for Vara network`);
       } else {
         // Fallback to localStorage (for Vara.eth or if on-chain fetch failed)
@@ -57,7 +57,7 @@ export default function MyBasketsPage() {
             if (isOnChain) {
               console.log(`[MyBasketsPage] Filtering out old on-chain basket from localStorage: ${b.id} (${b.name})`);
             }
-            return !isOnChain; // Only keep non-on-chain baskets from localStorage
+            return !isOnChain && isBasketAssetKindEnabled(b.assetKind); // Only keep supported non-on-chain baskets from localStorage
           });
           console.log(`[MyBasketsPage] Using ${baskets.length} localStorage baskets (network: ${network}, filtered out old on-chain baskets)`);
         } catch (storageError) {
@@ -79,7 +79,7 @@ export default function MyBasketsPage() {
               return null;
             }
           })
-          .filter((b): b is NonNullable<typeof b> => b !== null);
+          .filter((b): b is NonNullable<typeof b> => b !== null && isBasketAssetKindEnabled(b.assetKind));
       } catch (storageError) {
         console.warn('[MyBasketsPage] Failed to get followed baskets:', storageError);
         followedBaskets = [];
@@ -158,8 +158,9 @@ export default function MyBasketsPage() {
           }
         }
         
-        console.log(`[MyBasketsPage] Fetched ${verifiedBaskets.length} verified baskets from on-chain (current program ID: ${ENV.PROGRAM_ID?.slice(0, 10)}..., filtered out ${baskets.length - verifiedBaskets.length} invalid baskets)`);
-        setOnChainBaskets(verifiedBaskets);
+        const supportedBaskets = verifiedBaskets.filter((basket) => isBasketAssetKindEnabled(basket.assetKind));
+        console.log(`[MyBasketsPage] Fetched ${supportedBaskets.length} supported baskets from on-chain (current program ID: ${ENV.PROGRAM_ID?.slice(0, 10)}..., filtered out ${baskets.length - supportedBaskets.length} invalid or unsupported baskets)`);
+        setOnChainBaskets(supportedBaskets);
       } catch (error) {
         console.error('[MyBasketsPage] Error fetching on-chain baskets:', error);
         toast({

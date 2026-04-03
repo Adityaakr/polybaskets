@@ -1,47 +1,62 @@
 #![no_std]
 
+use parity_scale_codec::{Decode, Encode};
 use sails_rs::prelude::*;
-use parity_scale_codec::{Encode, Decode};
 use scale_info::TypeInfo;
 
-// ============================================================================
-// Data Structures
-// ============================================================================
+const MAX_ITEMS_PER_BASKET: usize = 32;
+const MAX_NAME_LEN: usize = 128;
+const MAX_DESCRIPTION_LEN: usize = 512;
+const MAX_MARKET_ID_LEN: usize = 128;
+const MAX_SLUG_LEN: usize = 128;
+const MAX_SETTLEMENT_PAYLOAD_LEN: usize = 4_096;
 
-#[derive(Debug, Clone, Encode, Decode, TypeInfo, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
 pub enum Outcome {
     YES,
     NO,
 }
 
-#[derive(Debug, Clone, Encode, Decode, TypeInfo, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
 pub enum BasketStatus {
     Active,
+    SettlementPending,
     Settled,
-    Closed,
 }
 
-#[derive(Debug, Clone, Encode, Decode, TypeInfo, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
 pub enum BasketAssetKind {
     Vara,
     Bet,
 }
 
-#[derive(Debug, Clone, Encode, Decode, TypeInfo, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
 pub enum SettlementStatus {
     Proposed,
     Finalized,
-    Disputed,
 }
 
-#[derive(Debug, Clone, Encode, Decode, TypeInfo)]
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
 pub struct BasketItem {
     pub poly_market_id: String,
     pub poly_slug: String,
-    pub weight_bps: u16, // 0-10000 (basis points)
+    pub weight_bps: u16,
+    pub selected_outcome: Outcome,
 }
 
-#[derive(Debug, Clone, Encode, Decode, TypeInfo)]
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
 pub struct Basket {
     pub id: u64,
     pub creator: ActorId,
@@ -53,31 +68,37 @@ pub struct Basket {
     pub asset_kind: BasketAssetKind,
 }
 
-#[derive(Debug, Clone, Encode, Decode, TypeInfo)]
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
 pub struct Position {
     pub basket_id: u64,
     pub user: ActorId,
     pub shares: u128,
     pub claimed: bool,
-    pub index_at_creation_bps: u16, // Index at creation in basis points (0-10000)
+    pub index_at_creation_bps: u16,
 }
 
-#[derive(Debug, Clone, Encode, Decode, TypeInfo)]
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
 pub struct ItemResolution {
     pub item_index: u8,
     pub resolved: Outcome,
     pub poly_slug: String,
     pub poly_condition_id: Option<String>,
-    pub poly_price_yes: u16, // 0-10000 (basis points)
-    pub poly_price_no: u16,  // 0-10000 (basis points)
+    pub poly_price_yes: u16,
+    pub poly_price_no: u16,
 }
 
-#[derive(Debug, Clone, Encode, Decode, TypeInfo)]
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
 pub struct Settlement {
     pub basket_id: u64,
     pub proposer: ActorId,
     pub item_resolutions: Vec<ItemResolution>,
-    pub payout_per_share: u128, // Payout per share in basis points (0-10000)
+    pub payout_per_share: u128,
     pub payload: String,
     pub proposed_at: u64,
     pub challenge_deadline: u64,
@@ -85,14 +106,142 @@ pub struct Settlement {
     pub status: SettlementStatus,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
+pub struct BasketMarketInit {
+    pub admin_role: ActorId,
+    pub settler_role: ActorId,
+    pub liveness_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
+pub struct BasketMarketConfig {
+    pub admin_role: ActorId,
+    pub settler_role: ActorId,
+    pub liveness_ms: u64,
+    pub vara_enabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, TypeInfo, thiserror::Error)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
+pub enum BasketMarketError {
+    #[error("access denied")]
+    Unauthorized,
+    #[error("basket not found")]
+    BasketNotFound,
+    #[error("basket is not active")]
+    BasketNotActive,
+    #[error("basket asset kind does not match this flow")]
+    BasketAssetMismatch,
+    #[error("basket must have at least one item")]
+    NoItems,
+    #[error("basket weights must sum to exactly 10000 and each weight must be in range")]
+    InvalidWeights,
+    #[error("basket contains duplicate market/outcome items")]
+    DuplicateBasketItem,
+    #[error("basket has too many items")]
+    TooManyItems,
+    #[error("basket name is too long")]
+    NameTooLong,
+    #[error("basket description is too long")]
+    DescriptionTooLong,
+    #[error("market id is too long")]
+    MarketIdTooLong,
+    #[error("slug is too long")]
+    SlugTooLong,
+    #[error("settlement payload is too long")]
+    PayloadTooLong,
+    #[error("vara support is disabled")]
+    VaraDisabled,
+    #[error("settlement already exists")]
+    SettlementAlreadyExists,
+    #[error("settlement not found")]
+    SettlementNotFound,
+    #[error("settlement is not proposed")]
+    SettlementNotProposed,
+    #[error("settlement is not finalized")]
+    SettlementNotFinalized,
+    #[error("challenge deadline not passed")]
+    ChallengeDeadlineNotPassed,
+    #[error("index at creation must be between 1 and 10000")]
+    InvalidIndexAtCreation,
+    #[error("bet amount must be greater than zero")]
+    InvalidBetAmount,
+    #[error("item resolutions count does not match basket items")]
+    InvalidResolutionCount,
+    #[error("duplicate item_index in settlement resolutions")]
+    DuplicateResolutionIndex,
+    #[error("resolution item_index is out of bounds")]
+    ResolutionIndexOutOfBounds,
+    #[error("resolution slug does not match basket item")]
+    ResolutionSlugMismatch,
+    #[error("resolution price values must be within 0..=10000")]
+    InvalidResolution,
+    #[error("already claimed")]
+    AlreadyClaimed,
+    #[error("nothing to claim")]
+    NothingToClaim,
+    #[error("native payout transfer failed")]
+    TransferFailed,
+    #[error("math overflow")]
+    MathOverflow,
+    #[error("event emission failed")]
+    EventEmitFailed,
+    #[error("invalid config")]
+    InvalidConfig,
+}
+
+#[event]
+#[derive(Clone, Debug, PartialEq, Eq, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
+pub enum Event {
+    BasketCreated {
+        basket_id: u64,
+        creator: ActorId,
+        asset_kind: BasketAssetKind,
+    },
+    VaraBetPlaced {
+        basket_id: u64,
+        user: ActorId,
+        amount: u128,
+        user_total: u128,
+        index_at_creation_bps: u16,
+    },
+    SettlementProposed {
+        basket_id: u64,
+        proposer: ActorId,
+        payout_per_share: u128,
+        challenge_deadline: u64,
+    },
+    SettlementFinalized {
+        basket_id: u64,
+        finalized_at: u64,
+        payout_per_share: u128,
+    },
+    Claimed {
+        basket_id: u64,
+        user: ActorId,
+        amount: u128,
+    },
+    VaraSupportUpdated {
+        enabled: bool,
+    },
+}
+
 #[derive(Debug, Clone, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
 pub struct State {
     pub baskets: Vec<Basket>,
     pub positions: Vec<Position>,
     pub settlements: Vec<Settlement>,
     pub next_basket_id: u64,
-    pub settler_role: ActorId,
-    pub liveness_seconds: u64, // Challenge/finalization delay (e.g., 86400 = 1 day)
+    pub config: BasketMarketConfig,
 }
 
 impl Default for State {
@@ -102,15 +251,15 @@ impl Default for State {
             positions: Vec::new(),
             settlements: Vec::new(),
             next_basket_id: 0,
-            settler_role: ActorId::zero(),
-            liveness_seconds: 86400, // 1 day default
+            config: BasketMarketConfig {
+                admin_role: ActorId::zero(),
+                settler_role: ActorId::zero(),
+                liveness_ms: 86_400_000,
+                vara_enabled: false,
+            },
         }
     }
 }
-
-// ============================================================================
-// Service Implementation
-// ============================================================================
 
 struct BasketMarketService<'a> {
     state: &'a mut State,
@@ -121,190 +270,271 @@ impl<'a> BasketMarketService<'a> {
         Self { state }
     }
 
-    fn get_basket(&self, basket_id: u64) -> Result<&Basket, String> {
+    fn basket_index(&self, basket_id: u64) -> Result<usize, BasketMarketError> {
         self.state
             .baskets
             .iter()
-            .find(|b| b.id == basket_id)
-            .ok_or_else(|| "Basket not found".to_string())
+            .position(|basket| basket.id == basket_id)
+            .ok_or(BasketMarketError::BasketNotFound)
     }
 
-    fn get_basket_mut(&mut self, basket_id: u64) -> Result<&mut Basket, String> {
+    fn settlement_index(&self, basket_id: u64) -> Result<usize, BasketMarketError> {
         self.state
-            .baskets
-            .iter_mut()
-            .find(|b| b.id == basket_id)
-            .ok_or_else(|| "Basket not found".to_string())
+            .settlements
+            .iter()
+            .position(|settlement| settlement.basket_id == basket_id)
+            .ok_or(BasketMarketError::SettlementNotFound)
     }
 
-    fn get_position_mut(&mut self, basket_id: u64, user: ActorId) -> Result<&mut Position, String> {
+    fn position_index(&self, basket_id: u64, user: ActorId) -> Option<usize> {
         self.state
             .positions
-            .iter_mut()
-            .find(|p| p.basket_id == basket_id && p.user == user)
-            .ok_or_else(|| "Position not found".to_string())
-    }
-
-    fn get_settlement(&self, basket_id: u64) -> Result<&Settlement, String> {
-        self.state
-            .settlements
             .iter()
-            .find(|s| s.basket_id == basket_id)
-            .ok_or_else(|| "Settlement not found".to_string())
+            .position(|position| position.basket_id == basket_id && position.user == user)
     }
 
-    fn get_settlement_mut(&mut self, basket_id: u64) -> Result<&mut Settlement, String> {
-        self.state
-            .settlements
-            .iter_mut()
-            .find(|s| s.basket_id == basket_id)
-            .ok_or_else(|| "Settlement not found".to_string())
+    fn ensure_admin(&self) -> Result<(), BasketMarketError> {
+        if sails_rs::gstd::msg::source() != self.state.config.admin_role {
+            return Err(BasketMarketError::Unauthorized);
+        }
+
+        Ok(())
+    }
+
+    fn ensure_settler(&self) -> Result<(), BasketMarketError> {
+        if sails_rs::gstd::msg::source() != self.state.config.settler_role {
+            return Err(BasketMarketError::Unauthorized);
+        }
+
+        Ok(())
+    }
+
+    fn validate_items(items: &[BasketItem]) -> Result<(), BasketMarketError> {
+        if items.is_empty() {
+            return Err(BasketMarketError::NoItems);
+        }
+        if items.len() > MAX_ITEMS_PER_BASKET {
+            return Err(BasketMarketError::TooManyItems);
+        }
+
+        let mut total_weight = 0u32;
+        for (index, item) in items.iter().enumerate() {
+            if item.weight_bps == 0 || item.weight_bps > 10_000 {
+                return Err(BasketMarketError::InvalidWeights);
+            }
+            if item.poly_market_id.len() > MAX_MARKET_ID_LEN {
+                return Err(BasketMarketError::MarketIdTooLong);
+            }
+            if item.poly_slug.len() > MAX_SLUG_LEN {
+                return Err(BasketMarketError::SlugTooLong);
+            }
+            if items
+                .iter()
+                .skip(index + 1)
+                .any(|other| {
+                    other.poly_market_id == item.poly_market_id
+                        && other.selected_outcome == item.selected_outcome
+                })
+            {
+                return Err(BasketMarketError::DuplicateBasketItem);
+            }
+
+            total_weight = total_weight
+                .checked_add(item.weight_bps as u32)
+                .ok_or(BasketMarketError::MathOverflow)?;
+        }
+
+        if total_weight != 10_000 {
+            return Err(BasketMarketError::InvalidWeights);
+        }
+
+        Ok(())
+    }
+
+    fn validate_index_at_creation(index_at_creation_bps: u16) -> Result<(), BasketMarketError> {
+        if !(1..=10_000).contains(&index_at_creation_bps) {
+            return Err(BasketMarketError::InvalidIndexAtCreation);
+        }
+
+        Ok(())
+    }
+
+    fn validate_basket_metadata(
+        name: &str,
+        description: &str,
+    ) -> Result<(), BasketMarketError> {
+        if name.len() > MAX_NAME_LEN {
+            return Err(BasketMarketError::NameTooLong);
+        }
+        if description.len() > MAX_DESCRIPTION_LEN {
+            return Err(BasketMarketError::DescriptionTooLong);
+        }
+
+        Ok(())
+    }
+
+    fn validate_resolution_prices(
+        resolution: &ItemResolution,
+    ) -> Result<(), BasketMarketError> {
+        if resolution.poly_price_yes > 10_000 || resolution.poly_price_no > 10_000 {
+            return Err(BasketMarketError::InvalidResolution);
+        }
+
+        Ok(())
     }
 
     fn calculate_payout_per_share(
-        &self,
         basket: &Basket,
         item_resolutions: &[ItemResolution],
-    ) -> Result<u128, String> {
-        // Validate resolutions match basket items
+    ) -> Result<u128, BasketMarketError> {
         if item_resolutions.len() != basket.items.len() {
-            return Err("Item resolutions count does not match basket items".to_string());
+            return Err(BasketMarketError::InvalidResolutionCount);
         }
 
-        // Calculate basket index: sum(weight_bps * (resolved == YES ? 1.0 : 0.0)) / 10000
+        let mut seen = vec![false; basket.items.len()];
         let mut total_weight_value = 0u64;
-        
+
         for resolution in item_resolutions {
-            let item = basket.items
-                .get(resolution.item_index as usize)
-                .ok_or_else(|| "Item index out of bounds".to_string())?;
-            
-            let resolved_value = if resolution.resolved == Outcome::YES {
+            Self::validate_resolution_prices(resolution)?;
+
+            let item_index = resolution.item_index as usize;
+            let item = basket
+                .items
+                .get(item_index)
+                .ok_or(BasketMarketError::ResolutionIndexOutOfBounds)?;
+
+            if seen[item_index] {
+                return Err(BasketMarketError::DuplicateResolutionIndex);
+            }
+            seen[item_index] = true;
+
+            if resolution.poly_slug != item.poly_slug {
+                return Err(BasketMarketError::ResolutionSlugMismatch);
+            }
+
+            let resolved_value = if resolution.resolved == item.selected_outcome {
                 item.weight_bps as u64
             } else {
-                0u64
+                0
             };
-            
+
             total_weight_value = total_weight_value
                 .checked_add(resolved_value)
-                .ok_or_else(|| "Weight calculation overflow".to_string())?;
+                .ok_or(BasketMarketError::MathOverflow)?;
         }
 
-        // payout_per_share = (total_weight_value / 10000) * 10000 (in basis points)
-        // Since we're storing in basis points, we can simplify:
-        let payout_per_share = total_weight_value as u128;
+        if seen.iter().any(|covered| !covered) {
+            return Err(BasketMarketError::InvalidResolutionCount);
+        }
 
-        Ok(payout_per_share)
+        Ok(total_weight_value as u128)
     }
 }
 
-#[sails_rs::service]
+#[sails_rs::service(events = Event)]
 impl<'a> BasketMarketService<'a> {
-    #[export]
+    #[export(unwrap_result)]
     pub fn create_basket(
         &mut self,
         name: String,
         description: String,
         items: Vec<BasketItem>,
         asset_kind: BasketAssetKind,
-    ) -> Result<u64, String> {
-        // Validate items
-        if items.is_empty() {
-            return Err("Basket must have at least one item".to_string());
-        }
+    ) -> Result<u64, BasketMarketError> {
+        BasketMarketService::validate_basket_metadata(&name, &description)?;
+        BasketMarketService::validate_items(&items)?;
 
-        // Validate weights sum to 10000 (or close, allow small rounding differences)
-        let total_weight: u32 = items.iter().map(|i| i.weight_bps as u32).sum();
-        if total_weight > 10000 {
-            return Err("Total weight exceeds 10000 basis points".to_string());
-        }
-
-        // Validate all weights are within range
-        for item in &items {
-            if item.weight_bps > 10000 {
-                return Err("Item weight exceeds 10000 basis points".to_string());
-            }
+        if asset_kind == BasketAssetKind::Vara && !self.state.config.vara_enabled {
+            return Err(BasketMarketError::VaraDisabled);
         }
 
         let creator = sails_rs::gstd::msg::source();
-        let now = sails_rs::gstd::exec::block_timestamp();
+        let created_at = sails_rs::gstd::exec::block_timestamp();
+        let basket_id = self.state.next_basket_id;
 
-        let basket = Basket {
-            id: self.state.next_basket_id,
+        self.state.baskets.push(Basket {
+            id: basket_id,
             creator,
             name,
             description,
             items,
-            created_at: now,
+            created_at,
             status: BasketStatus::Active,
             asset_kind,
-        };
+        });
+        self.state.next_basket_id = self
+            .state
+            .next_basket_id
+            .checked_add(1)
+            .ok_or(BasketMarketError::MathOverflow)?;
 
-        let basket_id = self.state.next_basket_id;
-        self.state.baskets.push(basket);
-        self.state.next_basket_id += 1;
+        self.emit_event(Event::BasketCreated {
+            basket_id,
+            creator,
+            asset_kind,
+        })
+        .map_err(|_| BasketMarketError::EventEmitFailed)?;
 
         Ok(basket_id)
     }
 
-    #[export]
-    pub fn bet_on_basket(&mut self, basket_id: u64, index_at_creation_bps: u16) -> Result<u128, String> {
-        let basket = self.get_basket(basket_id)?;
-        
+    #[export(unwrap_result)]
+    pub fn bet_on_basket(
+        &mut self,
+        basket_id: u64,
+        index_at_creation_bps: u16,
+    ) -> Result<u128, BasketMarketError> {
+        let basket_index = self.basket_index(basket_id)?;
+        let basket = &self.state.baskets[basket_index];
+
+        if basket.asset_kind != BasketAssetKind::Vara {
+            return Err(BasketMarketError::BasketAssetMismatch);
+        }
+        if !self.state.config.vara_enabled {
+            return Err(BasketMarketError::VaraDisabled);
+        }
         if basket.status != BasketStatus::Active {
-            return Err("Basket is not active".to_string());
+            return Err(BasketMarketError::BasketNotActive);
         }
 
         let value = sails_rs::gstd::msg::value();
         if value == 0 {
-            return Err("Must send value with bet".to_string());
+            return Err(BasketMarketError::InvalidBetAmount);
         }
-
-        // Validate index_at_creation_bps is in valid range (1-10000)
-        // Minimum of 1 to prevent division by zero in payout calculation
-        if index_at_creation_bps == 0 || index_at_creation_bps > 10000 {
-            return Err("Index at creation must be between 1 and 10000 basis points".to_string());
-        }
+        BasketMarketService::validate_index_at_creation(index_at_creation_bps)?;
 
         let user = sails_rs::gstd::msg::source();
-
-        // Shares = Amount (1:1 for simplicity)
         let shares = value;
+        let user_total;
+        let stored_index_at_creation_bps;
 
-        // Find or create position
-        let position = self.state
-            .positions
-            .iter_mut()
-            .find(|p| p.basket_id == basket_id && p.user == user);
-
-        if let Some(pos) = position {
-            // Add to existing position - use weighted average for index_at_creation
-            // This handles cases where user bets multiple times at different indices
-            let old_shares = pos.shares;
-            let new_total_shares = old_shares
+        if let Some(position_index) =
+            self.position_index(basket_id, user)
+        {
+            let position = &mut self.state.positions[position_index];
+            let old_shares = position.shares;
+            user_total = old_shares
                 .checked_add(shares)
-                .ok_or_else(|| "Shares overflow".to_string())?;
-            
-            // Weighted average: (old_shares * old_index + new_shares * new_index) / total_shares
-            let old_weighted_index = (old_shares as u128)
-                .checked_mul(pos.index_at_creation_bps as u128)
-                .ok_or_else(|| "Index calculation overflow".to_string())?;
-            
-            let new_weighted_index = (shares as u128)
+                .ok_or(BasketMarketError::MathOverflow)?;
+
+            let old_weighted_index = old_shares
+                .checked_mul(position.index_at_creation_bps as u128)
+                .ok_or(BasketMarketError::MathOverflow)?;
+            let new_weighted_index = shares
                 .checked_mul(index_at_creation_bps as u128)
-                .ok_or_else(|| "Index calculation overflow".to_string())?;
-            
+                .ok_or(BasketMarketError::MathOverflow)?;
             let total_weighted_index = old_weighted_index
                 .checked_add(new_weighted_index)
-                .ok_or_else(|| "Index calculation overflow".to_string())?;
-            
-            // Calculate weighted average index (in basis points)
-            let avg_index_bps = (total_weighted_index / new_total_shares) as u16;
-            
-            pos.shares = new_total_shares;
-            pos.index_at_creation_bps = avg_index_bps;
+                .ok_or(BasketMarketError::MathOverflow)?;
+            let average_index = total_weighted_index
+                .checked_div(user_total)
+                .ok_or(BasketMarketError::MathOverflow)?;
+            stored_index_at_creation_bps =
+                u16::try_from(average_index).map_err(|_| BasketMarketError::MathOverflow)?;
+
+            position.shares = user_total;
+            position.index_at_creation_bps = stored_index_at_creation_bps;
         } else {
-            // Create new position
             self.state.positions.push(Position {
                 basket_id,
                 user,
@@ -312,183 +542,163 @@ impl<'a> BasketMarketService<'a> {
                 claimed: false,
                 index_at_creation_bps,
             });
-        }
+            user_total = shares;
+            stored_index_at_creation_bps = index_at_creation_bps;
+        };
+
+        self.emit_event(Event::VaraBetPlaced {
+            basket_id,
+            user,
+            amount: shares,
+            user_total,
+            index_at_creation_bps: stored_index_at_creation_bps,
+        })
+        .map_err(|_| BasketMarketError::EventEmitFailed)?;
 
         Ok(shares)
     }
 
-    #[export]
+    #[export(unwrap_result)]
     pub fn propose_settlement(
         &mut self,
         basket_id: u64,
         item_resolutions: Vec<ItemResolution>,
         payload: String,
-    ) -> Result<(), String> {
-        // Check caller is settler
-        let caller = sails_rs::gstd::msg::source();
-        if caller != self.state.settler_role {
-            return Err("Only settler can propose settlement".to_string());
+    ) -> Result<(), BasketMarketError> {
+        self.ensure_settler()?;
+        if payload.len() > MAX_SETTLEMENT_PAYLOAD_LEN {
+            return Err(BasketMarketError::PayloadTooLong);
         }
 
-        // Validate basket exists and is active
-        let basket = self.get_basket(basket_id)?;
+        let basket_index = self.basket_index(basket_id)?;
+        let basket = &self.state.baskets[basket_index];
         if basket.status != BasketStatus::Active {
-            return Err("Basket not active".to_string());
+            return Err(BasketMarketError::BasketNotActive);
         }
 
-        // Check if settlement already exists
-        if self.get_settlement(basket_id).is_ok() {
-            return Err("Settlement already exists for this basket".to_string());
+        if self.settlement_index(basket_id).is_ok() {
+            return Err(BasketMarketError::SettlementAlreadyExists);
         }
 
-        // Validate item resolutions
-        if item_resolutions.is_empty() {
-            return Err("Item resolutions cannot be empty".to_string());
-        }
+        let payout_per_share =
+            BasketMarketService::calculate_payout_per_share(basket, &item_resolutions)?;
+        let proposed_at = sails_rs::gstd::exec::block_timestamp();
+        let challenge_deadline = proposed_at
+            .checked_add(self.state.config.liveness_ms)
+            .ok_or(BasketMarketError::MathOverflow)?;
+        let proposer = sails_rs::gstd::msg::source();
 
-        if item_resolutions.len() != basket.items.len() {
-            return Err("Item resolutions count does not match basket items".to_string());
-        }
-
-        // Validate all item indices are valid
-        for resolution in &item_resolutions {
-            if resolution.item_index as usize >= basket.items.len() {
-                return Err("Item index out of bounds".to_string());
-            }
-        }
-
-        // Calculate payout per share
-        let payout_per_share = self.calculate_payout_per_share(&basket, &item_resolutions)?;
-
-        // Create settlement
-        let now = sails_rs::gstd::exec::block_timestamp();
-        let settlement = Settlement {
+        self.state.settlements.push(Settlement {
             basket_id,
-            proposer: caller,
+            proposer,
             item_resolutions,
             payout_per_share,
             payload,
-            proposed_at: now,
-            challenge_deadline: now
-                .checked_add(self.state.liveness_seconds)
-                .ok_or_else(|| "Challenge deadline overflow".to_string())?,
+            proposed_at,
+            challenge_deadline,
             finalized_at: None,
             status: SettlementStatus::Proposed,
+        });
+        self.state.baskets[basket_index].status = BasketStatus::SettlementPending;
+
+        self.emit_event(Event::SettlementProposed {
+            basket_id,
+            proposer,
+            payout_per_share,
+            challenge_deadline,
+        })
+        .map_err(|_| BasketMarketError::EventEmitFailed)?;
+
+        Ok(())
+    }
+
+    #[export(unwrap_result)]
+    pub fn finalize_settlement(&mut self, basket_id: u64) -> Result<(), BasketMarketError> {
+        let settlement_index = self.settlement_index(basket_id)?;
+        let now = sails_rs::gstd::exec::block_timestamp();
+        let payout_per_share = {
+            let settlement = &mut self.state.settlements[settlement_index];
+
+            if settlement.status != SettlementStatus::Proposed {
+                return Err(BasketMarketError::SettlementNotProposed);
+            }
+            if now < settlement.challenge_deadline {
+                return Err(BasketMarketError::ChallengeDeadlineNotPassed);
+            }
+
+            settlement.status = SettlementStatus::Finalized;
+            settlement.finalized_at = Some(now);
+            settlement.payout_per_share
         };
 
-        self.state.settlements.push(settlement);
-        Ok(())
-    }
+        let basket_index = self.basket_index(basket_id)?;
+        self.state.baskets[basket_index].status = BasketStatus::Settled;
 
-    #[export]
-    pub fn finalize_settlement(&mut self, basket_id: u64) -> Result<(), String> {
-        let settlement = self.get_settlement_mut(basket_id)?;
-
-        // Check challenge deadline passed
-        let now = sails_rs::gstd::exec::block_timestamp();
-        if now < settlement.challenge_deadline {
-            return Err("Challenge deadline not passed".to_string());
-        }
-
-        // Check not already finalized
-        if settlement.status != SettlementStatus::Proposed {
-            return Err("Settlement not in Proposed state".to_string());
-        }
-
-        // Finalize
-        settlement.status = SettlementStatus::Finalized;
-        settlement.finalized_at = Some(now);
-
-        // Update basket status
-        let basket = self.get_basket_mut(basket_id)?;
-        basket.status = BasketStatus::Settled;
+        self.emit_event(Event::SettlementFinalized {
+            basket_id,
+            finalized_at: now,
+            payout_per_share,
+        })
+        .map_err(|_| BasketMarketError::EventEmitFailed)?;
 
         Ok(())
     }
 
-    #[export]
-    pub fn claim(&mut self, basket_id: u64) -> Result<u128, String> {
-        let user = sails_rs::gstd::msg::source();
+    #[export(unwrap_result)]
+    pub fn claim(&mut self, basket_id: u64) -> Result<u128, BasketMarketError> {
+        let basket_index = self.basket_index(basket_id)?;
+        let basket = &self.state.baskets[basket_index];
+        if basket.asset_kind != BasketAssetKind::Vara {
+            return Err(BasketMarketError::BasketAssetMismatch);
+        }
 
-        // Get FINALIZED settlement first (immutable borrow)
-        let settlement = self.get_settlement(basket_id)?;
-        
+        let settlement_index = self.settlement_index(basket_id)?;
+        let settlement = &self.state.settlements[settlement_index];
         if settlement.status != SettlementStatus::Finalized {
-            return Err("Settlement not finalized".to_string());
+            return Err(BasketMarketError::SettlementNotFinalized);
         }
 
-        // Settlement index in basis points (0-10000)
-        let settlement_index_bps = settlement.payout_per_share;
+        let user = sails_rs::gstd::msg::source();
+        let position_index = self
+            .position_index(basket_id, user)
+            .ok_or(BasketMarketError::NothingToClaim)?;
+        let position = &self.state.positions[position_index];
 
-        // Get user's position (mutable borrow after settlement check)
-        let position = self.get_position_mut(basket_id, user)?;
-        
         if position.claimed {
-            return Err("Already claimed".to_string());
+            return Err(BasketMarketError::AlreadyClaimed);
+        }
+        BasketMarketService::validate_index_at_creation(position.index_at_creation_bps)?;
+
+        let payout = if settlement.payout_per_share == 0 {
+            0
+        } else {
+            position
+                .shares
+                .checked_mul(settlement.payout_per_share)
+                .and_then(|value| value.checked_div(position.index_at_creation_bps as u128))
+                .ok_or(BasketMarketError::MathOverflow)?
+        };
+
+        if payout > 0 {
+            sails_rs::gstd::msg::send_bytes(user, b"", payout)
+                .map_err(|_| BasketMarketError::TransferFailed)?;
         }
 
-        let shares = position.shares;
-        let index_at_creation_bps = position.index_at_creation_bps;
-
-        // Validate index_at_creation_bps to prevent division by zero
-        if index_at_creation_bps == 0 {
-            return Err("Invalid index at creation: cannot be zero".to_string());
-        }
-
-        // Calculate payout using index-based odds system:
-        // Payout = Shares × (SettlementIndex / IndexAtCreation)
-        // This allows users to profit if settlement index > index at creation
-        // Example: Bet 1000 VARA at index 0.421 (42.1%), settle at 1.000 (100%)
-        // Payout = 1000 × (10000 / 4210) = 1000 × 2.375 = 2375 VARA (137.5% profit)
-        
-        // Edge case: If settlement index is 0, user loses everything (all items resolved NO)
-        // In this case, payout is 0, which is valid - user gets nothing back
-        if settlement_index_bps == 0 {
-            // User lost everything, but we still need to mark as claimed
-            position.claimed = true;
-            // Return 0 instead of error - this is a valid outcome (total loss)
-            return Ok(0);
-        }
-        
-        // Calculate: shares * settlement_index_bps / index_at_creation_bps
-        // We multiply by 10000 first to maintain precision, then divide by 10000
-        // This is equivalent to: shares * (settlement_index_bps / index_at_creation_bps)
-        let payout = shares
-            .checked_mul(settlement_index_bps as u128)
-            .and_then(|x| x.checked_div(index_at_creation_bps as u128))
-            .ok_or_else(|| "Payout calculation overflow".to_string())?;
-
-        // Edge case: Payout could be 0 if settlement_index < index_at_creation and shares are small
-        // This is a valid outcome (user lost money), but we still transfer 0 and mark as claimed
-        if payout == 0 {
-            position.claimed = true;
-            return Ok(0);
-        }
-
-        // Mark as claimed before transfer (prevent re-entrancy)
-        position.claimed = true;
-
-        // Transfer payout to user
-        // msg::send signature: (destination, payload, value)
-        // We send empty payload and payout as the value to transfer
-        sails_rs::gstd::msg::send_bytes(user, b"", payout)
-            .map_err(|_| "Failed to send payout".to_string())?;
+        self.state.positions[position_index].claimed = true;
+        self.emit_event(Event::Claimed {
+            basket_id,
+            user,
+            amount: payout,
+        })
+        .map_err(|_| BasketMarketError::EventEmitFailed)?;
 
         Ok(payout)
     }
 
-    // ========================================================================
-    // Query Functions
-    // ========================================================================
-
     #[export]
-    pub fn get_basket(&self, basket_id: u64) -> Result<Basket, String> {
-        self.state
-            .baskets
-            .iter()
-            .find(|b| b.id == basket_id)
-            .cloned()
-            .ok_or_else(|| "Basket not found".to_string())
+    pub fn get_basket(&self, basket_id: u64) -> Result<Basket, BasketMarketError> {
+        let basket_index = self.basket_index(basket_id)?;
+        Ok(self.state.baskets[basket_index].clone())
     }
 
     #[export]
@@ -496,19 +706,15 @@ impl<'a> BasketMarketService<'a> {
         self.state
             .positions
             .iter()
-            .filter(|p| p.user == user)
+            .filter(|position| position.user == user)
             .cloned()
             .collect()
     }
 
     #[export]
-    pub fn get_settlement(&self, basket_id: u64) -> Result<Settlement, String> {
-        self.state
-            .settlements
-            .iter()
-            .find(|s| s.basket_id == basket_id)
-            .cloned()
-            .ok_or_else(|| "Settlement not found".to_string())
+    pub fn get_settlement(&self, basket_id: u64) -> Result<Settlement, BasketMarketError> {
+        let settlement_index = self.settlement_index(basket_id)?;
+        Ok(self.state.settlements[settlement_index].clone())
     }
 
     #[export]
@@ -517,14 +723,24 @@ impl<'a> BasketMarketService<'a> {
     }
 
     #[export]
-    pub fn get_config(&self) -> (ActorId, u64) {
-        (self.state.settler_role, self.state.liveness_seconds)
+    pub fn get_config(&self) -> BasketMarketConfig {
+        self.state.config.clone()
+    }
+
+    #[export]
+    pub fn is_vara_enabled(&self) -> bool {
+        self.state.config.vara_enabled
+    }
+
+    #[export(unwrap_result)]
+    pub fn set_vara_enabled(&mut self, enabled: bool) -> Result<(), BasketMarketError> {
+        self.ensure_admin()?;
+        self.state.config.vara_enabled = enabled;
+        self.emit_event(Event::VaraSupportUpdated { enabled })
+            .map_err(|_| BasketMarketError::EventEmitFailed)?;
+        Ok(())
     }
 }
-
-// ============================================================================
-// Program Entry Point
-// ============================================================================
 
 pub struct BasketMarketProgram {
     state: State,
@@ -532,22 +748,28 @@ pub struct BasketMarketProgram {
 
 #[sails_rs::program]
 impl BasketMarketProgram {
-    // Constructor that accepts init parameters as a tuple
-    // Format: (settler_role: ActorId, liveness_seconds: u64)
-    pub fn new(settler_role: ActorId, liveness_seconds: u64) -> Self {
-        let state = State {
-            baskets: Vec::new(),
-            positions: Vec::new(),
-            settlements: Vec::new(),
-            next_basket_id: 0,
-            settler_role,
-            liveness_seconds,
-        };
+    pub fn new(init: BasketMarketInit) -> Self {
+        assert!(
+            init.admin_role != ActorId::zero() && init.settler_role != ActorId::zero(),
+            "admin_role and settler_role must be non-zero"
+        );
 
-        Self { state }
+        Self {
+            state: State {
+                baskets: Vec::new(),
+                positions: Vec::new(),
+                settlements: Vec::new(),
+                next_basket_id: 0,
+                config: BasketMarketConfig {
+                    admin_role: init.admin_role,
+                    settler_role: init.settler_role,
+                    liveness_ms: init.liveness_ms,
+                    vara_enabled: false,
+                },
+            },
+        }
     }
 
-    // Exposed service - returns service with mutable reference to program's state
     pub fn basket_market(&mut self) -> BasketMarketService<'_> {
         BasketMarketService::new(&mut self.state)
     }

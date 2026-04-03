@@ -11,8 +11,8 @@ use gtest::System;
 use gtest::constants::{DEFAULT_USER_ALICE, DEFAULT_USER_BOB, DEFAULT_USER_CHARLIE};
 use polymarket_mirror::WASM_BINARY as POLYMARKET_MIRROR_WASM_BINARY;
 use polymarket_mirror_client::{
-    BasketAssetKind, BasketItem, ItemResolution, Outcome, PolymarketMirror, PolymarketMirrorCtors,
-    basket_market::BasketMarket,
+    BasketAssetKind, BasketItem, BasketMarketInit, ItemResolution, Outcome, PolymarketMirror,
+    PolymarketMirrorCtors, basket_market::BasketMarket,
 };
 use sails_rs::client::{GearEnv, GtestEnv};
 use sails_rs::prelude::{ActorId, U256};
@@ -49,7 +49,11 @@ impl Harness {
         let mirror_code_id = env.system().submit_code(POLYMARKET_MIRROR_WASM_BINARY);
         let mirror = env
             .deploy(mirror_code_id, b"polymarket-mirror".to_vec())
-            .new(admin, 1)
+            .new(BasketMarketInit {
+                admin_role: admin,
+                settler_role: admin,
+                liveness_ms: 1,
+            })
             .await
             .expect("mirror deployment should succeed");
 
@@ -135,13 +139,13 @@ impl Harness {
                     poly_market_id: "market-1".into(),
                     poly_slug: "market-1".into(),
                     weight_bps: 10_000,
+                    selected_outcome: Outcome::YES,
                 }],
                 asset_kind,
             )
             .with_actor_id(self.admin)
             .await
             .expect("create basket transport should succeed")
-            .expect("create basket should succeed")
     }
 
     async fn finalize_yes_settlement(&self, basket_id: u64) {
@@ -161,8 +165,7 @@ impl Harness {
             )
             .with_actor_id(self.admin)
             .await
-            .expect("propose settlement transport should succeed")
-            .expect("propose settlement should succeed");
+            .expect("propose settlement transport should succeed");
 
         self.advance_blocks(1);
 
@@ -170,8 +173,7 @@ impl Harness {
             .finalize_settlement(basket_id)
             .with_actor_id(self.admin)
             .await
-            .expect("finalize settlement transport should succeed")
-            .expect("finalize settlement should succeed");
+            .expect("finalize settlement transport should succeed");
     }
 
     async fn bet_token_balance(&self, actor: ActorId) -> U256 {
@@ -334,6 +336,14 @@ async fn max_bet_applies_to_total_user_exposure() {
 #[tokio::test(flavor = "current_thread")]
 async fn vara_baskets_reject_bet_lane_positions() {
     let harness = Harness::new().await;
+    let vara_enabled = harness
+        .mirror
+        .basket_market()
+        .set_vara_enabled(true)
+        .with_actor_id(harness.admin)
+        .await
+        .expect("admin should enable vara support");
+    assert_eq!(vara_enabled, ());
     let basket_id = harness.create_basket(BasketAssetKind::Vara).await;
 
     harness.mint(harness.alice, 50).await;

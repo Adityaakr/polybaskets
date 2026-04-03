@@ -312,10 +312,16 @@ npm run dev
 ### Environment Variables
 
 ```env
-VITE_PROGRAM_ID=0x36cbc8f30e84f2a3fbf60655175fb0673aedba686299fafbcbd9659df6c20577
-VITE_VARA_NODE_ADDRESS=wss://testnet.vara.network
+VITE_ENABLE_VARA=true
+VITE_PROGRAM_ID=0xa978905cf582606f76ddf16fc0143a17e5d174974438a5219e26830f69ea0c6e
+VITE_NODE_ADDRESS=wss://testnet.vara.network
 VITE_GAMMA_PROXY=/gamma
 ```
+
+`VITE_ENABLE_VARA` controls the native VARA asset flow in the frontend.
+
+- `true`: current behavior is preserved, including native VARA basket creation, betting, and claim UI.
+- `false`: the app runs in CHIP-only mode. Native VARA asset UI is hidden, native VARA actions are unavailable, and the builder defaults to the CHIP lane only.
 
 ---
 

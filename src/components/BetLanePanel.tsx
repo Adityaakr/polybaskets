@@ -28,7 +28,7 @@ import {
 
 type BetLanePanelProps = {
   basketId: number | null;
-  basketStatus: 'Active' | 'Settled' | 'Closed' | null | undefined;
+  basketStatus: 'Active' | 'SettlementPending' | 'Settled' | null | undefined;
   settlement: Settlement | null;
   hasValidData: boolean;
   liveIndex: number;

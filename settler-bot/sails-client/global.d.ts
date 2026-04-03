@@ -1,10 +1,58 @@
 import { ActorId } from 'sails-js';
 
 declare global {
+  export interface BasketMarketInit {
+    admin_role: ActorId;
+    settler_role: ActorId;
+    liveness_ms: number | string | bigint;
+  }
+
+  export interface BasketMarketConfig {
+    admin_role: ActorId;
+    settler_role: ActorId;
+    liveness_ms: number | string | bigint;
+    vara_enabled: boolean;
+  }
+
+  export type BasketMarketError =
+    | "Unauthorized"
+    | "BasketNotFound"
+    | "BasketNotActive"
+    | "BasketAssetMismatch"
+    | "NoItems"
+    | "InvalidWeights"
+    | "DuplicateBasketItem"
+    | "TooManyItems"
+    | "NameTooLong"
+    | "DescriptionTooLong"
+    | "MarketIdTooLong"
+    | "SlugTooLong"
+    | "PayloadTooLong"
+    | "VaraDisabled"
+    | "SettlementAlreadyExists"
+    | "SettlementNotFound"
+    | "SettlementNotProposed"
+    | "SettlementNotFinalized"
+    | "ChallengeDeadlineNotPassed"
+    | "InvalidIndexAtCreation"
+    | "InvalidBetAmount"
+    | "InvalidResolutionCount"
+    | "DuplicateResolutionIndex"
+    | "ResolutionIndexOutOfBounds"
+    | "ResolutionSlugMismatch"
+    | "InvalidResolution"
+    | "AlreadyClaimed"
+    | "NothingToClaim"
+    | "TransferFailed"
+    | "MathOverflow"
+    | "EventEmitFailed"
+    | "InvalidConfig";
+
   export interface BasketItem {
     poly_market_id: string;
     poly_slug: string;
     weight_bps: number;
+    selected_outcome: Outcome;
   }
 
   export interface ItemResolution {
@@ -26,9 +74,12 @@ declare global {
     items: Array<BasketItem>;
     created_at: number | string | bigint;
     status: BasketStatus;
+    asset_kind: BasketAssetKind;
   }
 
-  export type BasketStatus = "Active" | "Settled" | "Closed";
+  export type BasketAssetKind = "Vara" | "Bet";
+
+  export type BasketStatus = "Active" | "SettlementPending" | "Settled";
 
   export interface Position {
     basket_id: number | string | bigint;
@@ -49,5 +100,5 @@ declare global {
     status: SettlementStatus;
   }
 
-  export type SettlementStatus = "Proposed" | "Finalized" | "Disputed";
+  export type SettlementStatus = "Proposed" | "Finalized";
 };
