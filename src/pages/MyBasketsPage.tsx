@@ -1,6 +1,7 @@
 import { useWallet } from '@/contexts/WalletContext';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { useApi } from '@gear-js/react-hooks';
+import { Wallet as GearWallet } from '@gear-js/wallet-connect';
 import { getBasketsByOwner, getFollows, getBasketById, deleteBasket, getBaskets } from '@/lib/basket-storage';
 import { extractOnChainBasketId, fetchAllOnChainBaskets } from '@/lib/basket-onchain';
 import { basketMarketProgramFromApi } from '@/lib/varaClient';
@@ -11,14 +12,14 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Link, useNavigate } from 'react-router-dom';
-import { Wallet, Plus, Heart, Layers, RefreshCw } from 'lucide-react';
+import { Wallet as WalletIcon, Plus, Heart, Layers, RefreshCw } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useState, useEffect, useMemo } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import type { Basket } from '@/types/basket';
 
 export default function MyBasketsPage() {
-  const { address, connect, isConnecting } = useWallet();
+  const { address } = useWallet();
   const { network } = useNetwork();
   const { api, isApiReady } = useApi();
   const queryClient = useQueryClient();
@@ -245,21 +246,15 @@ export default function MyBasketsPage() {
       <div className="content-grid py-8">
         <div className="text-center py-16">
           <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mx-auto mb-4">
-            <Wallet className="w-8 h-8 text-muted-foreground" />
+            <WalletIcon className="w-8 h-8 text-muted-foreground" />
           </div>
           <h1 className="text-2xl font-semibold mb-2">Connect Wallet</h1>
           <p className="text-muted-foreground mb-6">
             Connect your wallet to see your baskets and follows
           </p>
-          <Button 
-            onClick={connect} 
-            disabled={isConnecting} 
-            size="sm" 
-            variant="outline" 
-            className="whitespace-nowrap px-3 py-1 text-sm"
-          >
-            {isConnecting ? 'Connecting...' : 'Connect'}
-          </Button>
+          <div className="gear-wallet-compact [&_button]:!h-9 [&_button]:!px-4 [&_button]:!py-2 [&_button]:!text-sm [&_button]:!rounded-md [&_button]:!whitespace-nowrap [&_button]:!min-w-0 [&_button]:!text-black [&_button]:!font-medium">
+            <GearWallet />
+          </div>
         </div>
       </div>
     );

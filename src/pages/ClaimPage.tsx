@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAccount, useApi } from '@gear-js/react-hooks';
+import { Wallet } from '@gear-js/wallet-connect';
 import { Sparkles, Coins, CalendarClock, ShieldCheck } from 'lucide-react';
 import { actorIdFromAddress } from '@/lib/varaClient';
 import { useWallet } from '@/contexts/WalletContext';
@@ -211,16 +212,22 @@ export default function ClaimPage() {
                     Next claim window opens at {nextClaimAtLabel}
                   </div>
                 )}
-                <Button onClick={handleClaim} disabled={claiming || (!!address && !canClaimNow)} className="w-full gap-2">
-                  {claiming ? (
-                    <>Claiming...</>
-                  ) : (
-                    <>
-                      <Coins className="w-4 h-4" />
-                      {address ? `Claim ${tokenSymbol}` : 'Connect Wallet'}
-                    </>
-                  )}
-                </Button>
+                {!address ? (
+                  <div className="gear-wallet-compact [&_button]:!w-full [&_button]:!justify-center [&_button]:!h-10 [&_button]:!px-4 [&_button]:!py-2 [&_button]:!text-sm [&_button]:!rounded-md [&_button]:!text-black [&_button]:!font-medium">
+                    <Wallet />
+                  </div>
+                ) : (
+                  <Button onClick={handleClaim} disabled={claiming || !canClaimNow} className="w-full gap-2">
+                    {claiming ? (
+                      <>Claiming...</>
+                    ) : (
+                      <>
+                        <Coins className="w-4 h-4" />
+                        {`Claim ${tokenSymbol}`}
+                      </>
+                    )}
+                  </Button>
+                )}
               </CardContent>
             </Card>
 
