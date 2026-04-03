@@ -1,12 +1,12 @@
 import { useWallet } from '@/contexts/WalletContext';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { useApi } from '@gear-js/react-hooks';
-import { Wallet as GearWallet } from '@gear-js/wallet-connect';
 import { getBasketsByOwner, getFollows, getBasketById, deleteBasket, getBaskets } from '@/lib/basket-storage';
 import { extractOnChainBasketId, fetchAllOnChainBaskets } from '@/lib/basket-onchain';
 import { basketMarketProgramFromApi } from '@/lib/varaClient';
 import { ENV, isBasketAssetKindEnabled } from '@/env';
 import { BasketCard } from '@/components/BasketCard';
+import { WalletButton } from '@/components/WalletButton';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -252,8 +252,8 @@ export default function MyBasketsPage() {
           <p className="text-muted-foreground mb-6">
             Connect your wallet to see your baskets and follows
           </p>
-          <div className="gear-wallet-compact [&_button]:!h-9 [&_button]:!px-4 [&_button]:!py-2 [&_button]:!text-sm [&_button]:!rounded-md [&_button]:!whitespace-nowrap [&_button]:!min-w-0 [&_button]:!text-black [&_button]:!font-medium">
-            <GearWallet />
+          <div className="flex justify-center">
+            <WalletButton />
           </div>
         </div>
       </div>

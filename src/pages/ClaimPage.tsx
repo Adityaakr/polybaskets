@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAccount, useApi } from '@gear-js/react-hooks';
-import { Wallet } from '@gear-js/wallet-connect';
 import { Sparkles, Coins, CalendarClock, ShieldCheck } from 'lucide-react';
 import { actorIdFromAddress } from '@/lib/varaClient';
 import { useWallet } from '@/contexts/WalletContext';
@@ -12,6 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
+import { WalletButton } from '@/components/WalletButton';
 
 export default function ClaimPage() {
   const { api, isApiReady } = useApi();
@@ -213,8 +213,8 @@ export default function ClaimPage() {
                   </div>
                 )}
                 {!address ? (
-                  <div className="gear-wallet-compact [&_button]:!w-full [&_button]:!justify-center [&_button]:!h-10 [&_button]:!px-4 [&_button]:!py-2 [&_button]:!text-sm [&_button]:!rounded-md [&_button]:!text-black [&_button]:!font-medium">
-                    <Wallet />
+                  <div className="flex justify-center">
+                    <WalletButton />
                   </div>
                 ) : (
                   <Button onClick={handleClaim} disabled={claiming || !canClaimNow} className="w-full gap-2">

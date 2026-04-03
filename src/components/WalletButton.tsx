@@ -8,27 +8,25 @@ import { Wallet as WalletIcon } from 'lucide-react';
 export function WalletButton() {
   const { network } = useNetwork();
   const { address, isConnecting, connect, disconnect } = useWallet();
+  const buttonClassName = 'wallet-button-primary whitespace-nowrap gap-2';
 
-  // For Vara Network, use Gear wallet component with compact styling
+  // Keep wallet CTA consistent across header and pages.
   if (network === 'vara') {
     return (
-      <div className="gear-wallet-compact [&_button]:!h-8 [&_button]:!px-3 [&_button]:!py-1 [&_button]:!text-xs [&_button]:!rounded-md [&_button]:!whitespace-nowrap [&_button]:!min-w-0 [&_button]:!text-black [&_button]:!font-medium">
-        <Wallet />
+      <div className={buttonClassName}>
+        <Wallet theme="gear" />
       </div>
     );
   }
 
-  // For Vara.eth, use MetaMask
   if (!isMetaMaskInstalled()) {
     return (
       <Button
-        variant="outline"
-        size="sm"
-        className="whitespace-nowrap h-8 px-2 text-xs rounded-md"
+        className={buttonClassName}
         onClick={() => window.open('https://metamask.io/download/', '_blank')}
       >
-        <WalletIcon className="w-4 h-4 mr-1" />
-        Connect
+        <WalletIcon className="w-4 h-4" />
+        Install MetaMask
       </Button>
     );
   }
@@ -36,12 +34,10 @@ export function WalletButton() {
   if (address) {
     return (
       <Button
-        variant="outline"
-        size="sm"
-        className="whitespace-nowrap h-8 px-2 text-xs rounded-md"
+        className={buttonClassName}
         onClick={disconnect}
       >
-        <WalletIcon className="w-4 h-4 mr-1" />
+        <WalletIcon className="w-4 h-4" />
         {address.slice(0, 6)}...{address.slice(-4)}
       </Button>
     );
@@ -49,14 +45,12 @@ export function WalletButton() {
 
   return (
     <Button
-      variant="outline"
-      size="sm"
-      className="whitespace-nowrap h-8 px-2 text-xs rounded-md"
+      className={buttonClassName}
       onClick={connect}
       disabled={isConnecting}
     >
-      <WalletIcon className="w-4 h-4 mr-1" />
-      {isConnecting ? 'Connecting...' : 'Connect'}
+      <WalletIcon className="w-4 h-4" />
+      {isConnecting ? 'Connecting...' : 'Connect Wallet'}
     </Button>
   );
 }

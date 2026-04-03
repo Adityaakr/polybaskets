@@ -421,38 +421,42 @@ button[class*="Wallet"] * {
   color: hsl(0 0% 98%) !important;
 }
 
-/* Force white on all text in header wallet area - maximum specificity */
-header button [class*="_vara_"],
-header button [class*="_value_"],
-header button [class*="_unit_"],
-header button [class*="_text_"],
-header button [class*="_balance_"],
-header [class*="gear-js"] *,
-header button[class*="gear"] *,
-header [class*="wallet"] *,
-header button *,
-header [role="button"] * {
+/* Wallet CTA should look the same in header and page content */
+.wallet-button-primary [class*="gear-js"] button,
+.wallet-button-primary [class*="gear-js"] [role="button"],
+.wallet-button-primary button[class*="gear"],
+.wallet-button-primary [class*="wallet"] button,
+.wallet-button-primary [class*="Wallet"] button {
+  min-height: 2.5rem !important;
+  padding: 0.5rem 1rem !important;
+  border-radius: calc(var(--radius) - 2px) !important;
+  border-color: hsl(var(--primary)) !important;
+  background-color: hsl(var(--primary)) !important;
+  color: hsl(var(--primary-foreground)) !important;
+  font-size: 0.875rem !important;
+  font-weight: 500 !important;
+  line-height: 1.25rem !important;
+  white-space: nowrap !important;
+  min-width: 0 !important;
+  transition: all 200ms ease !important;
+}
+
+.wallet-button-primary [class*="_balance_"] [class*="_text_"],
+.wallet-button-primary [class*="_balance_"] [class*="_value_"],
+.wallet-button-primary [class*="_balance_"] [class*="_unit_"],
+.wallet-button-primary [class*="_balance_"] [class*="_vara_"],
+.wallet-button-primary [class*="_balance_"] [class*="_gear_"] {
   color: hsl(0 0% 98%) !important;
 }
 
-/* Override Gear wallet button to match primary green (same as navigation) */
-header [class*="gear-js"] button,
-header [class*="gear-js"] [role="button"],
-header button[class*="gear"],
-header [class*="wallet"] button,
-header [class*="Wallet"] button {
-  background-color: hsl(120 100% 50%) !important;
-  border-color: hsl(120 100% 50%) !important;
-  color: hsl(220 25% 8%) !important;
-}
-
-header [class*="gear-js"] button:hover,
-header [class*="gear-js"] [role="button"]:hover,
-header button[class*="gear"]:hover,
-header [class*="wallet"] button:hover,
-header [class*="Wallet"] button:hover {
-  background-color: hsl(120 100% 45%) !important;
+.wallet-button-primary [class*="gear-js"] button:hover,
+.wallet-button-primary [class*="gear-js"] [role="button"]:hover,
+.wallet-button-primary button[class*="gear"]:hover,
+.wallet-button-primary [class*="wallet"] button:hover,
+.wallet-button-primary [class*="Wallet"] button:hover {
+  background-color: hsl(var(--primary) / 0.9) !important;
   box-shadow: 0 0 20px hsl(120 100% 50% / 0.4) !important;
+  transform: translateY(-2px) !important;
 }
 
 /* ── Price flash animations ── */
