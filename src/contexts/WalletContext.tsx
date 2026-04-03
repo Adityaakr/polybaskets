@@ -18,6 +18,42 @@ interface WalletContextType {
 
 const WalletContext = createContext<WalletContextType | undefined>(undefined);
 
+type GearWalletAccount = {
+  address: string;
+};
+
+function findFirstGearAccount(value: unknown): GearWalletAccount | null {
+  if (!value) {
+    return null;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findFirstGearAccount(item);
+      if (found) {
+        return found;
+      }
+    }
+    return null;
+  }
+
+  if (typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    if (typeof record.address === 'string' && record.address.length > 0) {
+      return record as unknown as GearWalletAccount;
+    }
+
+    for (const nested of Object.values(record)) {
+      const found = findFirstGearAccount(nested);
+      if (found) {
+        return found;
+      }
+    }
+  }
+
+  return null;
+}
+
 export function WalletProvider({ children }: { children: ReactNode }) {
   const { network } = useNetwork();
   const gearAccount = useAccount();
@@ -107,9 +143,20 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         address: gearAccount.account?.address || null,
         isConnecting: !gearAccount.isAccountReady,
         connect: async () => {
-          if (gearAccount.login) {
-            gearAccount.login();
+          if (!gearAccount.login) {
+            return;
           }
+
+          const nextAccount =
+            (gearAccount.account as unknown as GearWalletAccount | undefined) ??
+            findFirstGearAccount((gearAccount as unknown as { wallets?: unknown }).wallets);
+
+          if (!nextAccount) {
+            console.warn('[WalletContext] No Gear wallet account is available to log in');
+            return;
+          }
+
+          gearAccount.login(nextAccount as never);
         },
         disconnect: () => {
           if (gearAccount.logout) {
