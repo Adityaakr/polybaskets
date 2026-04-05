@@ -1,0 +1,17 @@
+.git
+.DS_Store
+node_modules
+**/node_modules
+dist
+**/dist
+lib
+**/lib
+target
+**/target
+.next
+coverage
+tmp
+.env
+.env.*
+!.env.daily-contest.example
+*.log
