@@ -313,7 +313,7 @@ npm run dev
 
 ```env
 VITE_ENABLE_VARA=true
-VITE_PROGRAM_ID=0x4d47cb784a0b1e3788181a6cedb52db11aad0cef4268848e612670f7d950f089
+VITE_PROGRAM_ID=0x7cab5e520fb104b24ae55a12ac45dfee6829a46dfecad99f656018e3ea9bd5f7
 VITE_NODE_ADDRESS=wss://testnet.vara.network
 VITE_GAMMA_PROXY=/gamma
 ```
