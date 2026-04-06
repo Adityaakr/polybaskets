@@ -12,12 +12,15 @@ dist-ssr
 indexer/lib
 indexer/dist
 contest-bot/dist
+settler-bot/dist
 
 # Environment files
 .env
+.env.secrets
 .env.local
 .env.*.local
 .env.daily-contest
+.env.daily-contest.secrets
 settler-bot/.env
 relayer/.env
 contest-bot/.env

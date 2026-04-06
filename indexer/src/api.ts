@@ -42,17 +42,48 @@ async function main() {
 
   const middleware = postgraphile(database, "public", options);
   const app = express();
-  const allowedOrigins = new Set([
+  const configuredOrigins = [
     ...config.frontendOrigins,
     `http://localhost:${config.gqlPort}`,
     `http://127.0.0.1:${config.gqlPort}`,
     `http://0.0.0.0:${config.gqlPort}`,
-  ]);
+  ];
+  const exactOrigins = new Set(configuredOrigins.filter((origin) => !origin.includes("*")));
+  const wildcardOrigins = configuredOrigins.filter((origin) => origin.includes("*"));
+
+  const isOriginAllowed = (origin: string): boolean => {
+    if (exactOrigins.has(origin)) {
+      return true;
+    }
+
+    let parsedOrigin: URL;
+    try {
+      parsedOrigin = new URL(origin);
+    } catch {
+      return false;
+    }
+
+    return wildcardOrigins.some((pattern) => {
+      try {
+        const wildcard = new URL(pattern.replace("*.", ""));
+        if (parsedOrigin.protocol !== wildcard.protocol) {
+          return false;
+        }
+
+        return (
+          parsedOrigin.hostname === wildcard.hostname ||
+          parsedOrigin.hostname.endsWith(`.${wildcard.hostname}`)
+        );
+      } catch {
+        return false;
+      }
+    });
+  };
 
   app.use(
     cors({
       origin(origin, callback) {
-        if (!origin || allowedOrigins.has(origin)) {
+        if (!origin || isOriginAllowed(origin)) {
           callback(null, true);
           return;
         }

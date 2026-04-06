@@ -24,14 +24,11 @@ const parseOrigins = (value: string): string[] =>
 export const DAY_MS = 86_400_000n;
 
 export const config = {
-  archiveUrl: getEnv(
-    "VARA_ARCHIVE_URL",
-    "https://v2.archive.subsquid.io/network/vara-testnet"
-  ),
-  rpcUrl: getEnv("VARA_RPC_URL", "wss://testnet-archive.vara.network"),
+  archiveUrl: getEnv("VARA_ARCHIVE_URL"),
+  rpcUrl: getEnv("VARA_RPC_URL"),
   rateLimit: Number(getEnv("VARA_RPC_RATE_LIMIT", "20")),
-  fromBlock: Number(getEnv("VARA_FROM_BLOCK", "0")),
-  gqlPort: Number(getEnv("INDEXER_GQL_PORT", getEnv("GQL_PORT", "4350"))),
+  fromBlock: Number(getEnv("VARA_FROM_BLOCK")),
+  gqlPort: Number(getEnv("INDEXER_GQL_PORT", "4350")),
   frontendOrigins: parseOrigins(
     getEnv(
       "FRONTEND_URLS",

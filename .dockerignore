@@ -12,6 +12,8 @@ target
 coverage
 tmp
 .env
+.env.secrets
 .env.*
-!.env.daily-contest.example
+!.env.example
+!.env.secrets.example
 *.log

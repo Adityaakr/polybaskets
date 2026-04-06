@@ -1,21 +1,16 @@
-FROM node:18-alpine
+FROM node:20-bookworm-slim
 
-WORKDIR /app
+WORKDIR /app/settler-bot
 
-# Copy package files
-COPY package*.json ./
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3 make g++ \
+  && rm -rf /var/lib/apt/lists/*
 
-# Install dependencies
+COPY settler-bot/package*.json ./
 RUN npm install --legacy-peer-deps
 
-# Copy source code
-COPY . .
+COPY settler-bot/ ./
 
-# Build the application
 RUN npm run build
 
-# Expose port (if needed)
-# EXPOSE 3000
-
-# Start the application
 CMD ["npm", "start"]

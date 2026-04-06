@@ -32,5 +32,22 @@ The bot is a long-running polling service, not a single-shot command.
 
 Run with the repo-root stack:
 
-- `docker compose --env-file .env.daily-contest -f docker-compose.daily-contest.yml up --build contest-bot`
-- `docker compose --env-file .env.daily-contest -f docker-compose.daily-contest.yml logs -f contest-bot`
+- `contest-bot` and `settler-bot` use the same shared signer secret
+- set exactly one of `SETTLER_SEED` or `SETTLER_SEED_FILE`
+- no fallback mnemonic is embedded in the code
+
+```bash
+docker compose \
+  --env-file .env \
+  --env-file .env.secrets \
+  -f docker-compose.yml \
+  up --build contest-bot
+```
+
+```bash
+docker compose \
+  --env-file .env \
+  --env-file .env.secrets \
+  -f docker-compose.yml \
+  logs -f contest-bot
+```

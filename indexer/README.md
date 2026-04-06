@@ -1,7 +1,5 @@
 # Daily Contest Indexer
 
-Read-side indexer for CHIP-only daily competition, now aligned to the same operational concept as `/Users/timur/Desktop/gear/vara-amm/indexer`.
-
 ## Runtime Shape
 
 `Subsquid archive/RPC -> Gear.UserMessageSent -> IDL-driven Sails decode -> TypeORM/Postgres read model -> PostGraphile /graphql`
@@ -51,6 +49,7 @@ The canonical `settlement_allowed_at` value is persisted in the read model and m
 - primary read surface: PostGraphile mounted at `/graphql`
 - frontend-safe CORS enabled through `FRONTEND_URLS`
 - bot and frontend are expected to query projected tables, not recompute contest state in the API layer
+- the compose stack is `postgres + indexer-migrate + indexer-processor + indexer-api + contest-bot + settler-bot`
 
 ## Storage
 
@@ -62,12 +61,24 @@ The canonical `settlement_allowed_at` value is persisted in the read model and m
 
 Use the repo-root stack:
 
-1. `cp .env.daily-contest.example .env.daily-contest`
-2. fill real program ids and endpoints
-3. `docker compose --env-file .env.daily-contest -f docker-compose.daily-contest.yml up --build`
+1. `cp .env.example .env`
+2. `cp .env.secrets.example .env.secrets`
+3. fill real chain/program env in `.env`
+4. fill exactly one of `SETTLER_SEED` or `SETTLER_SEED_FILE` in `.env.secrets`
+5. run:
+
+```bash
+docker compose \
+  --env-file .env \
+  --env-file .env.secrets \
+  -f docker-compose.yml \
+  up --build
+```
 
 Useful logs:
 
-- `docker compose --env-file .env.daily-contest -f docker-compose.daily-contest.yml logs -f indexer-migrate`
-- `docker compose --env-file .env.daily-contest -f docker-compose.daily-contest.yml logs -f indexer-processor`
-- `docker compose --env-file .env.daily-contest -f docker-compose.daily-contest.yml logs -f indexer-api`
+- `docker compose --env-file .env --env-file .env.secrets -f docker-compose.yml logs -f indexer-migrate`
+- `docker compose --env-file .env --env-file .env.secrets -f docker-compose.yml logs -f indexer-processor`
+- `docker compose --env-file .env --env-file .env.secrets -f docker-compose.yml logs -f indexer-api`
+- `docker compose --env-file .env --env-file .env.secrets -f docker-compose.yml logs -f contest-bot`
+- `docker compose --env-file .env --env-file .env.secrets -f docker-compose.yml logs -f settler-bot`
