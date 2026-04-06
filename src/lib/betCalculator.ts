@@ -1,6 +1,6 @@
-import { BasketItem } from '@/types/basket';
-import { getOutcomePrices } from './polymarket';
-import { PolymarketMarket } from '@/types/polymarket';
+import { BasketItem } from '@/types/basket.ts';
+import { getOutcomePrices } from './polymarket.ts';
+import { PolymarketMarket } from '@/types/polymarket.ts';
 
 /**
  * Constant VARA price in USD

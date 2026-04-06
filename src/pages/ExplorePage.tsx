@@ -1,7 +1,7 @@
-import { MarketSearch } from '@/components/MarketSearch';
-import { useBasket } from '@/contexts/BasketContext';
+import { MarketSearch } from '@/components/MarketSearch.tsx';
+import { useBasket } from '@/contexts/BasketContext.tsx';
 import { Link } from 'react-router-dom';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/ui/button.tsx';
 import { ArrowRight, Layers } from 'lucide-react';
 
 export default function ExplorePage() {

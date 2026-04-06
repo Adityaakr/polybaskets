@@ -1,11 +1,11 @@
-import { useNetwork } from '@/contexts/NetworkContext';
-import { Button } from '@/components/ui/button';
+import { useNetwork } from '@/contexts/NetworkContext.tsx';
+import { Button } from '@/components/ui/button.tsx';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+} from '@/components/ui/dropdown-menu.tsx';
 import { ChevronDown, Circle } from 'lucide-react';
 
 export function NetworkToggle() {

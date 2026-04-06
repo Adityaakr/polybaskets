@@ -1,14 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Input } from '@/components/ui/input';
+import { Input } from '@/components/ui/input.tsx';
 import { Search, Loader2 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
-import { searchMarkets, fetchCuratedLatest, fetchMarketsByCategory, POLYMARKET_CATEGORIES, type MarketCategory } from '@/lib/polymarket';
-import { MarketCard } from './MarketCard';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Card, CardContent } from '@/components/ui/card';
-import type { PolymarketMarket } from '@/types/polymarket';
-import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
+import { searchMarkets, fetchCuratedLatest, fetchMarketsByCategory, POLYMARKET_CATEGORIES, type MarketCategory } from '@/lib/polymarket.ts';
+import { MarketCard } from './MarketCard.tsx';
+import { Skeleton } from '@/components/ui/skeleton.tsx';
+import { Card, CardContent } from '@/components/ui/card.tsx';
+import type { PolymarketMarket } from '@/types/polymarket.ts';
+import { Button } from '@/components/ui/button.tsx';
+import { cn } from '@/lib/utils.ts';
 
 export function MarketSearch() {
   const [query, setQuery] = useState('');

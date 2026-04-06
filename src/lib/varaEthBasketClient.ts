@@ -4,7 +4,7 @@ import { PublicClient, WalletClient } from 'viem';
 import { TypeRegistry } from '@polkadot/types';
 import { Sails } from 'sails-js';
 import { SailsIdlParser } from 'sails-js-parser';
-import { ENV } from '@/env';
+import { ENV } from '@/env.ts';
 
 // Types matching the program
 export interface BasketItem {

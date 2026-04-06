@@ -1,13 +1,13 @@
 import { useMemo, useEffect, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { useBasket } from '@/contexts/BasketContext';
+import { useBasket } from '@/contexts/BasketContext.tsx';
 import { useQuery } from '@tanstack/react-query';
-import { searchMarkets, getOutcomeProbabilities, getOutcomePrices, getMarketDetails } from '@/lib/polymarket';
-import { OutcomeProbabilities, PolymarketMarket } from '@/types/polymarket';
-import { BasketBuilder } from '@/components/BasketBuilder';
-import { BasketIndex } from '@/components/BasketIndex';
-import { SaveBasketButton } from '@/components/SaveBasketButton';
-import { Button } from '@/components/ui/button';
+import { searchMarkets, getOutcomeProbabilities, getOutcomePrices, getMarketDetails } from '@/lib/polymarket.ts';
+import { OutcomeProbabilities, PolymarketMarket } from '@/types/polymarket.ts';
+import { BasketBuilder } from '@/components/BasketBuilder.tsx';
+import { BasketIndex } from '@/components/BasketIndex.tsx';
+import { SaveBasketButton } from '@/components/SaveBasketButton.tsx';
+import { Button } from '@/components/ui/button.tsx';
 import { ArrowLeft } from 'lucide-react';
 
 export default function BuilderPage() {

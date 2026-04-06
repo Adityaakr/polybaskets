@@ -1,7 +1,7 @@
 // EVM wallet utilities for Vara.eth network
 import { createPublicClient, createWalletClient, http, custom, type PublicClient, type WalletClient } from 'viem';
 import { EthereumClient } from '@vara-eth/api';
-import { ENV } from '@/env';
+import { ENV } from '@/env.ts';
 
 // Hoodi testnet chain definition
 export const hoodiChain = {

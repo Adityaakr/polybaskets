@@ -1,9 +1,9 @@
 // Vara.eth client for basket market operations
 import { createPublicClient, createWalletClient, http, custom, type PublicClient, type WalletClient } from 'viem';
 import { EthereumClient } from '@vara-eth/api';
-import { ENV } from '@/env';
-import { hoodiChain } from './evmWallet';
-import { SailsProgram } from '@/basket-market-client/lib';
+import { ENV } from '@/env.ts';
+import { hoodiChain } from './evmWallet.ts';
+import { SailsProgram } from '@/basket-market-client/lib.ts';
 
 // Create EthereumClient for Vara.eth
 export async function createVaraEthEthereumClient(
@@ -28,7 +28,7 @@ export async function createVaraEthClients(accountAddress: string): Promise<{
   ethereumClient: EthereumClient;
 }> {
   // Ensure we're on Hoodi network
-  const { switchToHoodiNetwork, isOnHoodiNetwork } = await import('./evmWallet');
+  const { switchToHoodiNetwork, isOnHoodiNetwork } = await import('./evmWallet.ts');
   const isCorrectNetwork = await isOnHoodiNetwork();
   if (!isCorrectNetwork) {
     console.log('[VaraEth] Switching to Hoodi testnet...');

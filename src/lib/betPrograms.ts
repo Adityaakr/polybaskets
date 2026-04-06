@@ -1,9 +1,9 @@
 import { GearApi } from '@gear-js/api';
 import type { Signer, SubmittableExtrinsic } from '@polkadot/api/types';
 import type { ISubmittableResult } from '@polkadot/types/types';
-import { ENV } from '@/env';
-import { SailsProgram as BetLaneProgram } from '@/bet-lane-client/lib';
-import { SailsProgram as BetTokenProgram } from '@/bet-token-client/lib';
+import { ENV } from '@/env.ts';
+import { SailsProgram as BetLaneProgram } from '@/bet-lane-client/lib.ts';
+import { SailsProgram as BetTokenProgram } from '@/bet-token-client/lib.ts';
 
 type QueryLike<T> = {
   call: () => Promise<T>;

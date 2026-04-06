@@ -1,6 +1,6 @@
-import { BasketItem, Snapshot, Outcome } from '@/types/basket';
-import { PolymarketMarket, OutcomeProbabilities } from '@/types/polymarket';
-import { getOutcomeProbabilities } from './polymarket';
+import { BasketItem, Snapshot, Outcome } from '@/types/basket.ts';
+import { PolymarketMarket, OutcomeProbabilities } from '@/types/polymarket.ts';
+import { getOutcomeProbabilities } from './polymarket.ts';
 
 export function calculateBasketIndex(
   items: BasketItem[],

@@ -1,13 +1,13 @@
 import React, { ReactNode, createContext, useContext, useMemo, useState, useEffect, useCallback } from 'react';
 import { useAccount } from '@gear-js/react-hooks';
-import { useNetwork } from './NetworkContext';
+import { useNetwork } from './NetworkContext.tsx';
 import { 
   getMetaMaskAccount, 
   requestMetaMaskConnection, 
   isMetaMaskInstalled,
   switchToHoodiNetwork,
   isOnHoodiNetwork
-} from '@/lib/evmWallet';
+} from '@/lib/evmWallet.ts';
 
 interface WalletContextType {
   address: string | null;

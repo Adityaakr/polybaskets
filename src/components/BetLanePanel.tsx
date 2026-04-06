@@ -4,16 +4,16 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAccount, useApi } from '@gear-js/react-hooks';
 import type { Signer } from '@polkadot/api/types';
 import { AlertCircle, Coins, Loader2 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
-import { Separator } from '@/components/ui/separator';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { useWallet } from '@/contexts/WalletContext';
-import { useNetwork } from '@/contexts/NetworkContext';
-import { useToast } from '@/hooks/use-toast';
-import { actorIdFromAddress } from '@/lib/varaClient';
+import { Button } from '@/components/ui/button.tsx';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.tsx';
+import { Badge } from '@/components/ui/badge.tsx';
+import { Input } from '@/components/ui/input.tsx';
+import { Separator } from '@/components/ui/separator.tsx';
+import { Alert, AlertDescription } from '@/components/ui/alert.tsx';
+import { useWallet } from '@/contexts/WalletContext.tsx';
+import { useNetwork } from '@/contexts/NetworkContext.tsx';
+import { useToast } from '@/hooks/use-toast.ts';
+import { actorIdFromAddress } from '@/lib/varaClient.ts';
 import {
   betLaneProgramFromApi,
   betTokenProgramFromApi,
@@ -24,7 +24,7 @@ import {
   toBigIntValue,
   toTokenUnits,
   waitForQueryMatch,
-} from '@/lib/betPrograms';
+} from '@/lib/betPrograms.ts';
 
 type BetLanePanelProps = {
   basketId: number | null;

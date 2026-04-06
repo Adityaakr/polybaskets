@@ -3,7 +3,7 @@ import {
   fetchTodayContestLeaderboard,
   getCurrentUtcDayId,
   type TodayContestLeaderboard,
-} from "@/lib/contestLeaderboard";
+} from "@/lib/contestLeaderboard.ts";
 
 const REFRESH_INTERVAL_MS = 30_000;
 

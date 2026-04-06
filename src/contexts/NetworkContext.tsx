@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
-import { NetworkType, NetworkConfig } from '@/types/basket';
-import { getNetworkConfig, NETWORKS } from '@/lib/network';
+import { NetworkType, NetworkConfig } from '@/types/basket.ts';
+import { getNetworkConfig, NETWORKS } from '@/lib/network.ts';
 
 interface NetworkContextType {
   network: NetworkType;

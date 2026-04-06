@@ -1,23 +1,23 @@
 import { useMemo, useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Basket } from '@/types/basket';
-import { getFollowerCount } from '@/lib/basket-storage';
-import { truncateAddress, calculateBasketIndex, getChangeClass, getCreationSnapshotIndex } from '@/lib/basket-utils';
-import { getMarketDetailsBatch, getOutcomeProbabilities, getOutcomePrices } from '@/lib/polymarket';
-import { OutcomeProbabilities } from '@/types/polymarket';
-import { calculateSuggestedBetAmount, formatVara } from '@/lib/betCalculator';
-import { NETWORKS } from '@/lib/network';
-import { isFtAssetKind } from '@/lib/assetKind';
-import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+import { Basket } from '@/types/basket.ts';
+import { getFollowerCount } from '@/lib/basket-storage.ts';
+import { truncateAddress, calculateBasketIndex, getChangeClass, getCreationSnapshotIndex } from '@/lib/basket-utils.ts';
+import { getMarketDetailsBatch, getOutcomeProbabilities, getOutcomePrices } from '@/lib/polymarket.ts';
+import { OutcomeProbabilities } from '@/types/polymarket.ts';
+import { calculateSuggestedBetAmount, formatVara } from '@/lib/betCalculator.ts';
+import { NETWORKS } from '@/lib/network.ts';
+import { isFtAssetKind } from '@/lib/assetKind.ts';
+import { Card, CardContent } from '@/components/ui/card.tsx';
+import { Badge } from '@/components/ui/badge.tsx';
 import { Users, Layers, Circle, RefreshCw, ChevronDown, ChevronUp, TrendingUp, TrendingDown, ExternalLink, Calculator, Trash2, MoreVertical } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+} from '@/components/ui/dropdown-menu.tsx';
 
 const LOW_BASE_PROBABILITY_THRESHOLD = 0.05;
 

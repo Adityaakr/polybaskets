@@ -1,22 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useApi } from '@gear-js/react-hooks';
-import { useNetwork } from '@/contexts/NetworkContext';
-import { getFollowerCount, getBasketById } from '@/lib/basket-storage';
-import { fetchAllOnChainBaskets } from '@/lib/basket-onchain';
-import { basketMarketProgramFromApi } from '@/lib/varaClient';
+import { useNetwork } from '@/contexts/NetworkContext.tsx';
+import { getFollowerCount, getBasketById } from '@/lib/basket-storage.ts';
+import { fetchAllOnChainBaskets } from '@/lib/basket-onchain.ts';
+import { basketMarketProgramFromApi } from '@/lib/varaClient.ts';
 import {
   formatChipAmount,
   formatUtcDateTime,
   type TodayContestLeaderboard,
-} from '@/lib/contestLeaderboard';
-import { ENV, isBasketAssetKindEnabled } from '@/env';
-import { truncateAddress } from '@/lib/basket-utils';
-import { NETWORKS } from '@/lib/network';
-import { useTodayContestLeaderboard } from '@/hooks/useTodayContestLeaderboard';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Badge } from '@/components/ui/badge';
+} from '@/lib/contestLeaderboard.ts';
+import { ENV, isBasketAssetKindEnabled } from '@/env.ts';
+import { truncateAddress } from '@/lib/basket-utils.ts';
+import { NETWORKS } from '@/lib/network.ts';
+import { useTodayContestLeaderboard } from '@/hooks/useTodayContestLeaderboard.ts';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.tsx';
+import { Skeleton } from '@/components/ui/skeleton.tsx';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs.tsx';
+import { Badge } from '@/components/ui/badge.tsx';
 import {
   Table,
   TableBody,
@@ -24,7 +24,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table';
+} from '@/components/ui/table.tsx';
 import { Link } from 'react-router-dom';
 import {
   Trophy,
@@ -36,7 +36,7 @@ import {
   Timer,
   Radio,
 } from 'lucide-react';
-import type { Basket } from '@/types/basket';
+import type { Basket } from '@/types/basket.ts';
 
 type ContestDisplayStatus = 'live' | 'ready' | 'settled' | 'no_winner';
 

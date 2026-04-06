@@ -1,4 +1,4 @@
-import { NetworkConfig, NetworkType } from '@/types/basket';
+import { NetworkConfig, NetworkType } from '@/types/basket.ts';
 
 export const NETWORKS: Record<NetworkType, NetworkConfig> = {
   vara: {

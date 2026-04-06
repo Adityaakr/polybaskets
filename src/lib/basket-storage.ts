@@ -1,4 +1,4 @@
-import { Basket, BasketDraft, BasketItem, Snapshot, NetworkType } from '@/types/basket';
+import { Basket, BasketDraft, BasketItem, Snapshot, NetworkType } from '@/types/basket.ts';
 
 const BASKETS_KEY = 'polybaskets_baskets';
 const FOLLOWS_KEY = 'polybaskets_follows';

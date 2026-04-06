@@ -1,4 +1,4 @@
-import { PolymarketMarket, OutcomeProbabilities } from '@/types/polymarket';
+import { PolymarketMarket, OutcomeProbabilities } from '@/types/polymarket.ts';
 
 // Live data only; remove mock fallback
 const POLYMARKET_GAMMA_BASE = import.meta.env.VITE_GAMMA_PROXY || 'https://gamma-api.polymarket.com';

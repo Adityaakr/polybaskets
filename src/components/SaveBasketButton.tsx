@@ -1,17 +1,17 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { useBasket } from '@/contexts/BasketContext';
-import { useWallet } from '@/contexts/WalletContext';
-import { useNetwork } from '@/contexts/NetworkContext';
+import { useBasket } from '@/contexts/BasketContext.tsx';
+import { useWallet } from '@/contexts/WalletContext.tsx';
+import { useNetwork } from '@/contexts/NetworkContext.tsx';
 import { useApi, useAccount } from '@gear-js/react-hooks';
-import { getBaskets } from '@/lib/basket-storage';
-import { Basket } from '@/types/basket';
-import type { BasketAssetKind } from '@/types/basket';
-import { createSnapshot, validateBasket } from '@/lib/basket-utils';
-import { OutcomeProbabilities } from '@/types/polymarket';
-import { basketMarketProgramFromApi, toVara } from '@/lib/varaClient';
-import { calculateBetAllocationFromVara, formatVara, formatUsd, VARA_PRICE_USD } from '@/lib/betCalculator';
+import { getBaskets } from '@/lib/basket-storage.ts';
+import { Basket } from '@/types/basket.ts';
+import type { BasketAssetKind } from '@/types/basket.ts';
+import { createSnapshot, validateBasket } from '@/lib/basket-utils.ts';
+import { OutcomeProbabilities } from '@/types/polymarket.ts';
+import { basketMarketProgramFromApi, toVara } from '@/lib/varaClient.ts';
+import { calculateBetAllocationFromVara, formatVara, formatUsd, VARA_PRICE_USD } from '@/lib/betCalculator.ts';
 import {
   betLaneProgramFromApi,
   betTokenProgramFromApi,
@@ -24,18 +24,18 @@ import {
   toTokenUnits,
   waitForQueryMatch,
   withRateLimitRetry,
-} from '@/lib/betPrograms';
-import { ENV, getDefaultBasketAssetKind, isVaraEnabled } from '@/env';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { useToast } from '@/hooks/use-toast';
+} from '@/lib/betPrograms.ts';
+import { ENV, getDefaultBasketAssetKind, isVaraEnabled } from '@/env.ts';
+import { Button } from '@/components/ui/button.tsx';
+import { Input } from '@/components/ui/input.tsx';
+import { Label } from '@/components/ui/label.tsx';
+import { useToast } from '@/hooks/use-toast.ts';
 import { Loader2, Save, Circle, CheckCircle2, Clock } from 'lucide-react';
-import { useVaraEthBasketMarket } from '@/hooks/useVaraEthBasketMarket';
-import { toWVara } from '@/lib/varaEthClient';
-import { Badge } from '@/components/ui/badge';
-import { actorIdFromAddress } from '@/lib/varaClient';
-import { normalizeAssetKind, toContractAssetKind } from '@/lib/assetKind';
+import { useVaraEthBasketMarket } from '@/hooks/useVaraEthBasketMarket.ts';
+import { toWVara } from '@/lib/varaEthClient.ts';
+import { Badge } from '@/components/ui/badge.tsx';
+import { actorIdFromAddress } from '@/lib/varaClient.ts';
+import { normalizeAssetKind, toContractAssetKind } from '@/lib/assetKind.ts';
 
 interface SaveBasketButtonProps {
   marketProbabilities: Map<string, OutcomeProbabilities>;
@@ -312,7 +312,7 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
         }
         
         // Ensure we're on the correct network before sending transaction
-        const { isOnHoodiNetwork, switchToHoodiNetwork } = await import('@/lib/evmWallet');
+        const { isOnHoodiNetwork, switchToHoodiNetwork } = await import('@/lib/evmWallet.ts');
         const isCorrectNetwork = await isOnHoodiNetwork();
         if (!isCorrectNetwork) {
           console.log('[VaraEth] Switching to Hoodi testnet...');
