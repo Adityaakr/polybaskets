@@ -21,6 +21,22 @@ const parseOrigins = (value: string): string[] =>
     .map((item) => item.trim())
     .filter(Boolean);
 
+const parseBoolean = (value: string | undefined, fallback: boolean): boolean => {
+  if (!value) {
+    return fallback;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (["true", "1", "yes", "on"].includes(normalized)) {
+    return true;
+  }
+  if (["false", "0", "no", "off"].includes(normalized)) {
+    return false;
+  }
+
+  return fallback;
+};
+
 export const DAY_MS = 86_400_000n;
 
 export const config = {
@@ -28,13 +44,16 @@ export const config = {
   rpcUrl: getEnv("VARA_RPC_URL"),
   rateLimit: Number(getEnv("VARA_RPC_RATE_LIMIT", "20")),
   fromBlock: Number(getEnv("VARA_FROM_BLOCK")),
-  gqlPort: Number(getEnv("INDEXER_GQL_PORT", "4350")),
+  gqlPort: Number(process.env.PORT || getEnv("INDEXER_GQL_PORT", "4350")),
   frontendOrigins: parseOrigins(
     getEnv(
       "FRONTEND_URLS",
       "http://localhost:8080,http://127.0.0.1:8080,http://localhost:3000,http://127.0.0.1:3000"
     )
   ),
+  graphiqlEnabled:
+    process.env.NODE_ENV === "development" ||
+    parseBoolean(process.env.INDEXER_GRAPHIQL_ENABLED, false),
   databaseUrl: process.env.DATABASE_URL,
   dbHost: getEnv("DB_HOST", "localhost"),
   dbPort: Number(getEnv("DB_PORT", "5432")),

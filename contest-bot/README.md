@@ -35,6 +35,8 @@ Run with the repo-root stack:
 - `contest-bot` and `settler-bot` use the same shared signer secret
 - set exactly one of `SETTLER_SEED` or `SETTLER_SEED_FILE`
 - no fallback mnemonic is embedded in the code
+- Railway should prefer `SETTLER_SEED`
+- Railway should point `INDEXER_GRAPHQL_ENDPOINT` at the internal/private `indexer-api` URL by default
 
 ```bash
 docker compose \

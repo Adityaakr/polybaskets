@@ -22,8 +22,8 @@ async function main() {
 
   const options: PostGraphileOptions = {
     watchPg: isDev,
-    graphiql: true,
-    enhanceGraphiql: isDev,
+    graphiql: config.graphiqlEnabled,
+    enhanceGraphiql: config.graphiqlEnabled && isDev,
     subscriptions: true,
     dynamicJson: true,
     setofFunctionsContainNulls: false,

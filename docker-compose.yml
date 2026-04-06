@@ -87,6 +87,8 @@ services:
     working_dir: /app/indexer
     environment:
       <<: *indexer-env
+      PORT: 4350
+      INDEXER_GRAPHIQL_ENABLED: ${INDEXER_GRAPHIQL_ENABLED:-true}
     command: ["npm", "run", "serve"]
     ports:
       - "127.0.0.1:${INDEXER_GQL_PORT:-4350}:4350"
@@ -96,7 +98,7 @@ services:
           "CMD",
           "node",
           "-e",
-          "fetch('http://127.0.0.1:4350/graphiql').then((res) => process.exit(res.ok ? 0 : 1)).catch(() => process.exit(1))",
+          "fetch('http://127.0.0.1:4350/graphql',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({query:'query { allIndexerStates(first: 1) { nodes { id } } }'})}).then((res) => process.exit(res.ok ? 0 : 1)).catch(() => process.exit(1))",
         ]
       interval: 10s
       timeout: 5s

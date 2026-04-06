@@ -119,9 +119,9 @@ Daily contest runtime now uses one unified root deployment contract.
 
 Use only:
 
-- [`docker-compose.yml`](/Users/timur/Desktop/gear/polybaskets/docker-compose.yml)
-- [`.env.example`](/Users/timur/Desktop/gear/polybaskets/.env.example)
-- [`.env.secrets.example`](/Users/timur/Desktop/gear/polybaskets/.env.secrets.example)
+- [`docker-compose.yml`](polybaskets/docker-compose.yml)
+- [`.env.example`](polybaskets/.env.example)
+- [`.env.secrets.example`](polybaskets/.env.secrets.example)
 
 Stack services:
 
@@ -166,6 +166,8 @@ Frontend:
 
 - set `VITE_INDEXER_GRAPHQL_ENDPOINT` to your `indexer-api` GraphQL URL
 - CORS allow-list is controlled by `FRONTEND_URLS`
+- on Railway, `indexer-api` should respect `PORT`
+- recommended production setting: `INDEXER_GRAPHIQL_ENABLED=false`
 
 ---
 

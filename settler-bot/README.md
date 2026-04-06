@@ -27,6 +27,11 @@ Optional operational values:
 
 The shared signer secret is also consumed by `contest-bot`. No fallback mnemonic is embedded in the code.
 
+Railway note:
+
+- prefer `SETTLER_SEED`
+- keep `SETTLER_SEED_FILE` for local/docker unless you explicitly mount a secret file in Railway
+
 ## Local Run
 
 ```bash
