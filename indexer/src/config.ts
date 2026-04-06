@@ -15,6 +15,12 @@ const getEnv = (key: string, fallback?: string): string => {
 const resolveFromCwd = (relativePath: string): string =>
   path.resolve(process.cwd(), relativePath);
 
+const parseOrigins = (value: string): string[] =>
+  value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+
 export const DAY_MS = 86_400_000n;
 
 export const config = {
@@ -25,8 +31,13 @@ export const config = {
   rpcUrl: getEnv("VARA_RPC_URL", "wss://testnet-archive.vara.network"),
   rateLimit: Number(getEnv("VARA_RPC_RATE_LIMIT", "20")),
   fromBlock: Number(getEnv("VARA_FROM_BLOCK", "0")),
-  gqlPort: Number(getEnv("GQL_PORT", "4350")),
-  frontendUrl: getEnv("FRONTEND_URL", "http://localhost:3000"),
+  gqlPort: Number(getEnv("INDEXER_GQL_PORT", getEnv("GQL_PORT", "4350"))),
+  frontendOrigins: parseOrigins(
+    getEnv(
+      "FRONTEND_URLS",
+      "http://localhost:8080,http://127.0.0.1:8080,http://localhost:3000,http://127.0.0.1:3000"
+    )
+  ),
   databaseUrl: process.env.DATABASE_URL,
   dbHost: getEnv("DB_HOST", "localhost"),
   dbPort: Number(getEnv("DB_PORT", "5432")),

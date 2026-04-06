@@ -49,7 +49,7 @@ The canonical `settlement_allowed_at` value is persisted in the read model and m
 ## API
 
 - primary read surface: PostGraphile mounted at `/graphql`
-- frontend-safe CORS enabled through `FRONTEND_URL`
+- frontend-safe CORS enabled through `FRONTEND_URLS`
 - bot and frontend are expected to query projected tables, not recompute contest state in the API layer
 
 ## Storage

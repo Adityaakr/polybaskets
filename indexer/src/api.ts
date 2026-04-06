@@ -42,8 +42,25 @@ async function main() {
 
   const middleware = postgraphile(database, "public", options);
   const app = express();
+  const allowedOrigins = new Set([
+    ...config.frontendOrigins,
+    `http://localhost:${config.gqlPort}`,
+    `http://127.0.0.1:${config.gqlPort}`,
+    `http://0.0.0.0:${config.gqlPort}`,
+  ]);
 
-  app.use(cors({ origin: config.frontendUrl }));
+  app.use(
+    cors({
+      origin(origin, callback) {
+        if (!origin || allowedOrigins.has(origin)) {
+          callback(null, true);
+          return;
+        }
+
+        callback(new Error(`CORS blocked for origin: ${origin}`));
+      },
+    })
+  );
   app.use(middleware);
 
   const server = createServer(app);
