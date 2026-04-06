@@ -11,7 +11,7 @@ import { Store } from "@subsquid/typeorm-store";
 import { hostname } from "node:os";
 import { config } from "./config";
 
-export const processor = new SubstrateBatchProcessor()
+const processorInstance = new SubstrateBatchProcessor()
   .setGateway(config.archiveUrl)
   .setRpcEndpoint({
     url: config.rpcUrl,
@@ -39,6 +39,19 @@ export const processor = new SubstrateBatchProcessor()
       timestamp: true,
     },
   });
+
+// Railway injects PORT for services it expects to keep alive. Bind the
+// built-in SQD metrics server to that port so worker deployments can be
+// treated as healthy without adding a separate HTTP server.
+const metricsPort = process.env.PORT || process.env.PROMETHEUS_PORT;
+if (metricsPort) {
+  const parsedPort = Number(metricsPort);
+  if (Number.isFinite(parsedPort) && parsedPort > 0) {
+    processorInstance.setPrometheusPort(parsedPort);
+  }
+}
+
+export const processor = processorInstance;
 
 export type Fields = SubstrateBatchProcessorFields<typeof processor>;
 export type BlockHeader = _BlockHeader<Fields> & { timestamp: number };
