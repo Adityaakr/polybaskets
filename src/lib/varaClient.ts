@@ -1,7 +1,7 @@
 import { GearApi } from '@gear-js/api';
 import { decodeAddress } from '@polkadot/util-crypto';
-import { SailsProgram as BasketMarketProgram } from '@/basket-market-client/lib';
-import { ENV } from '@/env';
+import { SailsProgram as BasketMarketProgram } from '@/basket-market-client/lib.ts';
+import { ENV } from '@/env.ts';
 
 export const TVARA_DECIMALS = 12n;
 export const toVara = (amount: string | number): bigint => {

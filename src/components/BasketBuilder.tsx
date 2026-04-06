@@ -1,10 +1,10 @@
-import { useBasket } from '@/contexts/BasketContext';
-import { formatWeight } from '@/lib/basket-utils';
-import { formatPrice, formatProbability } from '@/lib/polymarket';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Slider } from '@/components/ui/slider';
+import { useBasket } from '@/contexts/BasketContext.tsx';
+import { formatWeight } from '@/lib/basket-utils.ts';
+import { formatPrice, formatProbability } from '@/lib/polymarket.ts';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.tsx';
+import { Button } from '@/components/ui/button.tsx';
+import { Input } from '@/components/ui/input.tsx';
+import { Slider } from '@/components/ui/slider.tsx';
 import { Trash2, Scale, AlertCircle } from 'lucide-react';
 
 interface BasketBuilderProps {

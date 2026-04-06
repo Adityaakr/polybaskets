@@ -1,4 +1,4 @@
-import type { BasketAssetKind } from '@/types/basket';
+import type { BasketAssetKind } from '@/types/basket.ts';
 
 export type ContractBasketAssetKind = 'Vara' | 'Bet';
 

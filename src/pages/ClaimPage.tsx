@@ -2,16 +2,16 @@ import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAccount, useApi } from '@gear-js/react-hooks';
 import { Sparkles, Coins, CalendarClock, ShieldCheck } from 'lucide-react';
-import { actorIdFromAddress } from '@/lib/varaClient';
-import { useWallet } from '@/contexts/WalletContext';
-import { useNetwork } from '@/contexts/NetworkContext';
-import { betTokenProgramFromApi, fromTokenUnits, isBetProgramsConfigured, readSailsQuery, toBigIntValue } from '@/lib/betPrograms';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { useToast } from '@/hooks/use-toast';
-import { WalletButton } from '@/components/WalletButton';
+import { actorIdFromAddress } from '@/lib/varaClient.ts';
+import { useWallet } from '@/contexts/WalletContext.tsx';
+import { useNetwork } from '@/contexts/NetworkContext.tsx';
+import { betTokenProgramFromApi, fromTokenUnits, isBetProgramsConfigured, readSailsQuery, toBigIntValue } from '@/lib/betPrograms.ts';
+import { Button } from '@/components/ui/button.tsx';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.tsx';
+import { Badge } from '@/components/ui/badge.tsx';
+import { Alert, AlertDescription } from '@/components/ui/alert.tsx';
+import { useToast } from '@/hooks/use-toast.ts';
+import { WalletButton } from '@/components/WalletButton.tsx';
 
 export default function ClaimPage() {
   const { api, isApiReady } = useApi();

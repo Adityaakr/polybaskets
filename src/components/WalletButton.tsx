@@ -1,8 +1,8 @@
 import { Wallet } from '@gear-js/wallet-connect';
-import { useNetwork } from '@/contexts/NetworkContext';
-import { useWallet } from '@/contexts/WalletContext';
-import { Button } from '@/components/ui/button';
-import { isMetaMaskInstalled } from '@/lib/evmWallet';
+import { useNetwork } from '@/contexts/NetworkContext.tsx';
+import { useWallet } from '@/contexts/WalletContext.tsx';
+import { Button } from '@/components/ui/button.tsx';
+import { isMetaMaskInstalled } from '@/lib/evmWallet.ts';
 import { Wallet as WalletIcon } from 'lucide-react';
 
 export function WalletButton() {

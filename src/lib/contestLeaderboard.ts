@@ -1,4 +1,4 @@
-import { ENV } from "@/env";
+import { ENV } from "@/env.ts";
 
 const CHIP_DECIMALS = 12;
 const VARA_DECIMALS = 12;

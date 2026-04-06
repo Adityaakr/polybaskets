@@ -1,22 +1,22 @@
-import { useWallet } from '@/contexts/WalletContext';
-import { useNetwork } from '@/contexts/NetworkContext';
+import { useWallet } from '@/contexts/WalletContext.tsx';
+import { useNetwork } from '@/contexts/NetworkContext.tsx';
 import { useApi } from '@gear-js/react-hooks';
-import { getBasketsByOwner, getFollows, getBasketById, deleteBasket, getBaskets } from '@/lib/basket-storage';
-import { extractOnChainBasketId, fetchAllOnChainBaskets } from '@/lib/basket-onchain';
-import { basketMarketProgramFromApi } from '@/lib/varaClient';
-import { ENV, isBasketAssetKindEnabled } from '@/env';
-import { BasketCard } from '@/components/BasketCard';
-import { WalletButton } from '@/components/WalletButton';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { getBasketsByOwner, getFollows, getBasketById, deleteBasket, getBaskets } from '@/lib/basket-storage.ts';
+import { extractOnChainBasketId, fetchAllOnChainBaskets } from '@/lib/basket-onchain.ts';
+import { basketMarketProgramFromApi } from '@/lib/varaClient.ts';
+import { ENV, isBasketAssetKindEnabled } from '@/env.ts';
+import { BasketCard } from '@/components/BasketCard.tsx';
+import { WalletButton } from '@/components/WalletButton.tsx';
+import { Button } from '@/components/ui/button.tsx';
+import { Card, CardContent } from '@/components/ui/card.tsx';
+import { Skeleton } from '@/components/ui/skeleton.tsx';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs.tsx';
 import { Link, useNavigate } from 'react-router-dom';
 import { Wallet as WalletIcon, Plus, Heart, Layers, RefreshCw } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useState, useEffect, useMemo } from 'react';
-import { useToast } from '@/hooks/use-toast';
-import type { Basket } from '@/types/basket';
+import { useToast } from '@/hooks/use-toast.ts';
+import type { Basket } from '@/types/basket.ts';
 
 export default function MyBasketsPage() {
   const { address } = useWallet();

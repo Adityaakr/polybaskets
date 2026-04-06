@@ -1,6 +1,6 @@
 import { Link, useLocation } from 'react-router-dom';
-import { NetworkToggle } from '@/components/NetworkToggle';
-import { WalletButton } from '@/components/WalletButton';
+import { NetworkToggle } from '@/components/NetworkToggle.tsx';
+import { WalletButton } from '@/components/WalletButton.tsx';
 
 const NAV_ITEMS = [
   { path: '/', label: 'Explore' },

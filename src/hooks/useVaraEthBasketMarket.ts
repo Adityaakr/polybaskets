@@ -1,9 +1,9 @@
 // Hook to get Vara.eth basket market client
 import { useMemo } from 'react';
-import { useWallet } from '@/contexts/WalletContext';
-import { useNetwork } from '@/contexts/NetworkContext';
-import { createVaraEthClients } from '@/lib/varaEthClient';
-import { createVaraEthBasketMarket, VaraEthBasketMarket } from '@/lib/varaEthBasketClient';
+import { useWallet } from '@/contexts/WalletContext.tsx';
+import { useNetwork } from '@/contexts/NetworkContext.tsx';
+import { createVaraEthClients } from '@/lib/varaEthClient.ts';
+import { createVaraEthBasketMarket, VaraEthBasketMarket } from '@/lib/varaEthBasketClient.ts';
 import { useState, useEffect } from 'react';
 
 export function useVaraEthBasketMarket(): {
