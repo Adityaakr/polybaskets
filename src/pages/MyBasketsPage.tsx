@@ -1,9 +1,9 @@
 import { useWallet } from '@/contexts/WalletContext';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { useApi } from '@gear-js/react-hooks';
-import { getBasketsByOwner, getFollows, getBasketById, deleteBasket, getBaskets } from '@/lib/basket-storage';
-import { extractOnChainBasketId, fetchAllOnChainBaskets } from '@/lib/basket-onchain';
-import { basketMarketProgramFromApi } from '@/lib/varaClient';
+import { getBasketsByOwner, getFollows, getBasketById, deleteBasket, getBaskets } from '@/lib/basket-storage.ts';
+import { extractOnChainBasketId, fetchAllOnChainBaskets } from '@/lib/basket-onchain.ts';
+import { basketMarketProgramFromApi } from '@/lib/varaClient.ts';
 import { ENV, isBasketAssetKindEnabled } from '@/env';
 import { BasketCard } from '@/components/BasketCard';
 import { WalletButton } from '@/components/WalletButton';
@@ -16,7 +16,7 @@ import { Wallet as WalletIcon, Plus, Heart, Layers, RefreshCw } from 'lucide-rea
 import { useQueryClient } from '@tanstack/react-query';
 import { useState, useEffect, useMemo } from 'react';
 import { useToast } from '@/hooks/use-toast';
-import type { Basket } from '@/types/basket';
+import type { Basket } from '@/types/basket.ts';
 
 export default function MyBasketsPage() {
   const { address } = useWallet();

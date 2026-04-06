@@ -13,7 +13,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useWallet } from '@/contexts/WalletContext';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { useToast } from '@/hooks/use-toast';
-import { actorIdFromAddress } from '@/lib/varaClient';
+import { actorIdFromAddress } from '@/lib/varaClient.ts';
 import {
   betLaneProgramFromApi,
   betTokenProgramFromApi,
@@ -24,7 +24,7 @@ import {
   toBigIntValue,
   toTokenUnits,
   waitForQueryMatch,
-} from '@/lib/betPrograms';
+} from '@/lib/betPrograms.ts';
 
 type BetLanePanelProps = {
   basketId: number | null;

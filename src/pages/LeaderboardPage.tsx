@@ -1,17 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useApi } from '@gear-js/react-hooks';
 import { useNetwork } from '@/contexts/NetworkContext';
-import { getFollowerCount, getBasketById } from '@/lib/basket-storage';
-import { fetchAllOnChainBaskets } from '@/lib/basket-onchain';
-import { basketMarketProgramFromApi } from '@/lib/varaClient';
+import { getFollowerCount, getBasketById } from '@/lib/basket-storage.ts';
+import { fetchAllOnChainBaskets } from '@/lib/basket-onchain.ts';
+import { basketMarketProgramFromApi } from '@/lib/varaClient.ts';
 import {
   formatChipAmount,
   formatUtcDateTime,
   type TodayContestLeaderboard,
-} from '@/lib/contestLeaderboard';
+} from '@/lib/contestLeaderboard.ts';
 import { ENV, isBasketAssetKindEnabled } from '@/env';
-import { truncateAddress } from '@/lib/basket-utils';
-import { NETWORKS } from '@/lib/network';
+import { truncateAddress } from '@/lib/basket-utils.ts';
+import { NETWORKS } from '@/lib/network.ts';
 import { useTodayContestLeaderboard } from '@/hooks/useTodayContestLeaderboard';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -36,7 +36,7 @@ import {
   Timer,
   Radio,
 } from 'lucide-react';
-import type { Basket } from '@/types/basket';
+import type { Basket } from '@/types/basket.ts';
 
 type ContestDisplayStatus = 'live' | 'ready' | 'settled' | 'no_winner';
 
