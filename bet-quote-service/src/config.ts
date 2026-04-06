@@ -24,7 +24,7 @@ const getRequiredHexEnv = (name: string): `0x${string}` => {
   return value as `0x${string}`;
 };
 
-const getNumberEnv = (name: string, fallback: string): number => {
+const getPositiveNumberEnv = (name: string, fallback: string): number => {
   const value = Number(getOptionalEnv(name) ?? fallback);
   if (!Number.isFinite(value) || value <= 0) {
     throw new Error(`Invalid ${name}: expected a positive number`);
@@ -33,12 +33,11 @@ const getNumberEnv = (name: string, fallback: string): number => {
   return value;
 };
 
-const getBooleanEnv = (name: string, fallback: string): boolean => {
-  const value = (getOptionalEnv(name) ?? fallback).toLowerCase();
-  if (value === 'true') return true;
-  if (value === 'false') return false;
-  throw new Error(`Invalid ${name}: expected true or false`);
-};
+const getAllowedOrigins = (): string[] =>
+  (getOptionalEnv('FRONTEND_URLS') ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
 
 const normalizeMnemonic = (value: string): string =>
   value
@@ -47,18 +46,18 @@ const normalizeMnemonic = (value: string): string =>
     .filter(Boolean)
     .join(' ');
 
-const getSharedSettlerSeed = (): string => {
-  const seed = getOptionalEnv('SETTLER_SEED');
-  const seedFile = getOptionalEnv('SETTLER_SEED_FILE');
+const getQuoteSignerSeed = (): string => {
+  const seed = getOptionalEnv('BET_QUOTE_SIGNER_SEED');
+  const seedFile = getOptionalEnv('BET_QUOTE_SIGNER_SEED_FILE');
 
   if (seed && seedFile) {
-    throw new Error('Set exactly one of SETTLER_SEED or SETTLER_SEED_FILE');
+    throw new Error('Set exactly one of BET_QUOTE_SIGNER_SEED or BET_QUOTE_SIGNER_SEED_FILE');
   }
 
   if (seedFile) {
     const fileValue = readFileSync(seedFile, 'utf8').trim();
     if (!fileValue) {
-      throw new Error(`SETTLER_SEED_FILE is empty: ${seedFile}`);
+      throw new Error(`BET_QUOTE_SIGNER_SEED_FILE is empty: ${seedFile}`);
     }
 
     return normalizeMnemonic(fileValue);
@@ -68,15 +67,18 @@ const getSharedSettlerSeed = (): string => {
     return normalizeMnemonic(seed);
   }
 
-  throw new Error('Missing shared bot secret: set SETTLER_SEED or SETTLER_SEED_FILE');
+  throw new Error('Missing quote signer secret: set BET_QUOTE_SIGNER_SEED or BET_QUOTE_SIGNER_SEED_FILE');
 };
 
 export const config = {
+  port: getPositiveNumberEnv('PORT', getOptionalEnv('BET_QUOTE_SERVICE_PORT') ?? '4360'),
   varaRpcUrl: getRequiredEnv('VARA_RPC_URL'),
   basketMarketProgramId: getRequiredHexEnv('BASKET_MARKET_PROGRAM_ID'),
-  settlerSeed: getSharedSettlerSeed(),
-  pollIntervalMs: getNumberEnv('SETTLER_BOT_POLL_INTERVAL_MS', '30000'),
-  shouldFinalize: getBooleanEnv('SETTLER_BOT_FINALIZE_ENABLED', 'true'),
+  betLaneProgramId: getRequiredHexEnv('BET_LANE_PROGRAM_ID'),
+  quoteSignerSeed: getQuoteSignerSeed(),
+  quoteTtlMs: getPositiveNumberEnv('BET_QUOTE_TTL_MS', '30000'),
   polymarketGammaBaseUrl:
     getOptionalEnv('POLYMARKET_GAMMA_BASE_URL') ?? 'https://gamma-api.polymarket.com',
+  allowedOrigins: getAllowedOrigins(),
+  bindingPrefix: getOptionalEnv('BET_QUOTE_BINDING_PREFIX') ?? 'BetLaneQuoteV1',
 };

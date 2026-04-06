@@ -1,6 +1,9 @@
 use awesome_sails_vft_admin::MINTER_ROLE;
 use bet_lane::WASM_BINARY as BET_LANE_WASM_BINARY;
-use bet_lane_client::{BetLaneClient, BetLaneClientCtors, BetLaneConfig, BetLaneDependencies, bet_lane::BetLane};
+use bet_lane_client::{
+    BetLaneClient, BetLaneClientCtors, BetLaneConfig, BetLaneDependencies, BetQuotePayload,
+    SignedBetQuote, bet_lane::BetLane,
+};
 use bet_token::WASM_BINARY as BET_TOKEN_WASM_BINARY;
 use bet_token_client::{
     BetTokenClient, BetTokenClientCtors,
@@ -14,12 +17,14 @@ use polymarket_mirror_client::{
     BasketAssetKind, BasketItem, BasketMarketInit, ItemResolution, Outcome, PolymarketMirror,
     PolymarketMirrorCtors, basket_market::BasketMarket,
 };
+use schnorrkel::{ExpansionMode, Keypair, MiniSecretKey, signing_context};
 use sails_rs::client::{GearEnv, GtestEnv};
-use sails_rs::prelude::{ActorId, U256};
+use sails_rs::{Encode, prelude::{ActorId, U256}};
 
 const TOKEN_NAME: &str = "Bet Token";
 const TOKEN_SYMBOL: &str = "BET";
 const TOKEN_DECIMALS: u8 = 12;
+const VALID_QUOTE_DEADLINE_MS: u64 = 9_999_999_999_999;
 
 struct Harness {
     env: GtestEnv,
@@ -29,6 +34,7 @@ struct Harness {
     admin: ActorId,
     alice: ActorId,
     bob: ActorId,
+    quote_signer: Keypair,
 }
 
 impl Harness {
@@ -43,6 +49,19 @@ impl Harness {
         let admin = ActorId::from(DEFAULT_USER_ALICE);
         let alice = ActorId::from(DEFAULT_USER_BOB);
         let bob = ActorId::from(DEFAULT_USER_CHARLIE);
+        let quote_signer = keypair_from_seed([7u8; 32]);
+        let lane_config = match config {
+            Some(config) => BetLaneConfig {
+                quote_signer: ActorId::from(quote_signer.public.to_bytes()),
+                ..config
+            },
+            None => BetLaneConfig {
+                min_bet: U256::from(10u32),
+                max_bet: U256::from(10_000u32),
+                payouts_allowed_while_paused: true,
+                quote_signer: ActorId::from(quote_signer.public.to_bytes()),
+            },
+        };
 
         let env = GtestEnv::new(system, admin);
 
@@ -79,7 +98,12 @@ impl Harness {
             GtestEnv,
         > = env.deploy(lane_code_id, b"bet-lane".to_vec());
         let bet_lane = bet_lane_deployment
-            .create(admin, mirror.id(), bet_token.id(), config)
+            .create(
+                admin,
+                mirror.id(),
+                bet_token.id(),
+                Some(lane_config),
+            )
             .await
             .expect("bet-lane deployment should succeed");
 
@@ -103,6 +127,7 @@ impl Harness {
             admin,
             alice,
             bob,
+            quote_signer,
         }
     }
 
@@ -183,6 +208,39 @@ impl Harness {
             .await
             .expect("balance query should succeed")
     }
+
+    fn signed_quote(
+        &self,
+        user: ActorId,
+        basket_id: u64,
+        amount: U256,
+        quoted_index_bps: u16,
+        deadline_ms: u64,
+        nonce: u128,
+    ) -> SignedBetQuote {
+        let payload = BetQuotePayload {
+            target_program_id: self.bet_lane.id(),
+            user,
+            basket_id,
+            amount,
+            quoted_index_bps,
+            deadline_ms,
+            nonce,
+        };
+        let message = [
+            b"<Bytes>".to_vec(),
+            [b"BetLaneQuoteV1".encode(), payload.encode()].concat(),
+            b"</Bytes>".to_vec(),
+        ]
+        .concat();
+        let signature = self
+            .quote_signer
+            .sign(signing_context(b"substrate").bytes(&message))
+            .to_bytes()
+            .to_vec();
+
+        SignedBetQuote { payload, signature }
+    }
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -194,8 +252,16 @@ async fn bet_lane_matches_native_index_payout_formula() {
     harness.approve_lane(harness.alice, 100).await;
 
     let mut lane = harness.bet_lane.bet_lane();
+    let quote = harness.signed_quote(
+        harness.alice,
+        basket_id,
+        U256::from(100u32),
+        5_000,
+        VALID_QUOTE_DEADLINE_MS,
+        1,
+    );
     let minted_shares = lane
-        .place_bet(basket_id, U256::from(100u32), 5_000)
+        .place_bet(basket_id, U256::from(100u32), quote)
         .with_actor_id(harness.alice)
         .await
         .expect("place bet should succeed");
@@ -245,13 +311,29 @@ async fn repeated_entries_merge_into_weighted_average_index() {
     harness.approve_lane(harness.alice, 200).await;
 
     let mut lane = harness.bet_lane.bet_lane();
+    let first_quote = harness.signed_quote(
+        harness.alice,
+        basket_id,
+        U256::from(100u32),
+        4_000,
+        VALID_QUOTE_DEADLINE_MS,
+        1,
+    );
     lane
-        .place_bet(basket_id, U256::from(100u32), 4_000)
+        .place_bet(basket_id, U256::from(100u32), first_quote)
         .with_actor_id(harness.alice)
         .await
         .expect("first bet should succeed");
+    let second_quote = harness.signed_quote(
+        harness.alice,
+        basket_id,
+        U256::from(100u32),
+        8_000,
+        VALID_QUOTE_DEADLINE_MS,
+        2,
+    );
     lane
-        .place_bet(basket_id, U256::from(100u32), 8_000)
+        .place_bet(basket_id, U256::from(100u32), second_quote)
         .with_actor_id(harness.alice)
         .await
         .expect("second bet should succeed");
@@ -285,8 +367,16 @@ async fn claim_requires_finalized_settlement_and_settled_basket_blocks_new_bets(
     harness.approve_lane(harness.alice, 50).await;
 
     let mut lane = harness.bet_lane.bet_lane();
+    let first_quote = harness.signed_quote(
+        harness.alice,
+        basket_id,
+        U256::from(50u32),
+        8_000,
+        VALID_QUOTE_DEADLINE_MS,
+        1,
+    );
     lane
-        .place_bet(basket_id, U256::from(50u32), 8_000)
+        .place_bet(basket_id, U256::from(50u32), first_quote)
         .with_actor_id(harness.alice)
         .await
         .expect("place bet should succeed");
@@ -298,8 +388,16 @@ async fn claim_requires_finalized_settlement_and_settled_basket_blocks_new_bets(
 
     harness.mint(harness.bob, 50).await;
     harness.approve_lane(harness.bob, 50).await;
+    let late_quote = harness.signed_quote(
+        harness.bob,
+        basket_id,
+        U256::from(50u32),
+        7_000,
+        VALID_QUOTE_DEADLINE_MS,
+        1,
+    );
     let late_bet = lane
-        .place_bet(basket_id, U256::from(50u32), 7_000)
+        .place_bet(basket_id, U256::from(50u32), late_quote)
         .with_actor_id(harness.bob)
         .await;
     assert!(late_bet.is_err());
@@ -311,6 +409,7 @@ async fn max_bet_applies_to_total_user_exposure() {
         min_bet: U256::from(10u32),
         max_bet: U256::from(100u32),
         payouts_allowed_while_paused: true,
+        quote_signer: ActorId::zero(),
     }))
     .await;
     let basket_id = harness.create_basket(BasketAssetKind::Bet).await;
@@ -319,14 +418,30 @@ async fn max_bet_applies_to_total_user_exposure() {
     harness.approve_lane(harness.alice, 120).await;
 
     let mut lane = harness.bet_lane.bet_lane();
+    let first_quote = harness.signed_quote(
+        harness.alice,
+        basket_id,
+        U256::from(60u32),
+        5_000,
+        VALID_QUOTE_DEADLINE_MS,
+        1,
+    );
     lane
-        .place_bet(basket_id, U256::from(60u32), 5_000)
+        .place_bet(basket_id, U256::from(60u32), first_quote)
         .with_actor_id(harness.alice)
         .await
         .expect("first bet should succeed");
 
+    let second_quote = harness.signed_quote(
+        harness.alice,
+        basket_id,
+        U256::from(60u32),
+        5_000,
+        VALID_QUOTE_DEADLINE_MS,
+        2,
+    );
     let second_bet = lane
-        .place_bet(basket_id, U256::from(60u32), 5_000)
+        .place_bet(basket_id, U256::from(60u32), second_quote)
         .with_actor_id(harness.alice)
         .await;
 
@@ -350,8 +465,16 @@ async fn vara_baskets_reject_bet_lane_positions() {
     harness.approve_lane(harness.alice, 50).await;
 
     let mut lane = harness.bet_lane.bet_lane();
+    let quote = harness.signed_quote(
+        harness.alice,
+        basket_id,
+        U256::from(50u32),
+        5_000,
+        VALID_QUOTE_DEADLINE_MS,
+        1,
+    );
     let result = lane
-        .place_bet(basket_id, U256::from(50u32), 5_000)
+        .place_bet(basket_id, U256::from(50u32), quote)
         .with_actor_id(harness.alice)
         .await;
 
@@ -398,4 +521,126 @@ async fn config_role_can_update_dependency_addresses() {
         .with_actor_id(harness.admin)
         .await;
     assert!(invalid.is_err());
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn quote_nonce_cannot_be_replayed() {
+    let harness = Harness::new().await;
+    let basket_id = harness.create_basket(BasketAssetKind::Bet).await;
+
+    harness.mint(harness.alice, 200).await;
+    harness.approve_lane(harness.alice, 200).await;
+
+    let signed_quote = harness.signed_quote(
+        harness.alice,
+        basket_id,
+        U256::from(100u32),
+        5_000,
+        VALID_QUOTE_DEADLINE_MS,
+        42,
+    );
+
+    let mut lane = harness.bet_lane.bet_lane();
+    lane
+        .place_bet(basket_id, U256::from(100u32), signed_quote.clone())
+        .with_actor_id(harness.alice)
+        .await
+        .expect("first quote use should succeed");
+
+    let replay = lane
+        .place_bet(basket_id, U256::from(100u32), signed_quote)
+        .with_actor_id(harness.alice)
+        .await;
+    assert!(replay.is_err());
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn expired_quote_is_rejected() {
+    let harness = Harness::new().await;
+    let basket_id = harness.create_basket(BasketAssetKind::Bet).await;
+
+    harness.mint(harness.alice, 100).await;
+    harness.approve_lane(harness.alice, 100).await;
+
+    let mut lane = harness.bet_lane.bet_lane();
+    let expired_quote = harness.signed_quote(
+        harness.alice,
+        basket_id,
+        U256::from(100u32),
+        5_000,
+        0,
+        1,
+    );
+    let result = lane
+        .place_bet(basket_id, U256::from(100u32), expired_quote)
+        .with_actor_id(harness.alice)
+        .await;
+
+    assert!(result.is_err());
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn quote_signer_rotation_invalidates_old_signer_quotes() {
+    let harness = Harness::new().await;
+    let basket_id = harness.create_basket(BasketAssetKind::Bet).await;
+
+    harness.mint(harness.alice, 200).await;
+    harness.approve_lane(harness.alice, 200).await;
+
+    let mut lane = harness.bet_lane.bet_lane();
+    let old_quote = harness.signed_quote(
+        harness.alice,
+        basket_id,
+        U256::from(100u32),
+        5_000,
+        VALID_QUOTE_DEADLINE_MS,
+        1,
+    );
+
+    let new_signer = keypair_from_seed([8u8; 32]);
+    let new_signer_actor = ActorId::from(new_signer.public.to_bytes());
+    lane
+        .rotate_quote_signer(new_signer_actor)
+        .with_actor_id(harness.admin)
+        .await
+        .expect("admin should rotate quote signer");
+
+    let old_result = lane
+        .place_bet(basket_id, U256::from(100u32), old_quote)
+        .with_actor_id(harness.alice)
+        .await;
+    assert!(old_result.is_err());
+
+    let payload = BetQuotePayload {
+        target_program_id: harness.bet_lane.id(),
+        user: harness.alice,
+        basket_id,
+        amount: U256::from(100u32),
+        quoted_index_bps: 5_000,
+        deadline_ms: VALID_QUOTE_DEADLINE_MS,
+        nonce: 2,
+    };
+    let message = [
+        b"<Bytes>".to_vec(),
+        [b"BetLaneQuoteV1".encode(), payload.encode()].concat(),
+        b"</Bytes>".to_vec(),
+    ]
+    .concat();
+    let signature = new_signer
+        .sign(signing_context(b"substrate").bytes(&message))
+        .to_bytes()
+        .to_vec();
+
+    let new_quote = SignedBetQuote { payload, signature };
+    lane
+        .place_bet(basket_id, U256::from(100u32), new_quote)
+        .with_actor_id(harness.alice)
+        .await
+        .expect("new signer quote should succeed");
+}
+
+fn keypair_from_seed(seed: [u8; 32]) -> Keypair {
+    MiniSecretKey::from_bytes(&seed)
+        .expect("seed should be valid")
+        .expand_to_keypair(ExpansionMode::Ed25519)
 }

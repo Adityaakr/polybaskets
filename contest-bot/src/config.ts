@@ -32,6 +32,13 @@ const getOptionalEnv = (name: string): string | undefined => {
   return value ? value : undefined;
 };
 
+const normalizeMnemonic = (value: string): string =>
+  value
+    .split(/[,\s]+/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(" ");
+
 const getSharedSettlerSeed = (): string => {
   const seed = getOptionalEnv("SETTLER_SEED");
   const seedFile = getOptionalEnv("SETTLER_SEED_FILE");
@@ -46,11 +53,11 @@ const getSharedSettlerSeed = (): string => {
       throw new Error(`SETTLER_SEED_FILE is empty: ${seedFile}`);
     }
 
-    return fileValue;
+    return normalizeMnemonic(fileValue);
   }
 
   if (seed) {
-    return seed;
+    return normalizeMnemonic(seed);
   }
 
   throw new Error("Missing shared bot secret: set SETTLER_SEED or SETTLER_SEED_FILE");

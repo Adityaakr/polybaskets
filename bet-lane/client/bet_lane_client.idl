@@ -2,6 +2,22 @@ type BetLaneConfig = struct {
   min_bet: u256,
   max_bet: u256,
   payouts_allowed_while_paused: bool,
+  quote_signer: actor_id,
+};
+
+type SignedBetQuote = struct {
+  payload: BetQuotePayload,
+  signature: vec u8,
+};
+
+type BetQuotePayload = struct {
+  target_program_id: actor_id,
+  user: actor_id,
+  basket_id: u64,
+  amount: u256,
+  quoted_index_bps: u16,
+  deadline_ms: u64,
+  nonce: u128,
 };
 
 type BetLaneDependencies = struct {
@@ -28,6 +44,16 @@ type BetLaneError = enum {
   AmountBelowMinBet,
   AmountAboveMaxBet,
   InvalidIndexAtCreation,
+  QuoteSignerNotConfigured,
+  QuoteTargetMismatch,
+  QuoteUserMismatch,
+  QuoteBasketMismatch,
+  QuoteAmountMismatch,
+  QuoteExpired,
+  QuoteNonceAlreadyUsed,
+  InvalidQuoteSignature,
+  InvalidQuoteSigner,
+  QuoteVerificationFailed,
   BasketQueryFailed,
   BasketNotFound,
   BasketNotActive,
@@ -64,9 +90,10 @@ service BetLane {
   Claim : (basket_id: u64) -> u256;
   GrantRole : (role_id: [u8, 32], account: actor_id) -> null;
   Pause : () -> null;
-  PlaceBet : (basket_id: u64, amount: u256, index_at_creation_bps: u16) -> u256;
+  PlaceBet : (basket_id: u64, amount: u256, signed_quote: SignedBetQuote) -> u256;
   Resume : () -> null;
   RevokeRole : (role_id: [u8, 32], account: actor_id) -> null;
+  RotateQuoteSigner : (new_quote_signer: actor_id) -> null;
   SetConfig : (config: BetLaneConfig) -> null;
   SetDependencies : (dependencies: BetLaneDependencies) -> null;
   query BasketProgramId : () -> actor_id;
@@ -76,6 +103,8 @@ service BetLane {
   query GetPosition : (user: actor_id, basket_id: u64) -> Position;
   query GetPositions : (user: actor_id, offset: u32, limit: u32) -> result (vec UserPositionView, BetLaneError);
   query IsPaused : () -> bool;
+  query IsQuoteNonceUsed : (user: actor_id, nonce: u128) -> bool;
+  query QuoteSigner : () -> actor_id;
 
   events {
     BetPlaced: struct {
@@ -83,7 +112,9 @@ service BetLane {
       user: actor_id,
       amount: u256,
       user_total: u256,
-      index_at_creation_bps: u16,
+      quoted_index_bps: u16,
+      position_index_at_creation_bps: u16,
+      quote_nonce: u128,
     };
     Claimed: struct {
       basket_id: u64,
@@ -94,6 +125,10 @@ service BetLane {
     Resumed;
     ConfigUpdated: BetLaneConfig;
     DependenciesUpdated: BetLaneDependencies;
+    QuoteSignerRotated: struct {
+      previous_quote_signer: actor_id,
+      new_quote_signer: actor_id,
+    };
   }
 };
 
