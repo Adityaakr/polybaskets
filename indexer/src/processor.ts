@@ -20,6 +20,9 @@ const processorInstance = new SubstrateBatchProcessor()
       "User-Agent": hostname(),
     },
   })
+  // Vara testnet RPC is only used for metadata and should not be relied on
+  // for live ingestion in this deployment.
+  .setRpcDataIngestionSettings({ disabled: true })
   .setBlockRange({ from: config.fromBlock })
   .setFields({
     event: {

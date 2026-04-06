@@ -1,6 +1,5 @@
 import "reflect-metadata";
 import { TypeormDatabase } from "@subsquid/typeorm-store";
-import { GearApi } from "@gear-js/api";
 import { BaseHandler } from "./handlers/base";
 import { DailyContestHandler } from "./handlers";
 import { config, sourceOfTruth } from "./config";
@@ -55,11 +54,10 @@ class GearProcessor {
 }
 
 async function main() {
-  const api = await GearApi.create({ providerAddress: config.rpcUrl });
   const runner = new GearProcessor();
   const dailyContestHandler = new DailyContestHandler();
 
-  await dailyContestHandler.init(api);
+  await dailyContestHandler.init();
   runner.registerHandler(dailyContestHandler);
 
   console.log("Daily contest indexer");
