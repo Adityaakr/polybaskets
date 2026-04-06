@@ -214,12 +214,14 @@ pub enum Event {
     },
     SettlementProposed {
         basket_id: u64,
+        asset_kind: BasketAssetKind,
         proposer: ActorId,
         payout_per_share: u128,
         challenge_deadline: u64,
     },
     SettlementFinalized {
         basket_id: u64,
+        asset_kind: BasketAssetKind,
         finalized_at: u64,
         payout_per_share: u128,
     },
@@ -586,6 +588,7 @@ impl<'a> BasketMarketService<'a> {
         if basket.status != BasketStatus::Active {
             return Err(BasketMarketError::BasketNotActive);
         }
+        let asset_kind = basket.asset_kind;
 
         if self.settlement_index(basket_id).is_ok() {
             return Err(BasketMarketError::SettlementAlreadyExists);
@@ -614,6 +617,7 @@ impl<'a> BasketMarketService<'a> {
 
         self.emit_event(Event::SettlementProposed {
             basket_id,
+            asset_kind,
             proposer,
             payout_per_share,
             challenge_deadline,
@@ -647,6 +651,7 @@ impl<'a> BasketMarketService<'a> {
 
         self.emit_event(Event::SettlementFinalized {
             basket_id,
+            asset_kind: self.state.baskets[basket_index].asset_kind,
             finalized_at: now,
             payout_per_share,
         })

@@ -210,12 +210,14 @@ pub mod basket_market {
             },
             SettlementProposed {
                 basket_id: u64,
+                asset_kind: BasketAssetKind,
                 proposer: ActorId,
                 payout_per_share: u128,
                 challenge_deadline: u64,
             },
             SettlementFinalized {
                 basket_id: u64,
+                asset_kind: BasketAssetKind,
                 finalized_at: u64,
                 payout_per_share: u128,
             },

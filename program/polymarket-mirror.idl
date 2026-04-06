@@ -148,12 +148,14 @@ service BasketMarket {
     };
     SettlementProposed: struct {
       basket_id: u64,
+      asset_kind: BasketAssetKind,
       proposer: actor_id,
       payout_per_share: u128,
       challenge_deadline: u64,
     };
     SettlementFinalized: struct {
       basket_id: u64,
+      asset_kind: BasketAssetKind,
       finalized_at: u64,
       payout_per_share: u128,
     };

@@ -1,4 +1,4 @@
-const POLYMARKET_GAMMA_BASE = 'https://gamma-api.polymarket.com';
+const DEFAULT_POLYMARKET_GAMMA_BASE = 'https://gamma-api.polymarket.com';
 
 export interface PolymarketMarket {
   id?: string;
@@ -26,10 +26,13 @@ export interface ResolutionCheck {
 /**
  * Fetch a market by slug from Polymarket Gamma API
  */
-export async function fetchMarketBySlug(slug: string): Promise<PolymarketMarket | null> {
+export async function fetchMarketBySlug(
+  slug: string,
+  gammaBaseUrl = DEFAULT_POLYMARKET_GAMMA_BASE,
+): Promise<PolymarketMarket | null> {
   try {
     // Add cache-busting timestamp to ensure latest data
-    const apiUrl = `${POLYMARKET_GAMMA_BASE}/markets/slug/${slug}?_t=${Date.now()}`;
+    const apiUrl = `${gammaBaseUrl}/markets/slug/${slug}?_t=${Date.now()}`;
     const response = await fetch(apiUrl, {
       headers: {
         'Accept': 'application/json',
@@ -53,10 +56,13 @@ export async function fetchMarketBySlug(slug: string): Promise<PolymarketMarket 
 /**
  * Fetch a market by ID from Polymarket Gamma API
  */
-export async function fetchMarketById(id: string): Promise<PolymarketMarket | null> {
+export async function fetchMarketById(
+  id: string,
+  gammaBaseUrl = DEFAULT_POLYMARKET_GAMMA_BASE,
+): Promise<PolymarketMarket | null> {
   try {
     // Add cache-busting timestamp to ensure latest data
-    const apiUrl = `${POLYMARKET_GAMMA_BASE}/markets/${id}?_t=${Date.now()}`;
+    const apiUrl = `${gammaBaseUrl}/markets/${id}?_t=${Date.now()}`;
     const response = await fetch(apiUrl, {
       headers: {
         'Accept': 'application/json',

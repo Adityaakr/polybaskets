@@ -1,15 +1,15 @@
 FROM node:20-bookworm-slim
 
-WORKDIR /app/settler-bot
+WORKDIR /app/contest-bot
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
 
-COPY settler-bot/package*.json ./
+COPY contest-bot/package*.json ./
 RUN npm install --legacy-peer-deps
 
-COPY settler-bot/ ./
+COPY contest-bot/ ./
 
 RUN npm run build
 

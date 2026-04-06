@@ -113,6 +113,62 @@ flowchart TB
     style External fill:#0891b2,color:#fff
 ```
 
+## 🚀 Deployment Summary
+
+Daily contest runtime now uses one unified root deployment contract.
+
+Use only:
+
+- [`docker-compose.yml`](polybaskets/docker-compose.yml)
+- [`.env.example`](polybaskets/.env.example)
+- [`.env.secrets.example`](polybaskets/.env.secrets.example)
+
+Stack services:
+
+- `postgres`
+- `indexer-migrate`
+- `indexer-processor`
+- `indexer-api`
+- `contest-bot`
+- `settler-bot`
+
+Quick start:
+
+```bash
+cp .env.example .env
+cp .env.secrets.example .env.secrets
+```
+
+Fill:
+
+- chain/program env in `.env`
+- exactly one of `SETTLER_SEED` or `SETTLER_SEED_FILE` in `.env.secrets`
+
+Run:
+
+```bash
+docker compose \
+  --env-file .env \
+  --env-file .env.secrets \
+  -f docker-compose.yml \
+  up --build
+```
+
+Logs:
+
+```bash
+docker compose --env-file .env --env-file .env.secrets -f docker-compose.yml logs -f indexer-processor
+docker compose --env-file .env --env-file .env.secrets -f docker-compose.yml logs -f contest-bot
+docker compose --env-file .env --env-file .env.secrets -f docker-compose.yml logs -f settler-bot
+```
+
+Frontend:
+
+- set `VITE_INDEXER_GRAPHQL_ENDPOINT` to your `indexer-api` GraphQL URL
+- CORS allow-list is controlled by `FRONTEND_URLS`
+- on Railway, `indexer-api` should respect `PORT`
+- recommended production setting: `INDEXER_GRAPHIQL_ENABLED=false`
+
 ---
 
 ## 📋 User Flow Sequence
