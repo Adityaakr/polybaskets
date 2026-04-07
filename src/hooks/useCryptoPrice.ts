@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import type { PolymarketMarket } from '@/types/polymarket.ts';
 
 type FeedTopic = 'crypto_prices' | 'crypto_prices_chainlink';
-type FeedSource = 'polymarket-binance' | 'polymarket-chainlink' | 'binance-direct';
+type FeedSource = 'polymarket-binance' | 'polymarket-chainlink' | 'binance-direct' | 'coingecko-direct';
 
 interface FeedSubscription {
   topic: FeedTopic;
@@ -60,11 +60,16 @@ const FALLBACK_CHAINLINK_SYMBOLS: Record<string, string> = {
   hype: 'hype/usd',
 };
 
+const COINGECKO_IDS: Record<string, string> = {
+  hype: 'hyperliquid',
+};
+
 const DEFAULT_RTD_ASSETS = new Set(['btc', 'eth', 'sol', 'xrp']);
 
 const RTDS_URL = 'wss://ws-live-data.polymarket.com';
 const BINANCE_WS_BASE = 'wss://stream.binance.com:9443/ws';
 const BINANCE_FALLBACK_DELAY_MS = 1500;
+const COINGECKO_POLL_MS = 2500;
 
 type Listener = (snapshot: LivePriceSnapshot) => void;
 
@@ -82,6 +87,34 @@ const binancePriceCache = new Map<string, LivePriceSnapshot>();
 const binanceListeners = new Map<string, Set<Listener>>();
 const binanceRefCounts = new Map<string, number>();
 const binanceSockets = new Map<string, WebSocket>();
+const coingeckoPriceCache = new Map<string, LivePriceSnapshot>();
+const coingeckoListeners = new Map<string, Set<Listener>>();
+const coingeckoRefCounts = new Map<string, number>();
+const coingeckoTimers = new Map<string, number>();
+
+async function pollCoinGeckoPrice(asset: string, coinId: string) {
+  const response = await fetch(
+    `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(coinId)}&vs_currencies=usd&include_last_updated_at=true`,
+    { signal: AbortSignal.timeout(8000) }
+  );
+  if (!response.ok) return;
+  const data = await response.json();
+  const entry = data?.[coinId];
+  const price = typeof entry?.usd === 'number' ? entry.usd : Number.NaN;
+  const lastUpdatedAt = typeof entry?.last_updated_at === 'number' ? entry.last_updated_at * 1000 : Date.now();
+  if (!Number.isFinite(price)) return;
+
+  const snapshot: LivePriceSnapshot = {
+    price,
+    timestamp: Number.isFinite(lastUpdatedAt) ? lastUpdatedAt : Date.now(),
+    source: 'coingecko-direct',
+    symbol: coinId,
+    asset,
+  };
+
+  coingeckoPriceCache.set(asset, snapshot);
+  coingeckoListeners.get(asset)?.forEach((fn) => fn(snapshot));
+}
 
 function getSubscriptionKey(topic: FeedTopic, symbol: string): string {
   return `${topic}:${symbol.toLowerCase()}`;
@@ -335,6 +368,47 @@ function subscribeToBinanceSymbol(asset: string, symbol: string, listener: Liste
   };
 }
 
+function subscribeToCoinGeckoAsset(asset: string, coinId: string, listener: Listener) {
+  const currentListeners = coingeckoListeners.get(asset) ?? new Set<Listener>();
+  currentListeners.add(listener);
+  coingeckoListeners.set(asset, currentListeners);
+  coingeckoRefCounts.set(asset, (coingeckoRefCounts.get(asset) ?? 0) + 1);
+
+  const cached = coingeckoPriceCache.get(asset);
+  if (cached) {
+    listener(cached);
+  }
+
+  if (!coingeckoTimers.has(asset)) {
+    const run = () => {
+      pollCoinGeckoPrice(asset, coinId).catch(() => {});
+    };
+    run();
+    const timer = window.setInterval(run, COINGECKO_POLL_MS);
+    coingeckoTimers.set(asset, timer);
+  }
+
+  return () => {
+    const listenersForAsset = coingeckoListeners.get(asset);
+    listenersForAsset?.delete(listener);
+    if (listenersForAsset && listenersForAsset.size === 0) {
+      coingeckoListeners.delete(asset);
+    }
+
+    const remaining = (coingeckoRefCounts.get(asset) ?? 1) - 1;
+    if (remaining <= 0) {
+      coingeckoRefCounts.delete(asset);
+      const timer = coingeckoTimers.get(asset);
+      if (timer != null) {
+        window.clearInterval(timer);
+        coingeckoTimers.delete(asset);
+      }
+    } else {
+      coingeckoRefCounts.set(asset, remaining);
+    }
+  };
+}
+
 function makeBinanceSubscription(asset: string, symbol: string): FeedSubscription {
   return {
     topic: 'crypto_prices',
@@ -427,6 +501,7 @@ export function useCryptoPrice(market: PolymarketMarket | undefined): CryptoPric
     return detectAsset(`${market.question || ''}\n${market.description || ''}\n${market.groupItemTitle || ''}`.toLowerCase());
   }, [market]);
   const binanceFallbackSymbol = asset ? FALLBACK_BINANCE_SYMBOLS[asset] ?? null : null;
+  const coingeckoCoinId = asset ? COINGECKO_IDS[asset] ?? null : null;
 
   const [price, setPrice] = useState<number | null>(null);
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
@@ -499,6 +574,26 @@ export function useCryptoPrice(market: PolymarketMarket | undefined): CryptoPric
       unsubscribe?.();
     };
   }, [asset, binanceFallbackSymbol, applySnapshot]);
+
+  useEffect(() => {
+    if (!asset || !coingeckoCoinId) return;
+
+    let unsubscribe: (() => void) | undefined;
+    const timeout = window.setTimeout(() => {
+      if (hasPolymarketTickRef.current) return;
+      unsubscribe = subscribeToCoinGeckoAsset(asset, coingeckoCoinId, (snapshot) => {
+        if (hasPolymarketTickRef.current) return;
+        if (snapshot.timestamp < latestTimestampRef.current) return;
+        latestTimestampRef.current = snapshot.timestamp;
+        applySnapshot(snapshot);
+      });
+    }, BINANCE_FALLBACK_DELAY_MS);
+
+    return () => {
+      window.clearTimeout(timeout);
+      unsubscribe?.();
+    };
+  }, [asset, coingeckoCoinId, applySnapshot]);
 
   useEffect(() => {
     if (!direction) return;
