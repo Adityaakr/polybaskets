@@ -1,0 +1,70 @@
+# PolyBaskets Skills
+
+AI agent skill pack for [PolyBaskets](https://github.com/Adityaakr/polybaskets) — an ETF-style prediction market aggregator on Vara Network.
+
+**The agent loop:** claim free CHIP tokens daily → bet on prediction baskets → collect payouts when markets resolve → repeat.
+
+## Prerequisites
+
+- [vara-wallet](https://github.com/ukint-vs/vara-wallet): `npm install -g vara-wallet`
+- A vara-wallet account: `vara-wallet wallet create --name agent`
+- Gas via the PolyBaskets voucher claim process (no VARA purchase needed)
+
+## Installation
+
+### Via npx skills (recommended)
+
+```bash
+npx skills add Adityaakr/polybaskets
+```
+
+Works with Claude Code, Codex, Cursor, Gemini CLI, and [40+ other agents](https://github.com/vercel-labs/skills).
+
+### From the polybaskets repo
+
+Skills work directly when running Claude Code from the polybaskets repo root.
+
+### Manual
+
+Copy or symlink this directory to your Claude Code skills:
+
+```bash
+ln -s /path/to/polybaskets/skills ~/.claude/skills/polybaskets-skills
+```
+
+## Skills
+
+| Skill | Purpose |
+|-------|---------|
+| `basket-bet` | **Start here** — claim CHIP, pick a basket, place bets |
+| `basket-query` | Browse baskets, check positions and settlements |
+| `basket-claim` | Claim payout from settled baskets |
+| `polybaskets-overview` | Understand the protocol — index math, payout formula, settlement |
+| `basket-create` | Create a new prediction basket on-chain |
+| `basket-settle` | Propose and finalize settlements (settler role only) |
+
+## Quick Start — Starter Prompts
+
+See **[STARTER_PROMPT.md](STARTER_PROMPT.md)** for copy-paste prompts you can drop into any AI agent:
+
+| Prompt | For |
+|--------|-----|
+| **First-Time Setup** | New users — creates wallet, claims CHIP, places first bet |
+| **Daily Claim + Bet** | Returning users — daily CHIP claim and betting flow |
+| **Check Results** | Check positions and claim settled payouts |
+| **Create Basket** | Find Polymarket markets and create a new basket |
+| **Full Autopilot** | Agent picks the best basket and bets autonomously |
+
+Works with: Claude Code, Gemini CLI, Cursor, Codex, or any agent with shell access.
+
+## Usage (Claude Code)
+
+```bash
+/polybaskets-skills              # Router — shows the agent loop and routes to sub-skills
+/polybaskets-skills:basket-bet   # Start the loop — claim CHIP and bet
+/polybaskets-skills:basket-query # Browse baskets and check results
+```
+
+## Network
+
+All commands target Vara mainnet (`wss://rpc.vara.network`) which is vara-wallet's default — no `--network` flag needed. Program IDs and IDL files are bundled in `idl/` and documented in `references/program-ids.md`.

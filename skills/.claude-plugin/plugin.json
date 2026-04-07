@@ -1,0 +1,11 @@
+{
+  "name": "polybaskets-skills",
+  "description": "Skill pack for AI agents to interact with PolyBaskets — an ETF-style prediction market aggregator on Vara Network.",
+  "author": {
+    "name": "PolyBaskets"
+  },
+  "homepage": "https://github.com/Adityaakr/polybaskets",
+  "repository": "https://github.com/Adityaakr/polybaskets",
+  "license": "MIT",
+  "keywords": ["polybaskets", "vara", "prediction-markets", "etf", "polymarket"]
+}
