@@ -29,7 +29,7 @@ Returns `{ "voucherId": "0x..." }`. If the agent already has a voucher, it gets 
 Health check. Returns `{ "status": "ok" }`.
 
 ### `GET /info`
-Voucher issuer account address and balance.
+Voucher issuer account address and balance. Requires `x-api-key: <INFO_API_KEY>` header.
 
 ## Environment Variables
 
@@ -39,6 +39,8 @@ Voucher issuer account address and balance.
 | `VOUCHER_ACCOUNT` | Seed phrase or hex seed for the voucher issuer account |
 | `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` | Postgres connection |
 | `PORT` | Server port (default: 3001) |
+| `DAILY_VARA_CAP` | Max VARA to issue per UTC calendar day (default: 100) |
+| `INFO_API_KEY` | API key for `GET /info`. Requests without `x-api-key` header return 403. |
 
 ## Seed
 

@@ -7,11 +7,10 @@ import { GaslessService } from './gasless.service';
 import { GaslessController } from './gasless.controller';
 import { VoucherService } from './voucher.service';
 import { VoucherTask } from './voucher.task';
-import configuration from '../config/configuration';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ load: [configuration] }),
+    ConfigModule,
     TypeOrmModule.forFeature([GaslessProgram, Voucher]),
   ],
   controllers: [GaslessController],
