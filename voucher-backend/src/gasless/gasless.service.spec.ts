@@ -67,6 +67,7 @@ describe('GaslessService', () => {
     const qb = {
       select: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
       getRawOne: jest.fn().mockImplementation(() =>
         Promise.resolve({ total: qbTotal }),
       ),

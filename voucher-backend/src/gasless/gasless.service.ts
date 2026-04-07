@@ -25,32 +25,34 @@ export class GaslessService {
   ) {}
 
   /**
-   * Sum of VARA issued or renewed today (UTC midnight). Uses lastRenewedAt so
-   * renewals count toward the cap, not just new issuances.
+   * Sum of VARA issued or renewed today (UTC midnight) for a specific agent.
+   * Uses lastRenewedAt so renewals count toward the cap, not just new issuances.
    */
-  private async getTodayIssuedVara(): Promise<number> {
+  private async getTodayIssuedVara(account: string): Promise<number> {
     const todayMidnight = new Date();
     todayMidnight.setUTCHours(0, 0, 0, 0);
 
     const result = await this.voucherRepo
       .createQueryBuilder('v')
       .select('SUM(v.varaToIssue)', 'total')
-      .where('v.lastRenewedAt >= :since', { since: todayMidnight })
+      .where('v.account = :account', { account })
+      .andWhere('v.lastRenewedAt >= :since', { since: todayMidnight })
       .getRawOne();
 
     return Number(result?.total ?? 0);
   }
 
   /**
-   * Deterministic integer key for a PostgreSQL advisory lock, keyed on UTC date.
-   * Serializes all voucher issuances within a calendar day to prevent TOCTOU
-   * races on the daily cap check.
+   * Deterministic integer key for a PostgreSQL advisory lock, keyed on agent
+   * address + UTC date. Serializes concurrent requests from the same agent to
+   * prevent TOCTOU races on the per-agent daily cap check.
    */
-  private getTodayLockKey(): number {
+  private getTodayLockKey(account: string): number {
     const dateStr = new Date().toISOString().slice(0, 10); // e.g. '2026-04-07'
+    const key = `${account}:${dateStr}`;
     let hash = 0;
-    for (let i = 0; i < dateStr.length; i++) {
-      hash = (hash * 31 + dateStr.charCodeAt(i)) | 0;
+    for (let i = 0; i < key.length; i++) {
+      hash = (hash * 31 + key.charCodeAt(i)) | 0;
     }
     return Math.abs(hash);
   }
@@ -99,15 +101,15 @@ export class GaslessService {
     // Advisory lock keyed on UTC date to serialize cap check + issuance.
     // Prevents two concurrent requests from both reading todayTotal < cap and
     // both issuing, which would exceed the daily budget.
-    const lockKey = this.getTodayLockKey();
+    const lockKey = this.getTodayLockKey(address);
     await this.dataSource.query('SELECT pg_advisory_lock($1)', [lockKey]);
 
     try {
       const dailyCap = this.configService.get<number>('dailyVaraCap');
-      const todayTotal = await this.getTodayIssuedVara();
+      const todayTotal = await this.getTodayIssuedVara(address);
       if (todayTotal + amount > dailyCap) {
         this.logger.warn(
-          `Daily cap reached: ${todayTotal}/${dailyCap} VARA issued today`,
+          `Daily cap reached for ${address}: ${todayTotal}/${dailyCap} VARA issued today`,
         );
         throw new BadRequestException(
           'Daily voucher budget exhausted. Try again tomorrow.',
