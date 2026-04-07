@@ -6,6 +6,9 @@ use scale_info::TypeInfo;
 
 const MAX_ITEMS_PER_BASKET: usize = 32;
 const MAX_NAME_LEN: usize = 128;
+const MAX_AGENT_NAME_LEN: usize = 20;
+const MIN_AGENT_NAME_LEN: usize = 3;
+const AGENT_RENAME_COOLDOWN_MS: u64 = 7 * 24 * 60 * 60 * 1000;
 const MAX_DESCRIPTION_LEN: usize = 512;
 const MAX_MARKET_ID_LEN: usize = 128;
 const MAX_SLUG_LEN: usize = 128;
@@ -77,6 +80,16 @@ pub struct Position {
     pub shares: u128,
     pub claimed: bool,
     pub index_at_creation_bps: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
+pub struct AgentInfo {
+    pub address: ActorId,
+    pub name: String,
+    pub registered_at: u64,
+    pub name_updated_at: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, TypeInfo)]
@@ -193,6 +206,16 @@ pub enum BasketMarketError {
     EventEmitFailed,
     #[error("invalid config")]
     InvalidConfig,
+    #[error("agent name too short")]
+    AgentNameTooShort,
+    #[error("agent name too long")]
+    AgentNameTooLong,
+    #[error("agent name invalid")]
+    AgentNameInvalid,
+    #[error("agent name taken")]
+    AgentNameTaken,
+    #[error("rename cooldown active")]
+    AgentRenameCooldown,
 }
 
 #[event]
@@ -230,6 +253,15 @@ pub enum Event {
         user: ActorId,
         amount: u128,
     },
+    AgentRegistered {
+        agent: ActorId,
+        name: String,
+    },
+    AgentRenamed {
+        agent: ActorId,
+        old_name: String,
+        new_name: String,
+    },
     VaraSupportUpdated {
         enabled: bool,
     },
@@ -245,6 +277,7 @@ pub struct State {
     pub baskets: Vec<Basket>,
     pub positions: Vec<Position>,
     pub settlements: Vec<Settlement>,
+    pub agents: Vec<AgentInfo>,
     pub next_basket_id: u64,
     pub config: BasketMarketConfig,
 }
@@ -255,6 +288,7 @@ impl Default for State {
             baskets: Vec::new(),
             positions: Vec::new(),
             settlements: Vec::new(),
+            agents: Vec::new(),
             next_basket_id: 0,
             config: BasketMarketConfig {
                 admin_role: ActorId::zero(),
@@ -369,6 +403,35 @@ impl<'a> BasketMarketService<'a> {
             return Err(BasketMarketError::InvalidIndexAtCreation);
         }
 
+        Ok(())
+    }
+
+    fn agent_index(&self, address: ActorId) -> Option<usize> {
+        self.state.agents.iter().position(|a| a.address == address)
+    }
+
+    fn is_agent_name_taken(&self, name: &str, exclude: Option<ActorId>) -> bool {
+        self.state.agents.iter().any(|a| {
+            a.name == name && exclude.map_or(true, |ex| a.address != ex)
+        })
+    }
+
+    fn validate_agent_name(name: &str) -> Result<(), BasketMarketError> {
+        if name.len() < MIN_AGENT_NAME_LEN {
+            return Err(BasketMarketError::AgentNameTooShort);
+        }
+        if name.len() > MAX_AGENT_NAME_LEN {
+            return Err(BasketMarketError::AgentNameTooLong);
+        }
+        let bytes = name.as_bytes();
+        if bytes[0] == b'-' || bytes[bytes.len() - 1] == b'-' {
+            return Err(BasketMarketError::AgentNameInvalid);
+        }
+        for &b in bytes {
+            if !(b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-') {
+                return Err(BasketMarketError::AgentNameInvalid);
+            }
+        }
         Ok(())
     }
 
@@ -711,6 +774,73 @@ impl<'a> BasketMarketService<'a> {
         Ok(payout)
     }
 
+    /// Register an agent with a display name, or rename if already registered.
+    /// Input is normalized to lowercase. Names must be 3-20 chars, alphanumeric
+    /// and hyphens only, no leading/trailing hyphens. Rename has a 7-day cooldown.
+    #[export(unwrap_result)]
+    pub fn register_agent(&mut self, name: String) -> Result<(), BasketMarketError> {
+        let name = name.to_ascii_lowercase();
+        BasketMarketService::validate_agent_name(&name)?;
+
+        let caller = sails_rs::gstd::msg::source();
+        let now = sails_rs::gstd::exec::block_timestamp();
+
+        if let Some(idx) = self.agent_index(caller) {
+            let agent = &self.state.agents[idx];
+            // No-op if renaming to the same name
+            if agent.name == name {
+                return Ok(());
+            }
+            if now < agent.name_updated_at + AGENT_RENAME_COOLDOWN_MS {
+                return Err(BasketMarketError::AgentRenameCooldown);
+            }
+            if self.is_agent_name_taken(&name, Some(caller)) {
+                return Err(BasketMarketError::AgentNameTaken);
+            }
+            let old_name = self.state.agents[idx].name.clone();
+            self.state.agents[idx].name = name.clone();
+            self.state.agents[idx].name_updated_at = now;
+            self.emit_event(Event::AgentRenamed {
+                agent: caller,
+                old_name,
+                new_name: name,
+            })
+            .map_err(|_| BasketMarketError::EventEmitFailed)?;
+        } else {
+            if self.is_agent_name_taken(&name, None) {
+                return Err(BasketMarketError::AgentNameTaken);
+            }
+            self.state.agents.push(AgentInfo {
+                address: caller,
+                name: name.clone(),
+                registered_at: now,
+                name_updated_at: now,
+            });
+            self.emit_event(Event::AgentRegistered {
+                agent: caller,
+                name,
+            })
+            .map_err(|_| BasketMarketError::EventEmitFailed)?;
+        }
+
+        Ok(())
+    }
+
+    #[export]
+    pub fn get_agent(&self, address: ActorId) -> Option<AgentInfo> {
+        self.state.agents.iter().find(|a| a.address == address).cloned()
+    }
+
+    #[export]
+    pub fn get_all_agents(&self) -> Vec<AgentInfo> {
+        self.state.agents.clone()
+    }
+
+    #[export]
+    pub fn get_agent_count(&self) -> u64 {
+        self.state.agents.len() as u64
+    }
+
     #[export]
     pub fn get_basket(&self, basket_id: u64) -> Result<Basket, BasketMarketError> {
         let basket_index = self.basket_index(basket_id)?;
@@ -801,6 +931,7 @@ impl BasketMarketProgram {
                 baskets: Vec::new(),
                 positions: Vec::new(),
                 settlements: Vec::new(),
+                agents: Vec::new(),
                 next_basket_id: 0,
                 config: BasketMarketConfig {
                     admin_role: init.admin_role,
