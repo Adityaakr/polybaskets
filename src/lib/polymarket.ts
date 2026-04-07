@@ -384,6 +384,22 @@ function mapMarket(m: any): PolymarketMarket | null {
       clobTokenIds = m.clobTokenIds;
     }
   }
+  if (!clobTokenIds && m.clob_token_ids) {
+    if (typeof m.clob_token_ids === 'string') {
+      try { clobTokenIds = JSON.parse(m.clob_token_ids); } catch { clobTokenIds = undefined; }
+    } else if (Array.isArray(m.clob_token_ids)) {
+      clobTokenIds = m.clob_token_ids.map((id: unknown) => String(id));
+    }
+  }
+  if (!clobTokenIds && Array.isArray(m.tokens) && m.tokens.length >= 2) {
+    const ids = m.tokens
+      .map((token: any) => token.token_id || token.asset_id || token.clobTokenId || token.clob_token_id)
+      .filter(Boolean)
+      .map((id: unknown) => String(id));
+    if (ids.length >= 2) {
+      clobTokenIds = ids;
+    }
+  }
 
   const mappedMarket = {
     id: marketId,

@@ -4,7 +4,9 @@ import { Outcome } from '@/types/basket.ts';
 import { getOutcomeProbabilities, getOutcomePrices, formatVolume, formatProbability, formatPrice, formatCategoryName } from '@/lib/polymarket.ts';
 import { useBasket } from '@/contexts/BasketContext';
 import { useCountdown } from '@/hooks/useCountdown';
-import { useCryptoPrice, fmtCryptoPrice } from '@/hooks/useCryptoPrice';
+import { useCryptoPrice, fmtCryptoPrice, formatPriceTimestamp } from '@/hooks/useCryptoPrice';
+import { useMarketLivePrices } from '@/hooks/useMarketLivePrices';
+import { usePriceToBeat } from '@/hooks/usePriceToBeat';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -26,24 +28,39 @@ export function MarketCard({ market, index = 0 }: MarketCardProps) {
   const isUpDownMarket = market.question?.toLowerCase().includes('up or down')
     || market.outcomes?.some(o => /^(up|down)$/i.test(o));
 
-  const { price: livePrice, prevPrice, direction } = useCryptoPrice(
-    isUpDownMarket ? market.question : undefined
-  );
+  const {
+    price: livePrice,
+    prevPrice,
+    direction,
+    updatedAt: livePriceUpdatedAt,
+    source: livePriceSource,
+    isLive: livePriceIsLive,
+  } = useCryptoPrice(isUpDownMarket ? market : undefined);
+  const liveMarketPrices = useMarketLivePrices(isUpDownMarket ? market : undefined);
 
-  // Only show "Price to Beat" if we have REAL data from the API
-  const priceToBeat = market.priceToBeat || null;
+  const priceToBeat = usePriceToBeat(isUpDownMarket ? market : undefined);
+  const effectivePrices = liveMarketPrices ?? prices;
+  const effectiveProbs = effectivePrices
+    ? (() => {
+        const sum = effectivePrices.YES + effectivePrices.NO;
+        if (sum > 0) {
+          return { YES: effectivePrices.YES / sum, NO: effectivePrices.NO / sum };
+        }
+        return probs;
+      })()
+    : probs;
 
-  const prevYesRef = useRef(probs.YES);
+  const prevYesRef = useRef(effectiveProbs.YES);
   const [flash, setFlash] = useState<'up' | 'down' | null>(null);
 
   useEffect(() => {
-    if (probs.YES !== prevYesRef.current) {
-      setFlash(probs.YES > prevYesRef.current ? 'up' : 'down');
-      prevYesRef.current = probs.YES;
+    if (effectiveProbs.YES !== prevYesRef.current) {
+      setFlash(effectiveProbs.YES > prevYesRef.current ? 'up' : 'down');
+      prevYesRef.current = effectiveProbs.YES;
       const timer = setTimeout(() => setFlash(null), 600);
       return () => clearTimeout(timer);
     }
-  }, [probs.YES]);
+  }, [effectiveProbs.YES]);
   
   const outcomeLabels = {
     YES: market.outcomes?.[0] || 'YES',
@@ -74,6 +91,23 @@ export function MarketCard({ market, index = 0 }: MarketCardProps) {
   const priceVsBeat = livePrice && ptbNum
     ? livePrice > ptbNum ? 'above' : livePrice < ptbNum ? 'below' : 'equal'
     : null;
+  const livePriceLabel = livePrice != null ? fmtCryptoPrice(livePrice) : null;
+  const beatLength = priceToBeat?.length ?? 0;
+  const liveLength = livePriceLabel?.length ?? 0;
+  const beatPriceClass = beatLength >= 11
+    ? 'text-[1.15rem]'
+    : beatLength >= 9
+      ? 'text-[1.3rem]'
+      : beatLength >= 7
+        ? 'text-[1.55rem]'
+        : 'text-[1.85rem]';
+  const livePriceClass = liveLength >= 11
+    ? 'text-[1.15rem]'
+    : liveLength >= 9
+      ? 'text-[1.3rem]'
+      : liveLength >= 7
+        ? 'text-[1.55rem]'
+        : 'text-[1.85rem]';
 
   return (
     <Card
@@ -93,17 +127,17 @@ export function MarketCard({ market, index = 0 }: MarketCardProps) {
       
       <CardContent className="p-6">
         {/* Header */}
-        <div className="flex items-start justify-between gap-3 mb-4">
+        <div className="relative mb-4">
           {market.image && (
             <img
               src={market.image}
               alt=""
-              className="w-8 h-8 rounded-full object-cover border border-border/50 flex-shrink-0 mt-0.5"
+              className="absolute left-0 top-0 h-8 w-8 rounded-full border border-border/50 object-cover"
               onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
             />
           )}
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-2 flex-wrap">
+          <div className="min-w-0">
+            <div className={cn("mb-2 flex items-center gap-2 flex-wrap", market.image && "pl-11")}>
               {market.category && (
                 <Badge variant="secondary" className="text-xs font-medium bg-primary/10 text-primary border-primary/20">
                   {formatCategoryName(market.category)}
@@ -114,6 +148,11 @@ export function MarketCard({ market, index = 0 }: MarketCardProps) {
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
                 </span>
+              )}
+              {liveMarketPrices && (
+                <Badge className="bg-cyan-500/15 text-cyan-300 border-cyan-500/30 text-[10px] px-1.5 py-0">
+                  Live Odds
+                </Badge>
               )}
               {market.volume24hr && market.volume24hr > 10000 && (
                 <Badge className="bg-orange-500/15 text-orange-400 border-orange-500/30 text-[10px] px-1.5 py-0">
@@ -133,48 +172,57 @@ export function MarketCard({ market, index = 0 }: MarketCardProps) {
                 </TooltipProvider>
               )}
             </div>
-            <h3 className="font-display font-semibold text-base leading-snug break-words" title={market.question}>
+            <h3 className={cn("font-display text-base font-semibold leading-snug break-words", market.image && "pl-11")} title={market.question}>
               {market.question}
             </h3>
 
             {/* ── Live Price Panel for Up/Down Markets ── */}
             {isUpDownMarket && livePrice != null && (
-              <div className="mt-2.5 rounded-lg border border-border/60 overflow-hidden">
-                {/* Price row */}
+              <div className="mt-3 overflow-hidden rounded-2xl border border-primary/20 bg-gradient-to-b from-muted/45 via-muted/20 to-background/15 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+                <div className="flex items-center justify-between gap-3 border-b border-border/30 px-4 py-2">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <div className="text-[10px] font-medium tracking-[0.18em] text-muted-foreground/70 uppercase whitespace-nowrap">
+                      Live Feed
+                    </div>
+                    <span className="relative flex h-2.5 w-2.5 shrink-0">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-60" />
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500" />
+                    </span>
+                  </div>
+                </div>
+
                 <div className={cn(
-                  "flex items-stretch",
-                  priceToBeat ? "grid grid-cols-2" : ""
+                  "grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-0",
+                  priceToBeat ? "grid-cols-2" : "grid-cols-1"
                 )}>
-                  {/* Price to Beat (only when API provides real data) */}
                   {priceToBeat && (
-                    <div className="px-3 py-2 bg-muted/30 border-r border-border/40">
-                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-0.5">
-                        Price to Beat
+                    <div className="min-w-0 border-b border-border/30 px-4 py-3 pr-5 md:border-b-0 md:border-r">
+                      <div className="mb-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/65">
+                        Price To Beat
                       </div>
-                      <div className="text-sm font-mono font-semibold tabular-nums text-muted-foreground">
+                      <div className={cn(
+                        "whitespace-nowrap font-mono font-semibold leading-none tracking-[-0.04em] tabular-nums text-foreground/92",
+                        beatPriceClass
+                      )}>
                         {priceToBeat}
+                      </div>
+                      <div className="mt-2 text-[12px] text-muted-foreground/60">
+                        Opening reference
                       </div>
                     </div>
                   )}
 
-                  {/* Live Price — animated */}
-                  <div className={cn(
-                    "px-3 py-2",
-                    priceToBeat ? "bg-muted/20" : "bg-muted/30 flex-1"
-                  )}>
-                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-0.5 flex items-center gap-1.5">
+                  <div className="min-w-0 px-4 py-3 pr-5">
+                    <div className="mb-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/65">
                       {priceToBeat ? 'Current Price' : 'Live Price'}
-                      <span className="relative flex h-1.5 w-1.5">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-60" />
-                        <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-500" />
-                      </span>
                     </div>
-                    <div className="flex items-center gap-2">
-                      {/* Animated price with flash */}
+
+                    <div className="min-h-[44px]">
                       <span
                         key={livePrice}
                         className={cn(
-                          "text-sm font-mono font-bold tabular-nums transition-colors duration-300",
+                          "block whitespace-nowrap font-mono font-bold leading-none tracking-[-0.04em] tabular-nums transition-colors duration-300",
+                          livePriceClass,
                           direction === 'up' && "animate-price-flash-green",
                           direction === 'down' && "animate-price-flash-red",
                           !direction && priceVsBeat === 'above' && "text-green-400",
@@ -182,39 +230,53 @@ export function MarketCard({ market, index = 0 }: MarketCardProps) {
                           !direction && !priceVsBeat && "text-foreground",
                         )}
                       >
-                        {fmtCryptoPrice(livePrice)}
+                        {livePriceLabel}
                       </span>
+                    </div>
 
-                      {/* Direction arrow badge */}
-                      {direction && (
-                        <span
-                          key={`${direction}-${livePrice}`}
-                          className={cn(
-                            "inline-flex items-center gap-0.5 text-[10px] font-mono font-medium px-1.5 py-0.5 rounded-md animate-in fade-in zoom-in-95 duration-200",
-                            direction === 'up'
-                              ? "text-green-400 bg-green-500/15"
-                              : "text-red-400 bg-red-500/15"
-                          )}
-                        >
-                          {direction === 'up'
-                            ? <TrendingUp className="w-2.5 h-2.5" />
-                            : <TrendingDown className="w-2.5 h-2.5" />
-                          }
-                          {prevPrice != null && (
-                            <>
-                              {direction === 'up' ? '+' : ''}
-                              {fmtCryptoPrice(Math.abs(livePrice - prevPrice)).slice(1)}
-                            </>
-                          )}
-                        </span>
-                      )}
+                    {direction && (
+                      <span
+                        key={`${direction}-${livePrice}`}
+                        className={cn(
+                          "mt-2 inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-mono font-medium animate-in fade-in zoom-in-95 duration-200",
+                          direction === 'up'
+                            ? "bg-green-500/15 text-green-300"
+                            : "bg-red-500/15 text-red-300"
+                        )}
+                      >
+                        {direction === 'up'
+                          ? <TrendingUp className="h-3 w-3" />
+                          : <TrendingDown className="h-3 w-3" />
+                        }
+                        {prevPrice != null && (
+                          <>
+                            {direction === 'up' ? '+' : ''}
+                            {fmtCryptoPrice(Math.abs(livePrice - prevPrice)).slice(1)}
+                          </>
+                        )}
+                      </span>
+                    )}
+
+                    <div className="mt-2 text-[12px] text-muted-foreground/60">
+                      Streaming market reference
                     </div>
                   </div>
                 </div>
 
-                {/* Hint bar */}
-                <div className="px-3 py-1 bg-muted/10 border-t border-border/30 text-[10px] text-muted-foreground/60">
-                  {outcomeLabels.YES} wins if price is <span className="text-green-400/80 font-medium">higher</span> at close
+                <div className="flex items-end justify-between gap-4 border-t border-border/30 bg-background/10 px-4 py-2.5">
+                  <div className="max-w-[68%] text-[12px] leading-relaxed text-muted-foreground/75">
+                    {outcomeLabels.YES} wins if price is <span className="font-medium text-green-400/85">higher</span> at close
+                  </div>
+                  {livePriceUpdatedAt && (
+                    <div className="whitespace-nowrap text-right">
+                      <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground/50">
+                        Updated
+                      </div>
+                      <div className="font-mono text-[11px] text-muted-foreground/75">
+                        {formatPriceTimestamp(livePriceUpdatedAt)}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -235,10 +297,10 @@ export function MarketCard({ market, index = 0 }: MarketCardProps) {
               flash === 'up' && "text-green-300 scale-105",
               flash === 'down' && "text-red-400"
             )}>
-              {formatProbability(probs.YES)}
+              {formatProbability(effectiveProbs.YES)}
             </div>
             <div className="text-xs text-muted-foreground mt-1.5 truncate" title={outcomeLabels.YES}>
-              {shortLabels.YES} {prices && <span className="opacity-75">({formatPrice(prices.YES)})</span>}
+              {shortLabels.YES} {effectivePrices && <span className="opacity-75">({formatPrice(effectivePrices.YES)})</span>}
             </div>
           </div>
           <div className="bg-gradient-to-br from-secondary to-secondary/80 rounded-md p-3 text-center border border-border transition-all duration-300 hover:border-primary/30 overflow-hidden">
@@ -247,10 +309,10 @@ export function MarketCard({ market, index = 0 }: MarketCardProps) {
               flash === 'down' && "text-green-300 scale-105",
               flash === 'up' && "text-red-400"
             )}>
-              {formatProbability(probs.NO)}
+              {formatProbability(effectiveProbs.NO)}
             </div>
             <div className="text-xs text-muted-foreground mt-1.5 truncate" title={outcomeLabels.NO}>
-              {shortLabels.NO} {prices && <span className="opacity-75">({formatPrice(prices.NO)})</span>}
+              {shortLabels.NO} {effectivePrices && <span className="opacity-75">({formatPrice(effectivePrices.NO)})</span>}
             </div>
           </div>
         </div>
@@ -259,11 +321,11 @@ export function MarketCard({ market, index = 0 }: MarketCardProps) {
         <div className="flex h-1.5 rounded-full overflow-hidden bg-muted mb-4">
           <div
             className="bg-green-500 transition-all duration-500 ease-out"
-            style={{ width: `${(probs.YES * 100).toFixed(1)}%` }}
+            style={{ width: `${(effectiveProbs.YES * 100).toFixed(1)}%` }}
           />
           <div
             className="bg-muted-foreground/30 transition-all duration-500 ease-out"
-            style={{ width: `${(probs.NO * 100).toFixed(1)}%` }}
+            style={{ width: `${(effectiveProbs.NO * 100).toFixed(1)}%` }}
           />
         </div>
 
