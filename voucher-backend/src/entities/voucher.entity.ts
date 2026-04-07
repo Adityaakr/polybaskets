@@ -18,6 +18,9 @@ export class Voucher {
   @Column({ type: 'jsonb' })
   programs: string[];
 
+  @Column({ name: 'vara_to_issue', type: 'float', nullable: false, default: 0 })
+  varaToIssue: number;
+
   @Column({
     name: 'created_at',
     type: 'timestamp without time zone',
@@ -37,4 +40,12 @@ export class Voucher {
 
   @Column({ name: 'revoked', type: 'boolean', default: false })
   revoked: boolean;
+
+  // Updated on every issue/renewal (not on revocation) — used for daily cap tracking
+  @Column({
+    name: 'last_renewed_at',
+    type: 'timestamp without time zone',
+    default: () => 'CURRENT_TIMESTAMP',
+  })
+  lastRenewedAt: Date;
 }

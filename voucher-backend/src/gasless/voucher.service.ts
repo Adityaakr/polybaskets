@@ -14,6 +14,18 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Voucher } from '../entities/voucher.entity';
 
 const SECONDS_PER_BLOCK = 3;
+const PLANCK_PER_VARA = BigInt(1e12);
+const MIN_RESERVE_VARA = 10n;
+const SIGN_AND_SEND_TIMEOUT_MS = 60_000;
+
+function withTimeout<T>(promise: Promise<T>, message: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(message)), SIGN_AND_SEND_TIMEOUT_MS),
+    ),
+  ]);
+}
 
 @Injectable()
 export class VoucherService implements OnModuleInit {
@@ -35,9 +47,8 @@ export class VoucherService implements OnModuleInit {
   }
 
   async onModuleInit() {
-    await Promise.all([this.api.isReadyOrError, waitReady()]).catch((e) => {
-      this.logger.error('VoucherService.onModuleInit', e);
-    });
+    // Re-throw on failure — silent startup with a broken API is worse than a crash loop
+    await Promise.all([this.api.isReadyOrError, waitReady()]);
 
     const keyring = new Keyring({ type: 'sr25519', ss58Format: 137 });
     const seed = this.configService.get('voucherAccount');
@@ -61,20 +72,30 @@ export class VoucherService implements OnModuleInit {
   ): Promise<string> {
     const durationInBlocks = Math.round(durationInSec / SECONDS_PER_BLOCK);
 
+    const issuerBalance = (await this.getAccountBalance()).toBigInt();
+    if (issuerBalance < BigInt(amount) * PLANCK_PER_VARA + MIN_RESERVE_VARA * PLANCK_PER_VARA) {
+      throw new Error(
+        `Insufficient issuer balance (${issuerBalance / PLANCK_PER_VARA} VARA). Min reserve: ${MIN_RESERVE_VARA} VARA.`,
+      );
+    }
+
     this.logger.log(
       `Issuing voucher: account=${account} amount=${amount} VARA duration=${durationInSec}s program=${programId}`,
     );
 
     const { extrinsic } = await this.api.voucher.issue(
       account,
-      amount * 1e12,
+      BigInt(amount) * PLANCK_PER_VARA,
       durationInBlocks,
       [programId],
     );
 
-    const [voucherId, blockHash] = await new Promise<[HexString, HexString]>(
-      (resolve, reject) => {
+    const [voucherId, blockHash] = await withTimeout(
+      new Promise<[HexString, HexString]>((resolve, reject) => {
         extrinsic.signAndSend(this.account, ({ events, status }) => {
+          if (status.isDropped || status.isInvalid || status.isUsurped) {
+            return reject(new Error(`Transaction ${status.type} — not included in block`));
+          }
           if (status.isInBlock) {
             const viEvent = events.find(
               ({ event }) => event.method === 'VoucherIssued',
@@ -89,12 +110,13 @@ export class VoucherService implements OnModuleInit {
               reject(
                 efEvent
                   ? this.api.getExtrinsicFailedError(efEvent?.event)
-                  : 'VoucherIssued event not found',
+                  : new Error('VoucherIssued event not found'),
               );
             }
           }
         });
-      },
+      }),
+      'signAndSend timed out after 60s — transaction may or may not have landed',
     );
 
     const blockNumber = (
@@ -102,6 +124,7 @@ export class VoucherService implements OnModuleInit {
     ).toNumber();
     const validUpToBlock = BigInt(blockNumber + durationInBlocks);
     const validUpTo = new Date(Date.now() + durationInSec * 1000);
+    const now = new Date();
 
     this.logger.log(`Voucher issued: ${voucherId} valid until ${validUpTo.toISOString()}`);
 
@@ -112,6 +135,8 @@ export class VoucherService implements OnModuleInit {
         validUpToBlock,
         validUpTo,
         programs: [programId],
+        varaToIssue: amount,
+        lastRenewedAt: now,
         revoked: false,
       }),
     );
@@ -127,7 +152,7 @@ export class VoucherService implements OnModuleInit {
   ) {
     const voucherBalance =
       (await this.api.balance.findOut(voucher.voucherId)).toBigInt() /
-      BigInt(1e12);
+      PLANCK_PER_VARA;
     const durationInBlocks = Math.round(prolongDurationInSec / SECONDS_PER_BLOCK);
     const topUp = BigInt(balance) - voucherBalance;
 
@@ -137,36 +162,44 @@ export class VoucherService implements OnModuleInit {
       params.appendPrograms = addPrograms;
       voucher.programs.push(...addPrograms);
     }
-    if (topUp > 0) params.balanceTopUp = topUp * BigInt(1e12);
+    if (topUp > 0) params.balanceTopUp = topUp * PLANCK_PER_VARA;
 
     this.logger.log(`Updating voucher: ${voucher.voucherId} for ${voucher.account}`);
 
     const tx = this.api.voucher.update(voucher.account, voucher.voucherId, params);
 
-    const blockHash = await new Promise<HexString>((resolve, reject) => {
-      tx.signAndSend(this.account, ({ events, status }) => {
-        if (status.isInBlock) {
-          const vuEvent = events.find(({ event }) => event.method === 'VoucherUpdated');
-          if (vuEvent) {
-            resolve(status.asInBlock.toHex());
-          } else {
-            const efEvent = events.find(({ event }) => event.method === 'ExtrinsicFailed');
-            reject(
-              efEvent
-                ? JSON.stringify(this.api.getExtrinsicFailedError(efEvent?.event))
-                : new Error('VoucherUpdated event not found'),
-            );
+    const blockHash = await withTimeout(
+      new Promise<HexString>((resolve, reject) => {
+        tx.signAndSend(this.account, ({ events, status }) => {
+          if (status.isDropped || status.isInvalid || status.isUsurped) {
+            return reject(new Error(`Transaction ${status.type} — not included in block`));
           }
-        }
-      });
-    });
+          if (status.isInBlock) {
+            const vuEvent = events.find(({ event }) => event.method === 'VoucherUpdated');
+            if (vuEvent) {
+              resolve(status.asInBlock.toHex());
+            } else {
+              const efEvent = events.find(({ event }) => event.method === 'ExtrinsicFailed');
+              reject(
+                efEvent
+                  ? JSON.stringify(this.api.getExtrinsicFailedError(efEvent?.event))
+                  : new Error('VoucherUpdated event not found'),
+              );
+            }
+          }
+        });
+      }),
+      'signAndSend timed out after 60s',
+    );
 
+    const now = new Date();
     if (durationInBlocks) {
       const blockNumber = (await this.api.blocks.getBlockNumber(blockHash)).toNumber();
       voucher.validUpToBlock = BigInt(blockNumber + durationInBlocks);
       voucher.validUpTo = new Date(Date.now() + prolongDurationInSec * 1000);
       voucher.revoked = false;
     }
+    voucher.lastRenewedAt = now;
 
     this.logger.log(`Voucher updated: ${voucher.voucherId} valid until ${voucher.validUpTo.toISOString()}`);
     await this.repo.save(voucher);
@@ -175,22 +208,28 @@ export class VoucherService implements OnModuleInit {
   async revoke(voucher: Voucher) {
     const tx = this.api.voucher.revoke(voucher.account, voucher.voucherId);
     try {
-      await new Promise<HexString>((resolve, reject) => {
-        tx.signAndSend(this.account, ({ events, status }) => {
-          if (status.isInBlock) {
-            const vrEvent = events.find(({ event }) => event.method === 'VoucherRevoked');
-            if (vrEvent) resolve(status.asInBlock.toHex());
-            else {
-              const efEvent = events.find(({ event }) => event.method === 'ExtrinsicFailed');
-              reject(
-                efEvent
-                  ? JSON.stringify(this.api.getExtrinsicFailedError(efEvent?.event))
-                  : new Error('VoucherRevoked event not found'),
-              );
+      await withTimeout(
+        new Promise<HexString>((resolve, reject) => {
+          tx.signAndSend(this.account, ({ events, status }) => {
+            if (status.isDropped || status.isInvalid || status.isUsurped) {
+              return reject(new Error(`Transaction ${status.type}`));
             }
-          }
-        });
-      });
+            if (status.isInBlock) {
+              const vrEvent = events.find(({ event }) => event.method === 'VoucherRevoked');
+              if (vrEvent) resolve(status.asInBlock.toHex());
+              else {
+                const efEvent = events.find(({ event }) => event.method === 'ExtrinsicFailed');
+                reject(
+                  efEvent
+                    ? JSON.stringify(this.api.getExtrinsicFailedError(efEvent?.event))
+                    : new Error('VoucherRevoked event not found'),
+                );
+              }
+            }
+          });
+        }),
+        'revoke signAndSend timed out after 60s',
+      );
     } catch (e) {
       this.logger.error(`Failed to revoke voucher ${voucher.voucherId}`, e);
       return;
@@ -200,6 +239,6 @@ export class VoucherService implements OnModuleInit {
   }
 
   async getVoucher(account: string): Promise<Voucher | null> {
-    return this.repo.findOneBy({ account });
+    return this.repo.findOneBy({ account, revoked: false });
   }
 }

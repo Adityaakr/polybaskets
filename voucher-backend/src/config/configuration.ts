@@ -19,4 +19,6 @@ export default () => ({
   },
   nodeUrl: required('NODE_URL'),
   voucherAccount: required('VOUCHER_ACCOUNT'),
+  dailyVaraCap: Number(process.env.DAILY_VARA_CAP || '100'),
+  infoApiKey: process.env.INFO_API_KEY || '',
 });
