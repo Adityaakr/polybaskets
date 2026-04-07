@@ -2,12 +2,13 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { NetworkProvider, useNetwork } from "@/contexts/NetworkContext";
 import { WalletProvider } from "@/contexts/WalletContext";
 import { BasketProvider } from "@/contexts/BasketContext";
 import { Header } from "@/components/layout/Header";
 import Index from "./pages/Index";
+import ExplorePage from "./pages/ExplorePage";
 import BuilderPage from "./pages/BuilderPage";
 import ClaimPage from "./pages/ClaimPage";
 import BasketPage from "./pages/BasketPage";
@@ -21,6 +22,37 @@ import { ENV } from "./env";
 import { ReactNode } from "react";
 
 const queryClient = new QueryClient();
+
+function AppRoutes() {
+  return (
+    <Routes>
+      <Route path="/" element={<Index />} />
+      <Route path="/explorer" element={<ExplorePage />} />
+      <Route path="/builder" element={<BuilderPage />} />
+      <Route path="/claim" element={<ClaimPage />} />
+      <Route path="/basket/:id" element={<BasketPage />} />
+      <Route path="/me" element={<MyBasketsPage />} />
+      <Route path="/leaderboard" element={<LeaderboardPage />} />
+      <Route path="*" element={<NotFound />} />
+    </Routes>
+  );
+}
+
+function RoutedLayout() {
+  const location = useLocation();
+
+  if (location.pathname === "/") {
+    return <AppRoutes />;
+  }
+
+  return (
+    <div className="min-h-screen bg-background bg-pattern scanlines relative">
+      <div className="fixed inset-0 pointer-events-none -z-10" />
+      <Header />
+      <AppRoutes />
+    </div>
+  );
+}
 
 // Conditional Gear providers - only for Vara Network
 function GearProviders({ children }: { children: ReactNode }) {
@@ -47,20 +79,7 @@ function AppInner() {
           <Toaster />
           <Sonner />
           <BrowserRouter>
-            <div className="min-h-screen bg-background bg-pattern scanlines relative">
-              {/* Neon grid overlay */}
-              <div className="fixed inset-0 pointer-events-none -z-10" />
-              <Header />
-              <Routes>
-                <Route path="/" element={<Index />} />
-                <Route path="/builder" element={<BuilderPage />} />
-                <Route path="/claim" element={<ClaimPage />} />
-                <Route path="/basket/:id" element={<BasketPage />} />
-                <Route path="/me" element={<MyBasketsPage />} />
-                <Route path="/leaderboard" element={<LeaderboardPage />} />
-                <Route path="*" element={<NotFound />} />
-              </Routes>
-            </div>
+            <RoutedLayout />
           </BrowserRouter>
         </TooltipProvider>
       </BasketProvider>

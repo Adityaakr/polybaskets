@@ -1,5 +1,3 @@
-import ExplorePage from './ExplorePage';
+import LandingPage from "./LandingPage";
 
-// Re-export ExplorePage as the default Index
-// This ensures the component is properly wrapped by BasketProvider in App.tsx
-export default ExplorePage;
+export default LandingPage;
