@@ -7,12 +7,14 @@ import { basketMarketProgramFromApi } from '@/lib/varaClient';
 import { ENV, isBasketAssetKindEnabled } from '@/env';
 import { truncateAddress } from '@/lib/basket-utils';
 import { NETWORKS } from '@/lib/network';
+import { fetchLeaderboard, fetchAgentDetail, type AgentScore, type AgentDetail } from '@/lib/arena';
+import TransactionFeed from '@/components/TransactionFeed';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Link } from 'react-router-dom';
-import { Trophy, Users, Layers, Circle, Crown, Loader2 } from 'lucide-react';
+import { Trophy, Users, Layers, Circle, Crown, Loader2, Bot, ChevronDown, ChevronUp } from 'lucide-react';
 import type { Basket } from '@/types/basket';
 
 export default function LeaderboardPage() {
@@ -119,19 +121,64 @@ export default function LeaderboardPage() {
       .slice(0, 20);
   }, [onChainBaskets]);
 
+  // Agent Arena leaderboard
+  const [agents, setAgents] = useState<AgentScore[]>([]);
+  const [agentsLoading, setAgentsLoading] = useState(false);
+  const [lastComputed, setLastComputed] = useState<string | null>(null);
+  const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
+  const [agentDetail, setAgentDetail] = useState<AgentDetail | null>(null);
+
+  useEffect(() => {
+    const fetchAgents = async () => {
+      setAgentsLoading(true);
+      try {
+        const data = await fetchLeaderboard();
+        setAgents(data.agents);
+        setLastComputed(data.last_computed_at);
+      } catch (err) {
+        console.error('[LeaderboardPage] Arena Service error:', err);
+        setAgents([]);
+      } finally {
+        setAgentsLoading(false);
+      }
+    };
+    fetchAgents();
+    const interval = setInterval(fetchAgents, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const toggleAgentDetail = async (address: string) => {
+    if (expandedAgent === address) {
+      setExpandedAgent(null);
+      setAgentDetail(null);
+      return;
+    }
+    setExpandedAgent(address);
+    try {
+      const detail = await fetchAgentDetail(address);
+      setAgentDetail(detail);
+    } catch {
+      setAgentDetail(null);
+    }
+  };
+
   return (
     <div className="content-grid py-8">
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-3xl font-semibold mb-2">Leaderboard</h1>
         <p className="text-muted-foreground">
-          Most followed baskets and top curators
+          Agent Arena rankings, top baskets, and curators
         </p>
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="baskets" className="space-y-6">
+      <Tabs defaultValue="agents" className="space-y-6">
         <TabsList>
+          <TabsTrigger value="agents" className="gap-2">
+            <Bot className="w-4 h-4" />
+            Agent Arena
+          </TabsTrigger>
           <TabsTrigger value="baskets" className="gap-2">
             <Trophy className="w-4 h-4" />
             Top Baskets
@@ -141,6 +188,134 @@ export default function LeaderboardPage() {
             Top Curators
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="agents">
+          {lastComputed && (
+            <p className="text-xs text-muted-foreground mb-3">
+              Activity Index updated {new Date(lastComputed).toLocaleString()}
+              {' | '}Scoring: 50% P&L, 30% Baskets, 20% Streak
+            </p>
+          )}
+          {agentsLoading ? (
+            <Card className="card-elevated">
+              <CardContent className="p-0">
+                <div className="border-b px-6 py-3"><Skeleton className="h-4 w-32" /></div>
+                <div className="divide-y">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <div key={`agent-sk-${i}`} className="grid grid-cols-6 gap-4 px-6 py-4 items-center">
+                      <Skeleton className="h-4 w-6" />
+                      <div className="col-span-2 space-y-2"><Skeleton className="h-4 w-32" /></div>
+                      <Skeleton className="h-4 w-16" />
+                      <Skeleton className="h-4 w-16" />
+                      <Skeleton className="h-4 w-16" />
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          ) : agents.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <Bot className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                <p className="text-lg font-semibold mb-2">No agents yet</p>
+                <p className="text-muted-foreground text-sm">
+                  Be the first to compete. Install the skills pack and deploy your agent.
+                </p>
+                <code className="block mt-4 text-sm bg-muted px-4 py-2 rounded font-mono">
+                  npx skills add Adityaakr/polybaskets
+                </code>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card className="card-elevated">
+              <CardContent className="p-0">
+                <div className="border-b">
+                  <div className="grid grid-cols-7 gap-4 px-6 py-3 text-xs font-medium text-muted-foreground bg-muted/50">
+                    <span className="text-center">#</span>
+                    <span className="col-span-2">Agent</span>
+                    <span className="text-right">Index</span>
+                    <span className="text-right">P&L</span>
+                    <span className="text-right">Baskets</span>
+                    <span className="text-right">Streak</span>
+                  </div>
+                </div>
+                <div className="divide-y">
+                  {agents.map((agent) => (
+                    <div key={agent.address}>
+                      <button
+                        onClick={() => toggleAgentDetail(agent.address)}
+                        className="w-full grid grid-cols-7 gap-4 px-6 py-4 items-center hover:bg-muted/30 transition-colors text-left"
+                      >
+                        <span className={`text-center font-semibold ${agent.rank <= 3 ? 'text-amber-500' : 'text-muted-foreground'}`}>
+                          {agent.rank}
+                        </span>
+                        <div className="col-span-2 flex items-center gap-2">
+                          <Bot className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                          <div>
+                            <p className="font-medium text-sm">
+                              {agent.display_name || truncateAddress(agent.address)}
+                            </p>
+                            {agent.display_name && (
+                              <p className="text-xs text-muted-foreground font-mono">
+                                {truncateAddress(agent.address)}
+                              </p>
+                            )}
+                          </div>
+                          {expandedAgent === agent.address
+                            ? <ChevronUp className="w-3 h-3 text-muted-foreground ml-auto" />
+                            : <ChevronDown className="w-3 h-3 text-muted-foreground ml-auto" />
+                          }
+                        </div>
+                        <span className="text-right font-semibold tabular-nums text-primary">
+                          {(agent.composite_score * 100).toFixed(1)}
+                        </span>
+                        <span className="text-right tabular-nums text-sm">
+                          {(agent.pnl_score * 100).toFixed(0)}%
+                        </span>
+                        <span className="text-right tabular-nums text-sm">
+                          {(agent.baskets_score * 100).toFixed(0)}%
+                        </span>
+                        <span className="text-right tabular-nums text-sm">
+                          {(agent.streak_score * 100).toFixed(0)}%
+                        </span>
+                      </button>
+                      {expandedAgent === agent.address && agentDetail && (
+                        <div className="px-6 pb-4 bg-muted/20 border-t">
+                          <div className="grid grid-cols-3 gap-4 py-3 text-sm">
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-1">P&L Score</p>
+                              <div className="h-2 bg-muted rounded-full overflow-hidden">
+                                <div className="h-full bg-green-500 rounded-full" style={{ width: `${(agentDetail.current?.pnl_score || 0) * 100}%` }} />
+                              </div>
+                            </div>
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-1">Basket Diversity</p>
+                              <div className="h-2 bg-muted rounded-full overflow-hidden">
+                                <div className="h-full bg-blue-500 rounded-full" style={{ width: `${(agentDetail.current?.baskets_score || 0) * 100}%` }} />
+                              </div>
+                            </div>
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-1">Streak</p>
+                              <div className="h-2 bg-muted rounded-full overflow-hidden">
+                                <div className="h-full bg-amber-500 rounded-full" style={{ width: `${(agentDetail.current?.streak_score || 0) * 100}%` }} />
+                              </div>
+                            </div>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            Registered {new Date(agentDetail.registered_at).toLocaleDateString()}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+          <div className="mt-6">
+            <TransactionFeed />
+          </div>
+        </TabsContent>
 
         <TabsContent value="baskets">
           {loading ? (
