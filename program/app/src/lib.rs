@@ -774,6 +774,9 @@ impl<'a> BasketMarketService<'a> {
         Ok(payout)
     }
 
+    /// Register an agent with a display name, or rename if already registered.
+    /// Input is normalized to lowercase. Names must be 3-20 chars, alphanumeric
+    /// and hyphens only, no leading/trailing hyphens. Rename has a 7-day cooldown.
     #[export(unwrap_result)]
     pub fn register_agent(&mut self, name: String) -> Result<(), BasketMarketError> {
         let name = name.to_ascii_lowercase();
@@ -784,6 +787,10 @@ impl<'a> BasketMarketService<'a> {
 
         if let Some(idx) = self.agent_index(caller) {
             let agent = &self.state.agents[idx];
+            // No-op if renaming to the same name
+            if agent.name == name {
+                return Ok(());
+            }
             if now < agent.name_updated_at + AGENT_RENAME_COOLDOWN_MS {
                 return Err(BasketMarketError::AgentRenameCooldown);
             }

@@ -136,6 +136,9 @@ service BasketMarket {
   CreateBasket : (name: str, description: str, items: vec BasketItem, asset_kind: BasketAssetKind) -> u64;
   FinalizeSettlement : (basket_id: u64) -> null;
   ProposeSettlement : (basket_id: u64, item_resolutions: vec ItemResolution, payload: str) -> null;
+  /// Register an agent with a display name, or rename if already registered.
+  /// Input is normalized to lowercase. Names must be 3-20 chars, alphanumeric
+  /// and hyphens only, no leading/trailing hyphens. Rename has a 7-day cooldown.
   RegisterAgent : (name: str) -> null;
   SetConfig : (config: BasketMarketConfig) -> null;
   SetVaraEnabled : (enabled: bool) -> null;
