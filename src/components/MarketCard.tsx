@@ -10,7 +10,7 @@ import { usePriceToBeat } from '@/hooks/usePriceToBeat';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Check, ExternalLink, Info, Clock, TrendingUp, TrendingDown } from 'lucide-react';
+import { Plus, Check, ExternalLink, Info, Clock } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils.ts';
 
@@ -30,11 +30,8 @@ export function MarketCard({ market, index = 0 }: MarketCardProps) {
 
   const {
     price: livePrice,
-    prevPrice,
     direction,
     updatedAt: livePriceUpdatedAt,
-    source: livePriceSource,
-    isLive: livePriceIsLive,
   } = useCryptoPrice(isUpDownMarket ? market : undefined);
   const liveMarketPrices = useMarketLivePrices(isUpDownMarket ? market : undefined);
 
@@ -95,23 +92,19 @@ export function MarketCard({ market, index = 0 }: MarketCardProps) {
   const beatLength = priceToBeat?.length ?? 0;
   const liveLength = livePriceLabel?.length ?? 0;
   const beatPriceClass = beatLength >= 11
-    ? 'text-[1.15rem]'
+    ? 'text-[0.98rem]'
     : beatLength >= 9
-      ? 'text-[1.3rem]'
-      : beatLength >= 7
-        ? 'text-[1.55rem]'
-        : 'text-[1.85rem]';
+      ? 'text-[1.1rem]'
+      : 'text-[1.38rem]';
   const livePriceClass = liveLength >= 11
-    ? 'text-[1.15rem]'
+    ? 'text-[0.98rem]'
     : liveLength >= 9
-      ? 'text-[1.3rem]'
-      : liveLength >= 7
-        ? 'text-[1.55rem]'
-        : 'text-[1.85rem]';
+      ? 'text-[1.1rem]'
+      : 'text-[1.38rem]';
 
   return (
     <Card
-      className="card-elevated card-hover overflow-hidden border-border/50 relative group animate-in fade-in slide-in-from-bottom-2 duration-300"
+      className="market-card-neutral card-elevated card-hover overflow-hidden border-border/50 relative group animate-in fade-in slide-in-from-bottom-2 duration-300"
       style={{ animationDelay: `${Math.min(index * 50, 300)}ms`, animationFillMode: 'backwards' }}
     >
       <a
@@ -178,7 +171,7 @@ export function MarketCard({ market, index = 0 }: MarketCardProps) {
 
             {/* ── Live Price Panel for Up/Down Markets ── */}
             {isUpDownMarket && livePrice != null && (
-              <div className="mt-3 overflow-hidden rounded-2xl border border-primary/20 bg-gradient-to-b from-muted/45 via-muted/20 to-background/15 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+              <div className="market-live-panel mt-3 overflow-hidden rounded-2xl border">
                 <div className="flex items-center justify-between gap-3 border-b border-border/30 px-4 py-2">
                   <div className="flex min-w-0 items-center gap-2">
                     <div className="text-[10px] font-medium tracking-[0.18em] text-muted-foreground/70 uppercase whitespace-nowrap">
@@ -192,36 +185,40 @@ export function MarketCard({ market, index = 0 }: MarketCardProps) {
                 </div>
 
                 <div className={cn(
-                  "grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-0",
-                  priceToBeat ? "grid-cols-2" : "grid-cols-1"
+                  "grid gap-0",
+                  priceToBeat
+                    ? "grid-cols-[minmax(0,0.94fr)_minmax(0,1.06fr)]"
+                    : "grid-cols-1"
                 )}>
                   {priceToBeat && (
-                    <div className="min-w-0 border-b border-border/30 px-4 py-3 pr-5 md:border-b-0 md:border-r">
-                      <div className="mb-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/65">
+                    <div className="flex min-h-[98px] min-w-0 flex-col justify-between border-b border-border/30 px-4 py-3 md:border-b-0 md:border-r">
+                    <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground/65 whitespace-nowrap">
                         Price To Beat
                       </div>
-                      <div className={cn(
-                        "whitespace-nowrap font-mono font-semibold leading-none tracking-[-0.04em] tabular-nums text-foreground/92",
-                        beatPriceClass
-                      )}>
-                        {priceToBeat}
+                      <div className="min-h-[38px] pt-1">
+                        <div className={cn(
+                          "w-full whitespace-nowrap font-mono font-semibold leading-none tracking-[-0.02em] tabular-nums text-foreground/92",
+                          beatPriceClass
+                        )}>
+                          {priceToBeat}
+                        </div>
                       </div>
-                      <div className="mt-2 text-[12px] text-muted-foreground/60">
+                      <div className="text-[11px] text-muted-foreground/58">
                         Opening reference
                       </div>
                     </div>
                   )}
 
-                  <div className="min-w-0 px-4 py-3 pr-5">
-                    <div className="mb-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/65">
+                  <div className="flex min-h-[98px] min-w-0 flex-col justify-between px-4 py-3">
+                    <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground/65 whitespace-nowrap">
                       {priceToBeat ? 'Current Price' : 'Live Price'}
                     </div>
 
-                    <div className="min-h-[44px]">
-                      <span
+                    <div className="flex min-h-[40px] items-end pt-1">
+                      <div
                         key={livePrice}
                         className={cn(
-                          "block whitespace-nowrap font-mono font-bold leading-none tracking-[-0.04em] tabular-nums transition-colors duration-300",
+                          "w-full whitespace-nowrap font-mono font-bold leading-none tracking-[-0.02em] tabular-nums transition-colors duration-300",
                           livePriceClass,
                           direction === 'up' && "animate-price-flash-green",
                           direction === 'down' && "animate-price-flash-red",
@@ -231,39 +228,16 @@ export function MarketCard({ market, index = 0 }: MarketCardProps) {
                         )}
                       >
                         {livePriceLabel}
-                      </span>
+                      </div>
                     </div>
 
-                    {direction && (
-                      <span
-                        key={`${direction}-${livePrice}`}
-                        className={cn(
-                          "mt-2 inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-mono font-medium animate-in fade-in zoom-in-95 duration-200",
-                          direction === 'up'
-                            ? "bg-green-500/15 text-green-300"
-                            : "bg-red-500/15 text-red-300"
-                        )}
-                      >
-                        {direction === 'up'
-                          ? <TrendingUp className="h-3 w-3" />
-                          : <TrendingDown className="h-3 w-3" />
-                        }
-                        {prevPrice != null && (
-                          <>
-                            {direction === 'up' ? '+' : ''}
-                            {fmtCryptoPrice(Math.abs(livePrice - prevPrice)).slice(1)}
-                          </>
-                        )}
-                      </span>
-                    )}
-
-                    <div className="mt-2 text-[12px] text-muted-foreground/60">
+                    <div className="text-[11px] text-muted-foreground/58">
                       Streaming market reference
                     </div>
                   </div>
                 </div>
 
-                <div className="flex items-end justify-between gap-4 border-t border-border/30 bg-background/10 px-4 py-2.5">
+                <div className="flex min-h-[50px] items-end justify-between gap-4 border-t border-border/30 bg-background/25 px-4 py-2.5">
                   <div className="max-w-[68%] text-[12px] leading-relaxed text-muted-foreground/75">
                     {outcomeLabels.YES} wins if price is <span className="font-medium text-green-400/85">higher</span> at close
                   </div>
@@ -291,10 +265,10 @@ export function MarketCard({ market, index = 0 }: MarketCardProps) {
 
         {/* Prices & Probabilities */}
         <div className="grid grid-cols-2 gap-3 mb-3">
-          <div className="bg-gradient-to-br from-success/20 to-success/5 rounded-md p-3 text-center border border-success/30 transition-all duration-300 hover:border-success/50 overflow-hidden">
+          <div className="h-[82px] rounded-md border border-success/30 bg-success/12 p-3 text-center transition-all duration-300 hover:border-success/50 overflow-hidden">
             <div className={cn(
               "text-xl font-mono font-semibold tabular-nums text-success transition-all duration-300",
-              flash === 'up' && "text-green-300 scale-105",
+              flash === 'up' && "text-green-300",
               flash === 'down' && "text-red-400"
             )}>
               {formatProbability(effectiveProbs.YES)}
@@ -303,10 +277,10 @@ export function MarketCard({ market, index = 0 }: MarketCardProps) {
               {shortLabels.YES} {effectivePrices && <span className="opacity-75">({formatPrice(effectivePrices.YES)})</span>}
             </div>
           </div>
-          <div className="bg-gradient-to-br from-secondary to-secondary/80 rounded-md p-3 text-center border border-border transition-all duration-300 hover:border-primary/30 overflow-hidden">
+          <div className="h-[82px] rounded-md border border-border bg-secondary/80 p-3 text-center transition-all duration-300 hover:border-primary/30 overflow-hidden">
             <div className={cn(
               "text-xl font-mono font-semibold tabular-nums transition-all duration-300",
-              flash === 'down' && "text-green-300 scale-105",
+              flash === 'down' && "text-green-300",
               flash === 'up' && "text-red-400"
             )}>
               {formatProbability(effectiveProbs.NO)}
