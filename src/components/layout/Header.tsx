@@ -3,7 +3,7 @@ import { NetworkToggle } from '@/components/NetworkToggle';
 import { WalletButton } from '@/components/WalletButton';
 
 const NAV_ITEMS = [
-  { path: '/', label: 'Explore' },
+  { path: '/explorer', label: 'Explore' },
   { path: '/builder', label: 'Builder' },
   { path: '/claim', label: 'Claim' },
   { path: '/leaderboard', label: 'Leaderboard' },
