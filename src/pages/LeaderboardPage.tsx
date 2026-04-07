@@ -10,6 +10,7 @@ import {
   formatUtcDateTime,
   type TodayContestLeaderboard,
 } from '@/lib/contestLeaderboard.ts';
+import { useAgentNames } from '@/hooks/useAgentNames';
 import { ENV, isBasketAssetKindEnabled } from '@/env';
 import { truncateAddress } from '@/lib/basket-utils.ts';
 import { NETWORKS } from '@/lib/network.ts';
@@ -106,6 +107,7 @@ function TodayContestTab() {
   const [page, setPage] = useState(1);
   const leaderboardQuery = useTodayContestLeaderboard();
   const { address } = useWallet();
+  const { resolveAgentName } = useAgentNames();
   const contest = leaderboardQuery.data;
   const displayStatus = getContestDisplayStatus(contest);
   const countdown = getCountdownLabel(contest?.projection?.settlementAllowedAt, now);
@@ -363,8 +365,10 @@ function TodayContestTab() {
                         </div>
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className="truncate font-mono text-sm font-semibold">
-                              {isCurrentUser ? 'you' : truncateAddress(entry.user)}
+                            <span className="truncate text-sm font-semibold">
+                              {isCurrentUser
+                                ? (resolveAgentName(entry.user) ?? 'you')
+                                : (resolveAgentName(entry.user) ?? truncateAddress(entry.user))}
                             </span>
                             {entry.isCurrentWinner ? (
                               <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-amber-300">
@@ -377,8 +381,8 @@ function TodayContestTab() {
                               </Badge>
                             ) : null}
                           </div>
-                          <p className="truncate text-xs text-muted-foreground">
-                            {isCurrentUser ? 'Connected wallet' : entry.user}
+                          <p className="truncate font-mono text-xs text-muted-foreground">
+                            {isCurrentUser ? 'Connected wallet' : truncateAddress(entry.user)}
                           </p>
                         </div>
                       </div>
