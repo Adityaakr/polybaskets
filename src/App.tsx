@@ -20,6 +20,7 @@ import { ApiProvider, AlertProvider, AccountProvider } from "@gear-js/react-hook
 import { Alert, alertStyles } from "@gear-js/vara-ui";
 import { ENV } from "./env";
 import { ReactNode } from "react";
+import { Send } from "lucide-react";
 
 const queryClient = new QueryClient();
 
@@ -38,11 +39,31 @@ function AppRoutes() {
   );
 }
 
+function TelegramUpdatesCta() {
+  return (
+    <a
+      href="https://t.me/polybaskets"
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label="Join PolyBaskets on Telegram"
+      className="fixed bottom-4 right-4 z-40 inline-flex items-center gap-2 rounded-full border border-primary/40 bg-background/90 px-4 py-2 text-sm font-medium text-primary shadow-[0_0_24px_rgba(132,255,0,0.12)] backdrop-blur-md transition-all duration-200 hover:border-primary/70 hover:bg-background hover:text-primary hover:shadow-[0_0_28px_rgba(132,255,0,0.2)]"
+    >
+      <Send className="h-4 w-4" />
+      <span>Get Updates</span>
+    </a>
+  );
+}
+
 function RoutedLayout() {
   const location = useLocation();
 
   if (location.pathname === "/") {
-    return <AppRoutes />;
+    return (
+      <>
+        <AppRoutes />
+        <TelegramUpdatesCta />
+      </>
+    );
   }
 
   return (
@@ -50,6 +71,7 @@ function RoutedLayout() {
       <div className="fixed inset-0 pointer-events-none -z-10" />
       <Header />
       <AppRoutes />
+      <TelegramUpdatesCta />
     </div>
   );
 }
