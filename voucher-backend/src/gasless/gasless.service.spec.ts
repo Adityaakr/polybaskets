@@ -59,7 +59,9 @@ describe('GaslessService', () => {
   let voucherSvc: jest.Mocked<Pick<VoucherService, 'getVoucher' | 'issue' | 'update'>>;
   let programRepo: { findOneBy: jest.Mock };
   let voucherRepo: { createQueryBuilder: jest.Mock };
-  let ds: { query: jest.Mock };
+  let ds: { createQueryRunner: jest.Mock };
+  let qrQuery: jest.Mock;
+  let qrRelease: jest.Mock;
   let cfg: { get: jest.Mock };
 
   beforeEach(async () => {
@@ -75,7 +77,15 @@ describe('GaslessService', () => {
 
     programRepo = { findOneBy: jest.fn().mockResolvedValue(makeProgram()) };
     voucherRepo = { createQueryBuilder: jest.fn().mockReturnValue(qb) };
-    ds = { query: jest.fn().mockResolvedValue([]) };
+    qrQuery = jest.fn().mockResolvedValue([]);
+    qrRelease = jest.fn().mockResolvedValue(undefined);
+    ds = {
+      createQueryRunner: jest.fn().mockReturnValue({
+        connect: jest.fn().mockResolvedValue(undefined),
+        query: qrQuery,
+        release: qrRelease,
+      }),
+    };
     cfg = {
       get: jest.fn().mockImplementation((key: string) =>
         key === 'dailyVaraCap' ? 100 : undefined,
@@ -218,25 +228,27 @@ describe('GaslessService', () => {
 
   // ── Advisory lock ──────────────────────────────────────────────────────────
 
-  it('acquires pg advisory lock before cap check', async () => {
+  it('acquires pg advisory lock via QueryRunner before cap check', async () => {
     await service.requestVoucher({ account: ACCOUNT, program: PROGRAM });
-    const calls = ds.query.mock.calls.map((c) => c[0]);
+    const calls = qrQuery.mock.calls.map((c) => c[0]);
     expect(calls).toContain('SELECT pg_advisory_lock($1)');
   });
 
-  it('releases pg advisory lock after successful issuance', async () => {
+  it('releases pg advisory lock and releases QueryRunner after success', async () => {
     await service.requestVoucher({ account: ACCOUNT, program: PROGRAM });
-    const calls = ds.query.mock.calls.map((c) => c[0]);
+    const calls = qrQuery.mock.calls.map((c) => c[0]);
     expect(calls).toContain('SELECT pg_advisory_unlock($1)');
+    expect(qrRelease).toHaveBeenCalled();
   });
 
-  it('releases pg advisory lock even when issuance throws', async () => {
+  it('releases pg advisory lock and QueryRunner even when issuance throws', async () => {
     voucherSvc.issue.mockRejectedValue(new Error('chain error'));
     await expect(
       service.requestVoucher({ account: ACCOUNT, program: PROGRAM }),
     ).rejects.toThrow(BadRequestException);
-    const calls = ds.query.mock.calls.map((c) => c[0]);
+    const calls = qrQuery.mock.calls.map((c) => c[0]);
     expect(calls).toContain('SELECT pg_advisory_unlock($1)');
+    expect(qrRelease).toHaveBeenCalled();
   });
 
   it('wraps unexpected errors as BadRequestException', async () => {

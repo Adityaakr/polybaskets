@@ -114,7 +114,7 @@ export class VoucherService implements OnModuleInit {
               );
             }
           }
-        });
+        }).catch(reject);
       }),
       'signAndSend timed out after 60s — transaction may or may not have landed',
     );
@@ -187,7 +187,7 @@ export class VoucherService implements OnModuleInit {
               );
             }
           }
-        });
+        }).catch(reject);
       }),
       'signAndSend timed out after 60s',
     );
@@ -226,7 +226,7 @@ export class VoucherService implements OnModuleInit {
                 );
               }
             }
-          });
+          }).catch(reject);
         }),
         'revoke signAndSend timed out after 60s',
       );

@@ -89,22 +89,26 @@ export class GaslessService {
       );
     }
 
-    const existing = await this.voucherService.getVoucher(address);
-
-    // oneTime check: only block if this specific program is already in the voucher
-    if (program.oneTime && existing?.programs.includes(programAddress)) {
-      throw new BadRequestException('One-time voucher already issued');
-    }
-
     const { duration, varaToIssue: amount } = program;
 
-    // Advisory lock keyed on UTC date to serialize cap check + issuance.
-    // Prevents two concurrent requests from both reading todayTotal < cap and
-    // both issuing, which would exceed the daily budget.
+    // Use a QueryRunner to pin lock/unlock + queries to the same DB connection.
+    // pg_advisory_lock is session-scoped, so using DataSource.query() risks
+    // acquiring and releasing on different pooled connections.
+    const qr = this.dataSource.createQueryRunner();
+    await qr.connect();
     const lockKey = this.getTodayLockKey(address);
-    await this.dataSource.query('SELECT pg_advisory_lock($1)', [lockKey]);
+    await qr.query('SELECT pg_advisory_lock($1)', [lockKey]);
 
     try {
+      // Existing voucher lookup inside the locked section to prevent two
+      // concurrent requests from both seeing existing === null and both issuing.
+      const existing = await this.voucherService.getVoucher(address);
+
+      // oneTime check: only block if this specific program is already in the voucher
+      if (program.oneTime && existing?.programs.includes(programAddress)) {
+        throw new BadRequestException('One-time voucher already issued');
+      }
+
       const dailyCap = this.configService.get<number>('dailyVaraCap');
       const todayTotal = await this.getTodayIssuedVara(address);
       if (todayTotal + amount > dailyCap) {
@@ -139,7 +143,8 @@ export class GaslessService {
       this.logger.error('Failed to process voucher request', error);
       throw new BadRequestException('Failed to process voucher request');
     } finally {
-      await this.dataSource.query('SELECT pg_advisory_unlock($1)', [lockKey]);
+      await qr.query('SELECT pg_advisory_unlock($1)', [lockKey]);
+      await qr.release();
     }
   }
 }
