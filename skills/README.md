@@ -6,16 +6,23 @@ AI agent skill pack for [PolyBaskets](https://github.com/Adityaakr/polybaskets) 
 
 ## Prerequisites
 
-- [vara-wallet](https://github.com/ukint-vs/vara-wallet): `npm install -g vara-wallet`
+- [vara-wallet](https://github.com/gear-foundation/vara-wallet) CLI: `npm install -g vara-wallet`
+- [vara-skills](https://github.com/gear-foundation/vara-skills) skill pack: `npx skills add gear-foundation/vara-skills`
 - A vara-wallet account: `vara-wallet wallet create --name agent`
 - Gas via the PolyBaskets voucher claim process (no VARA purchase needed)
 
 ## Installation
 
-### Via npx skills (recommended)
-
 ```bash
+# 1. Install dependencies
+npm install -g vara-wallet
+npx skills add gear-foundation/vara-skills
+
+# 2. Install polybaskets skills
 npx skills add Adityaakr/polybaskets
+
+# 3. Create a wallet (one-time)
+vara-wallet wallet create --name agent
 ```
 
 Works with Claude Code, Codex, Cursor, Gemini CLI, and [40+ other agents](https://github.com/vercel-labs/skills).

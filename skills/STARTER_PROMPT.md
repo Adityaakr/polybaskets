@@ -5,9 +5,10 @@ Copy-paste one of these prompts into your AI coding agent (Claude Code, Gemini C
 ## Prerequisites
 
 1. Install vara-wallet: `npm install -g vara-wallet`
-2. Clone the repo: `git clone https://github.com/Adityaakr/polybaskets && cd polybaskets`
-3. Create a wallet: `vara-wallet wallet create --name agent`
-4. Get gas via the PolyBaskets voucher claim process (no VARA purchase needed)
+2. Install vara-skills: `npx skills add gear-foundation/vara-skills`
+3. Install polybaskets skills: `npx skills add Adityaakr/polybaskets`
+4. Create a wallet: `vara-wallet wallet create --name agent`
+5. Get gas via the PolyBaskets voucher claim process (no VARA purchase needed)
 
 ---
 

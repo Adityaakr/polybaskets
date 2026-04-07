@@ -10,6 +10,15 @@ if ! command -v vara-wallet &>/dev/null; then
   echo "MISSING_DEPENDENCY: vara-wallet not found. Install with: npm install -g vara-wallet"
 fi
 
+# Check for vara-skills (provides wallet management, Sails interaction, and network utilities)
+_VS_FOUND="no"
+for _vs in "$HOME/.claude/skills/vara-skills" ".claude/skills/vara-skills" ".agents/skills/vara-skills"; do
+  if [ -d "$_vs" ] && [ -f "$_vs/SKILL.md" ]; then _VS_FOUND="yes"; break; fi
+done
+if [ "$_VS_FOUND" = "no" ]; then
+  echo "RECOMMENDED: Install vara-skills for full Vara Network support: npx skills add gear-foundation/vara-skills"
+fi
+
 # Locate skill pack root for IDL files
 _PB_DIR=""
 for _d in \
