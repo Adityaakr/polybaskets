@@ -49,7 +49,11 @@ export function MarketSearch() {
         let rankedScoped = rankMarketsForSearch(scopedMarkets, trimmedQuery, 50);
         console.log('[MarketSearch] Scoped search results:', rankedScoped.length, 'markets found');
 
-        if (rankedScoped.length >= 8 || selectedCategory !== 'all') {
+        if (selectedCategory === 'ending-soon') {
+          return rankedScoped;
+        }
+
+        if (selectedCategory === 'all' && rankedScoped.length >= 8) {
           return rankedScoped;
         }
 

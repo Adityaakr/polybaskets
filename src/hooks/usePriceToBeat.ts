@@ -64,13 +64,10 @@ function extractWindowDurationMinutes(question: string): number | null {
 function deriveStartTimestamp(market: PolymarketMarket): number | null {
   const durationMinutes = extractWindowDurationMinutes(market.question || '');
 
-  if (market.endDate) {
+  if (durationMinutes && market.endDate) {
     const endTs = new Date(market.endDate).getTime();
     if (Number.isFinite(endTs)) {
-      if (durationMinutes && durationMinutes > 0) {
-        return endTs - durationMinutes * 60_000;
-      }
-      return endTs - 5 * 60_000;
+      return endTs - durationMinutes * 60_000;
     }
   }
 
