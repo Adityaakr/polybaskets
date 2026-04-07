@@ -8,8 +8,9 @@ use polymarket_mirror_client::{
     BasketAssetKind as MirrorBasketAssetKind, BasketStatus as MirrorBasketStatus, PolymarketMirror, PolymarketMirrorProgram,
     SettlementStatus as MirrorSettlementStatus, basket_market::BasketMarket,
 };
+use schnorrkel::{PublicKey, Signature};
 use sails_rs::client::Program as _;
-use sails_rs::gstd::services::Service;
+use sails_rs::gstd::{exec, services::Service};
 use sails_rs::prelude::*;
 use sails_rs::{cell::RefCell, collections::{BTreeMap, BTreeSet}};
 
@@ -25,6 +26,7 @@ pub struct BetLaneConfig {
     pub min_bet: U256,
     pub max_bet: U256,
     pub payouts_allowed_while_paused: bool,
+    pub quote_signer: ActorId,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Encode, Decode, TypeInfo)]
@@ -41,6 +43,7 @@ impl Default for BetLaneConfig {
             min_bet: 10.into(),
             max_bet: 10_000.into(),
             payouts_allowed_while_paused: true,
+            quote_signer: ActorId::zero(),
         }
     }
 }
@@ -82,9 +85,35 @@ pub struct UserPositionView {
     pub position: Position,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
+pub struct BetQuotePayload {
+    pub target_program_id: ActorId,
+    pub user: ActorId,
+    pub basket_id: u64,
+    pub amount: U256,
+    pub quoted_index_bps: u16,
+    pub deadline_ms: u64,
+    pub nonce: u128,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
+pub struct SignedBetQuote {
+    pub payload: BetQuotePayload,
+    pub signature: Vec<u8>,
+}
+
 #[derive(Debug, Default)]
 pub struct PositionStore {
     positions: BTreeMap<(u64, ActorId), Position>,
+}
+
+#[derive(Debug, Default)]
+pub struct UsedQuoteNonceStore {
+    nonces: BTreeSet<(ActorId, u128)>,
 }
 
 #[derive(Debug, Default)]
@@ -111,6 +140,26 @@ pub enum BetLaneError {
     AmountAboveMaxBet,
     #[error("index at creation must be between 1 and 10000")]
     InvalidIndexAtCreation,
+    #[error("quote signer is not configured")]
+    QuoteSignerNotConfigured,
+    #[error("quote target program does not match")]
+    QuoteTargetMismatch,
+    #[error("quote user does not match caller")]
+    QuoteUserMismatch,
+    #[error("quote basket does not match call")]
+    QuoteBasketMismatch,
+    #[error("quote amount does not match call")]
+    QuoteAmountMismatch,
+    #[error("quote has expired")]
+    QuoteExpired,
+    #[error("quote nonce already used")]
+    QuoteNonceAlreadyUsed,
+    #[error("quote signature bytes are invalid")]
+    InvalidQuoteSignature,
+    #[error("quote signer public key is invalid")]
+    InvalidQuoteSigner,
+    #[error("quote verification failed")]
+    QuoteVerificationFailed,
     #[error("basket query failed")]
     BasketQueryFailed,
     #[error("basket not found")]
@@ -155,6 +204,7 @@ pub struct BetLaneService<'a> {
     bet_token_id: StorageRefCell<'a, ActorId>,
     config: StorageRefCell<'a, BetLaneConfig>,
     positions: StorageRefCell<'a, PositionStore>,
+    used_quote_nonces: StorageRefCell<'a, UsedQuoteNonceStore>,
     pending_operations: StorageRefCell<'a, PendingOperations>,
     pause: &'a Pause,
 }
@@ -169,6 +219,7 @@ impl<'a> BetLaneService<'a> {
         bet_token_id: StorageRefCell<'a, ActorId>,
         config: StorageRefCell<'a, BetLaneConfig>,
         positions: StorageRefCell<'a, PositionStore>,
+        used_quote_nonces: StorageRefCell<'a, UsedQuoteNonceStore>,
         pending_operations: StorageRefCell<'a, PendingOperations>,
         pause: &'a Pause,
     ) -> Self {
@@ -179,6 +230,7 @@ impl<'a> BetLaneService<'a> {
             bet_token_id,
             config,
             positions,
+            used_quote_nonces,
             pending_operations,
             pause,
         }
@@ -203,6 +255,11 @@ impl<'a> BetLaneService<'a> {
     }
 
     #[export]
+    pub fn quote_signer(&self) -> ActorId {
+        InfallibleStorage::get(&self.config).quote_signer
+    }
+
+    #[export]
     pub fn get_dependencies(&self) -> BetLaneDependencies {
         BetLaneDependencies {
             basket_program_id: *InfallibleStorage::get(&self.basket_program_id),
@@ -222,6 +279,13 @@ impl<'a> BetLaneService<'a> {
             .get(&(basket_id, user))
             .cloned()
             .unwrap_or_default()
+    }
+
+    #[export]
+    pub fn is_quote_nonce_used(&self, user: ActorId, nonce: u128) -> bool {
+        InfallibleStorage::get(&self.used_quote_nonces)
+            .nonces
+            .contains(&(user, nonce))
     }
 
     #[export]
@@ -253,11 +317,12 @@ impl<'a> BetLaneService<'a> {
         &mut self,
         basket_id: u64,
         amount: U256,
-        index_at_creation_bps: u16,
+        signed_quote: SignedBetQuote,
     ) -> Result<U256, BetLaneError> {
         self.ensure_not_paused()?;
         self.validate_bet_amount(amount)?;
-        Self::validate_index_at_creation(index_at_creation_bps)?;
+        let caller = Syscall::message_source();
+        let verified_quote = self.verify_bet_quote(caller, basket_id, amount, &signed_quote)?;
 
         let basket = self
             .mirror_actor()
@@ -274,7 +339,6 @@ impl<'a> BetLaneService<'a> {
             return Err(BetLaneError::BasketAssetMismatch);
         }
 
-        let caller = Syscall::message_source();
         let program_id = Syscall::program_id();
         let current_position = InfallibleStorage::get(&self.positions)
             .positions
@@ -288,16 +352,17 @@ impl<'a> BetLaneService<'a> {
             .ok_or(BetLaneError::MathOverflow)?;
         self.validate_total_exposure(user_total)?;
         self.insert_pending_bet(basket_id, caller)?;
+        self.consume_quote_nonce(caller, verified_quote.nonce)?;
 
         let next_index_at_creation_bps = if current_position.shares.is_zero() {
-            index_at_creation_bps
+            verified_quote.quoted_index_bps
         } else {
             let old_weighted = current_position
                 .shares
                 .checked_mul(U256::from(current_position.index_at_creation_bps))
                 .ok_or(BetLaneError::MathOverflow)?;
             let new_weighted = amount
-                .checked_mul(U256::from(index_at_creation_bps))
+                .checked_mul(U256::from(verified_quote.quoted_index_bps))
                 .ok_or(BetLaneError::MathOverflow)?;
             let weighted_total = old_weighted
                 .checked_add(new_weighted)
@@ -366,7 +431,9 @@ impl<'a> BetLaneService<'a> {
             user: caller,
             amount,
             user_total,
-            index_at_creation_bps: next_index_at_creation_bps,
+            quoted_index_bps: verified_quote.quoted_index_bps,
+            position_index_at_creation_bps: next_index_at_creation_bps,
+            quote_nonce: verified_quote.nonce,
         });
 
         Ok(amount)
@@ -504,6 +571,28 @@ impl<'a> BetLaneService<'a> {
     }
 
     #[export(unwrap_result)]
+    pub fn rotate_quote_signer(
+        &mut self,
+        new_quote_signer: ActorId,
+    ) -> Result<(), BetLaneError> {
+        self.require_role(CONFIG_ROLE, Syscall::message_source())?;
+
+        let previous_quote_signer = {
+            let mut config = InfallibleStorageMut::get_mut(&mut self.config);
+            let previous_quote_signer = config.quote_signer;
+            config.quote_signer = new_quote_signer;
+            previous_quote_signer
+        };
+
+        self.emit_event(Event::QuoteSignerRotated {
+            previous_quote_signer,
+            new_quote_signer,
+        })
+        .map_err(|_| BetLaneError::EventEmitFailed)?;
+        Ok(())
+    }
+
+    #[export(unwrap_result)]
     pub fn set_dependencies(
         &mut self,
         dependencies: BetLaneDependencies,
@@ -588,6 +677,85 @@ impl<'a> BetLaneService<'a> {
         } else {
             Ok(())
         }
+    }
+
+    fn verify_bet_quote(
+        &self,
+        caller: ActorId,
+        basket_id: u64,
+        amount: U256,
+        signed_quote: &SignedBetQuote,
+    ) -> Result<BetQuotePayload, BetLaneError> {
+        let quote_signer = InfallibleStorage::get(&self.config).quote_signer;
+        if quote_signer == ActorId::zero() {
+            return Err(BetLaneError::QuoteSignerNotConfigured);
+        }
+
+        let payload = signed_quote.payload.clone();
+        Self::validate_index_at_creation(payload.quoted_index_bps)?;
+
+        if payload.target_program_id != exec::program_id() {
+            return Err(BetLaneError::QuoteTargetMismatch);
+        }
+        if payload.user != caller {
+            return Err(BetLaneError::QuoteUserMismatch);
+        }
+        if payload.basket_id != basket_id {
+            return Err(BetLaneError::QuoteBasketMismatch);
+        }
+        if payload.amount != amount {
+            return Err(BetLaneError::QuoteAmountMismatch);
+        }
+        if payload.deadline_ms < exec::block_timestamp() {
+            return Err(BetLaneError::QuoteExpired);
+        }
+        if InfallibleStorage::get(&self.used_quote_nonces)
+            .nonces
+            .contains(&(caller, payload.nonce))
+        {
+            return Err(BetLaneError::QuoteNonceAlreadyUsed);
+        }
+
+        let message = Self::quote_signing_message(&payload);
+        Self::verify_quote_signature(&signed_quote.signature, &message, quote_signer)?;
+
+        Ok(payload)
+    }
+
+    fn quote_signing_message(payload: &BetQuotePayload) -> Vec<u8> {
+        let raw_payload = [b"BetLaneQuoteV1".encode(), payload.encode()].concat();
+        let mut wrapped = Vec::with_capacity(
+            b"<Bytes>".len() + raw_payload.len() + b"</Bytes>".len(),
+        );
+        wrapped.extend_from_slice(b"<Bytes>");
+        wrapped.extend_from_slice(&raw_payload);
+        wrapped.extend_from_slice(b"</Bytes>");
+        wrapped
+    }
+
+    fn verify_quote_signature(
+        signature: &[u8],
+        message: &[u8],
+        signer: ActorId,
+    ) -> Result<(), BetLaneError> {
+        let signature =
+            Signature::from_bytes(signature).map_err(|_| BetLaneError::InvalidQuoteSignature)?;
+        let signer_bytes: [u8; 32] = signer.into();
+        let public_key =
+            PublicKey::from_bytes(&signer_bytes).map_err(|_| BetLaneError::InvalidQuoteSigner)?;
+
+        public_key
+            .verify_simple(b"substrate", message, &signature)
+            .map(|_| ())
+            .map_err(|_| BetLaneError::QuoteVerificationFailed)
+    }
+
+    fn consume_quote_nonce(&mut self, user: ActorId, nonce: u128) -> Result<(), BetLaneError> {
+        let used_nonces = &mut InfallibleStorageMut::get_mut(&mut self.used_quote_nonces).nonces;
+        if !used_nonces.insert((user, nonce)) {
+            return Err(BetLaneError::QuoteNonceAlreadyUsed);
+        }
+        Ok(())
     }
 
     fn compute_payout(
@@ -695,7 +863,9 @@ pub enum Event {
         user: ActorId,
         amount: U256,
         user_total: U256,
-        index_at_creation_bps: u16,
+        quoted_index_bps: u16,
+        position_index_at_creation_bps: u16,
+        quote_nonce: u128,
     },
     Claimed {
         basket_id: u64,
@@ -706,6 +876,10 @@ pub enum Event {
     Resumed,
     ConfigUpdated(BetLaneConfig),
     DependenciesUpdated(BetLaneDependencies),
+    QuoteSignerRotated {
+        previous_quote_signer: ActorId,
+        new_quote_signer: ActorId,
+    },
 }
 
 #[derive(Default)]
@@ -715,6 +889,7 @@ pub struct Program {
     bet_token_id: RefCell<ActorId>,
     config: RefCell<BetLaneConfig>,
     positions: RefCell<PositionStore>,
+    used_quote_nonces: RefCell<UsedQuoteNonceStore>,
     pending_operations: RefCell<PendingOperations>,
     pause: Pause,
 }
@@ -751,6 +926,7 @@ impl Program {
             bet_token_id: RefCell::new(bet_token_id),
             config: RefCell::new(config),
             positions: RefCell::new(Default::default()),
+            used_quote_nonces: RefCell::new(Default::default()),
             pending_operations: RefCell::new(Default::default()),
             pause: Pause::default(),
         }
@@ -764,6 +940,7 @@ impl Program {
             StorageRefCell::new(&self.bet_token_id),
             StorageRefCell::new(&self.config),
             StorageRefCell::new(&self.positions),
+            StorageRefCell::new(&self.used_quote_nonces),
             StorageRefCell::new(&self.pending_operations),
             &self.pause,
         )

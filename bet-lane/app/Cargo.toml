@@ -17,4 +17,5 @@ awesome-sails-storage = "0.2.0"
 awesome-sails-utils = "0.2.0"
 bet-token-client.workspace = true
 polymarket-mirror-client.workspace = true
+schnorrkel = { version = "0.10", default-features = false, features = ["u64_backend"] }
 thiserror = { version = "=2.0.17", default-features = false }

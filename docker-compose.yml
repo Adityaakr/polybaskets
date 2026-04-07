@@ -24,6 +24,10 @@ x-shared-bot-secret-env: &shared-bot-secret-env
   SETTLER_SEED: ${SETTLER_SEED:-}
   SETTLER_SEED_FILE: ${SETTLER_SEED_FILE:-}
 
+x-bet-quote-secret-env: &bet-quote-secret-env
+  BET_QUOTE_SIGNER_SEED: ${BET_QUOTE_SIGNER_SEED:-}
+  BET_QUOTE_SIGNER_SEED_FILE: ${BET_QUOTE_SIGNER_SEED_FILE:-}
+
 services:
   postgres:
     image: postgres:16
@@ -139,6 +143,38 @@ services:
       SETTLER_BOT_FINALIZE_ENABLED: ${SETTLER_BOT_FINALIZE_ENABLED:-true}
       POLYMARKET_GAMMA_BASE_URL: ${POLYMARKET_GAMMA_BASE_URL:-https://gamma-api.polymarket.com}
     command: ["npm", "start"]
+
+  bet-quote-service:
+    build:
+      context: .
+      dockerfile: bet-quote-service/Dockerfile
+    container_name: polybaskets-daily-bet-quote-service
+    restart: unless-stopped
+    working_dir: /app/bet-quote-service
+    environment:
+      <<: *bet-quote-secret-env
+      PORT: ${BET_QUOTE_SERVICE_PORT:-4360}
+      FRONTEND_URLS: ${FRONTEND_URLS}
+      VARA_RPC_URL: ${VARA_RPC_URL}
+      BASKET_MARKET_PROGRAM_ID: ${BASKET_MARKET_PROGRAM_ID}
+      BET_LANE_PROGRAM_ID: ${BET_LANE_PROGRAM_ID}
+      POLYMARKET_GAMMA_BASE_URL: ${POLYMARKET_GAMMA_BASE_URL:-https://gamma-api.polymarket.com}
+      BET_QUOTE_TTL_MS: ${BET_QUOTE_TTL_MS:-30000}
+      BET_QUOTE_BINDING_PREFIX: ${BET_QUOTE_BINDING_PREFIX:-BetLaneQuoteV1}
+    command: ["npm", "start"]
+    ports:
+      - "127.0.0.1:${BET_QUOTE_SERVICE_PORT:-4360}:4360"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:4360/healthz').then((res) => process.exit(res.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
 
 volumes:
   daily_contest_postgres:

@@ -49,7 +49,7 @@ The canonical `settlement_allowed_at` value is persisted in the read model and m
 - primary read surface: PostGraphile mounted at `/graphql`
 - frontend-safe CORS enabled through `FRONTEND_URLS`, including wildcard origins like `https://*.vercel.app`
 - bot and frontend are expected to query projected tables, not recompute contest state in the API layer
-- the compose stack is `postgres + indexer-migrate + indexer-processor + indexer-api + contest-bot + settler-bot`
+- the compose stack is `postgres + indexer-migrate + indexer-processor + indexer-api + bet-quote-service + contest-bot + settler-bot`
 - local/docker uses `INDEXER_GQL_PORT`
 - Railway public deployment should use `PORT`
 - GraphiQL is enabled only in development or when `INDEXER_GRAPHIQL_ENABLED=true`
@@ -83,11 +83,12 @@ Useful logs:
 - `docker compose --env-file .env --env-file .env.secrets -f docker-compose.yml logs -f indexer-migrate`
 - `docker compose --env-file .env --env-file .env.secrets -f docker-compose.yml logs -f indexer-processor`
 - `docker compose --env-file .env --env-file .env.secrets -f docker-compose.yml logs -f indexer-api`
+- `docker compose --env-file .env --env-file .env.secrets -f docker-compose.yml logs -f bet-quote-service`
 - `docker compose --env-file .env --env-file .env.secrets -f docker-compose.yml logs -f contest-bot`
 - `docker compose --env-file .env --env-file .env.secrets -f docker-compose.yml logs -f settler-bot`
 
 Production note:
 
-- expose only `indexer-api` publicly
+- expose `indexer-api` and `bet-quote-service` publicly when the frontend is hosted outside the private network
 - keep `indexer-processor`, `contest-bot`, and `settler-bot` private workers
 - set `INDEXER_GRAPHIQL_ENABLED=false` on Railway unless you explicitly want a public GraphiQL surface

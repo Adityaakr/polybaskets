@@ -13,7 +13,8 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useWallet } from '@/contexts/WalletContext';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { useToast } from '@/hooks/use-toast';
-import { actorIdFromAddress } from '@/lib/varaClient.ts';
+import { actorIdFromAddress } from '@/lib/varaClient';
+import { requestBetQuote } from '@/lib/betQuoteService';
 import {
   betLaneProgramFromApi,
   betTokenProgramFromApi,
@@ -30,9 +31,6 @@ type BetLanePanelProps = {
   basketId: number | null;
   basketStatus: 'Active' | 'SettlementPending' | 'Settled' | null | undefined;
   settlement: Settlement | null;
-  hasValidData: boolean;
-  liveIndex: number;
-  snapshotIndex?: number | null;
 };
 
 type BettingPhase = 'idle' | 'approving' | 'betting';
@@ -47,9 +45,6 @@ export function BetLanePanel({
   basketId,
   basketStatus,
   settlement,
-  hasValidData,
-  liveIndex,
-  snapshotIndex,
 }: BetLanePanelProps) {
   const { api, isApiReady } = useApi();
   const { account } = useAccount();
@@ -181,18 +176,6 @@ export function BetLanePanel({
     }
   }, [betAmount, tokenDecimals]);
 
-  const currentIndexAtCreationBps = useMemo(() => {
-    if (hasValidData && liveIndex > 0) {
-      return Math.max(1, Math.min(10_000, Math.round(liveIndex * 10_000)));
-    }
-
-    if (snapshotIndex && snapshotIndex > 0) {
-      return Math.max(1, Math.min(10_000, Math.round(snapshotIndex * 10_000)));
-    }
-
-    return 5_000;
-  }, [hasValidData, liveIndex, snapshotIndex]);
-
   const settlementStatus = useMemo(() => {
     if (!settlement?.status) {
       return null;
@@ -322,6 +305,13 @@ export function BetLanePanel({
     }
 
     try {
+      const signedQuote = await requestBetQuote({
+        targetProgramId: betLaneProgram.programId,
+        user: walletActorId!,
+        basketId,
+        amount: parsedBetUnits.toString(),
+      });
+
       if (!allowanceEnough) {
         setBettingPhase('approving');
 
@@ -331,7 +321,7 @@ export function BetLanePanel({
 
         await approveTx.calculateGas();
         const betTx = betLaneProgram.betLane
-          .placeBet(basketId, parsedBetUnits, currentIndexAtCreationBps)
+          .placeBet(basketId, parsedBetUnits, signedQuote)
           .withAccount(account!.address, { signer: signer! })
           .withGas('max');
 
@@ -346,7 +336,7 @@ export function BetLanePanel({
         setBettingPhase('betting');
 
         const betTx = betLaneProgram.betLane
-          .placeBet(basketId, parsedBetUnits, currentIndexAtCreationBps)
+          .placeBet(basketId, parsedBetUnits, signedQuote)
           .withAccount(account!.address, { signer: signer! });
 
         await betTx.calculateGas();
@@ -367,7 +357,7 @@ export function BetLanePanel({
 
       toast({
         title: `${tokenSymbol} Bet Placed`,
-        description: `${betAmount} ${tokenSymbol} entered at ${(currentIndexAtCreationBps / 100).toFixed(2)}%.`,
+        description: `${betAmount} ${tokenSymbol} entered at ${(signedQuote.payload.quoted_index_bps / 100).toFixed(2)}%.`,
       });
 
       setBetAmount('');

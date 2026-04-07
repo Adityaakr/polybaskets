@@ -129,6 +129,7 @@ Stack services:
 - `indexer-migrate`
 - `indexer-processor`
 - `indexer-api`
+- `bet-quote-service`
 - `contest-bot`
 - `settler-bot`
 
@@ -143,6 +144,9 @@ Fill:
 
 - chain/program env in `.env`
 - exactly one of `SETTLER_SEED` or `SETTLER_SEED_FILE` in `.env.secrets`
+- exactly one of `BET_QUOTE_SIGNER_SEED` or `BET_QUOTE_SIGNER_SEED_FILE` in `.env.secrets`
+
+Mnemonic secrets may be provided either as space-separated or comma-separated words.
 
 Run:
 
@@ -158,6 +162,7 @@ Logs:
 
 ```bash
 docker compose --env-file .env --env-file .env.secrets -f docker-compose.yml logs -f indexer-processor
+docker compose --env-file .env --env-file .env.secrets -f docker-compose.yml logs -f bet-quote-service
 docker compose --env-file .env --env-file .env.secrets -f docker-compose.yml logs -f contest-bot
 docker compose --env-file .env --env-file .env.secrets -f docker-compose.yml logs -f settler-bot
 ```
@@ -165,9 +170,12 @@ docker compose --env-file .env --env-file .env.secrets -f docker-compose.yml log
 Frontend:
 
 - set `VITE_INDEXER_GRAPHQL_ENDPOINT` to your `indexer-api` GraphQL URL
+- set `VITE_BET_QUOTE_SERVICE_URL` to your `bet-quote-service` URL
 - CORS allow-list is controlled by `FRONTEND_URLS`
 - on Railway, `indexer-api` should respect `PORT`
+- on Railway, `bet-quote-service` should also respect `PORT`
 - recommended production setting: `INDEXER_GRAPHIQL_ENABLED=false`
+- `BET_QUOTE_SIGNER_SEED` must be a dedicated secret and must not reuse `SETTLER_SEED`
 
 ---
 
@@ -369,9 +377,11 @@ npm run dev
 
 ```env
 VITE_ENABLE_VARA=true
-VITE_PROGRAM_ID=0x7cab5e520fb104b24ae55a12ac45dfee6829a46dfecad99f656018e3ea9bd5f7
+VITE_PROGRAM_ID=0x43b9703636ea9eda9e25398962adb6c19cba9a4a20fa6b3dd2e66a244ff6d04a
 VITE_NODE_ADDRESS=wss://testnet.vara.network
 VITE_GAMMA_PROXY=/gamma
+VITE_INDEXER_GRAPHQL_ENDPOINT=http://localhost:4350/graphql
+VITE_BET_QUOTE_SERVICE_URL=http://127.0.0.1:4360
 ```
 
 `VITE_ENABLE_VARA` controls the native VARA asset flow in the frontend.
@@ -402,6 +412,7 @@ polybaskets/
 │   ├── pages/                # Route pages
 │   ├── lib/                  # Utilities & API clients
 │   └── contexts/             # React contexts
+├── bet-quote-service/        # Signed BET quote backend
 ├── settler-bot/              # Settlement automation
 ├── program/                  # Vara smart contract (Rust)
 └── public/                   # Static assets & IDL

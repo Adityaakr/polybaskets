@@ -1991,9 +1991,6 @@ export default function BasketPage() {
               basketId={onChainId}
               basketStatus={basket?.status}
               settlement={settlement}
-              hasValidData={hasValidData}
-              liveIndex={liveIndex}
-              snapshotIndex={creationSnapshotIndex}
             />
           )}
 
