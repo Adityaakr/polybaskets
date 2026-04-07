@@ -52,6 +52,10 @@ export interface MarketFilters {
   ascending?: boolean;
 }
 
+const SEARCH_STOP_WORDS = new Set([
+  'a', 'an', 'and', 'any', 'at', 'by', 'for', 'from', 'in', 'is', 'of', 'on', 'or', 'the', 'to', 'vs', 'will', 'with'
+]);
+
 // Polymarket category definitions with tag_id values from their API
 // Each category has a tag_id that maps to Polymarket's category system
 export const POLYMARKET_CATEGORIES = [
@@ -162,6 +166,126 @@ export const POLYMARKET_CATEGORIES = [
 ] as const;
 
 export type MarketCategory = typeof POLYMARKET_CATEGORIES[number]['id'];
+
+function normalizeSearchText(text: string | undefined): string {
+  return (text || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9/%.+\-\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function hasWholeTerm(haystack: string, needle: string): boolean {
+  const normalizedHaystack = normalizeSearchText(haystack);
+  const normalizedNeedle = normalizeSearchText(needle);
+  if (!normalizedHaystack || !normalizedNeedle) return false;
+
+  const pattern = normalizedNeedle
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(escapeRegExp)
+    .join('\\s+');
+
+  if (!pattern) return false;
+  return new RegExp(`(^|\\b)${pattern}(\\b|$)`, 'i').test(normalizedHaystack);
+}
+
+function tokenizeSearchQuery(query: string): string[] {
+  return Array.from(
+    new Set(
+      normalizeSearchText(query)
+        .split(/\s+/)
+        .filter((token) => token.length >= 2 && !SEARCH_STOP_WORDS.has(token))
+    )
+  );
+}
+
+function getSearchRelevanceScore(market: PolymarketMarket, query: string): number {
+  const normalizedQuery = normalizeSearchText(query);
+  const queryTokens = tokenizeSearchQuery(query);
+  if (!normalizedQuery || queryTokens.length === 0) return 0;
+
+  const question = normalizeSearchText(market.question);
+  const description = normalizeSearchText(market.description);
+  const category = normalizeSearchText(market.category);
+  const combined = [question, description, category].filter(Boolean).join(' ');
+
+  const questionHasPhrase = question.includes(normalizedQuery);
+  const descriptionHasPhrase = description.includes(normalizedQuery);
+  const categoryHasPhrase = category.includes(normalizedQuery);
+  const questionExact = question === normalizedQuery;
+  const questionStartsWith = question.startsWith(normalizedQuery);
+
+  const questionWholeMatches = queryTokens.filter((token) => hasWholeTerm(question, token)).length;
+  const descriptionWholeMatches = queryTokens.filter((token) => hasWholeTerm(description, token)).length;
+  const categoryWholeMatches = queryTokens.filter((token) => hasWholeTerm(category, token)).length;
+
+  const allQuestionTokensMatch = queryTokens.length > 1 && queryTokens.every((token) => hasWholeTerm(question, token));
+  const allCombinedTokensMatch = queryTokens.length > 1 && queryTokens.every((token) => hasWholeTerm(combined, token));
+
+  const hasAnySignal = questionHasPhrase
+    || descriptionHasPhrase
+    || categoryHasPhrase
+    || questionWholeMatches > 0
+    || descriptionWholeMatches > 0
+    || categoryWholeMatches > 0;
+
+  if (!hasAnySignal) return 0;
+
+  let score = 0;
+
+  if (questionExact) score += 220;
+  else if (questionStartsWith) score += 170;
+  else if (questionHasPhrase) score += 130;
+
+  if (descriptionHasPhrase) score += 55;
+  if (category === normalizedQuery) score += 45;
+  else if (categoryHasPhrase) score += 28;
+
+  if (allQuestionTokensMatch) score += 75;
+  else if (allCombinedTokensMatch) score += 42;
+
+  score += questionWholeMatches * 24;
+  score += descriptionWholeMatches * 10;
+  score += categoryWholeMatches * 14;
+
+  score += Math.min((market.volume || 0) / 10_000, 8);
+  score += Math.min((market.liquidity || 0) / 5_000, 5);
+
+  const threshold = queryTokens.length > 1 ? 40 : 28;
+  return score >= threshold ? score : 0;
+}
+
+export function rankMarketsForSearch(
+  markets: PolymarketMarket[],
+  query: string,
+  limit: number = 50
+): PolymarketMarket[] {
+  const seen = new Set<string>();
+  const scored = markets
+    .map((market) => ({ market, score: getSearchRelevanceScore(market, query) }))
+    .filter(({ market, score }) => {
+      if (score <= 0) return false;
+      if (seen.has(market.id)) return false;
+      seen.add(market.id);
+      return true;
+    });
+
+  scored.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    if ((b.volume || 0) !== (a.volume || 0)) return (b.volume || 0) - (a.volume || 0);
+    if ((b.liquidity || 0) !== (a.liquidity || 0)) return (b.liquidity || 0) - (a.liquidity || 0);
+    const dateA = a.market.endDate ? new Date(a.market.endDate).getTime() : 0;
+    const dateB = b.market.endDate ? new Date(b.market.endDate).getTime() : 0;
+    return dateB - dateA;
+  });
+
+  return scored.slice(0, limit).map(({ market }) => market);
+}
 
 /**
  * Format category name for display
@@ -354,18 +478,16 @@ function mapMarket(m: any): PolymarketMarket | null {
   // Normalize common category variations
   if (!category || category === 'general' || category === 'uncategorized') {
     // Try to infer category from question/description
-    const questionLower = question.toLowerCase();
-    const descriptionLower = ((m.description || m.desc || '')).toLowerCase();
-    const combined = `${questionLower} ${descriptionLower}`;
+    const combined = normalizeSearchText(`${question} ${m.description || m.desc || ''}`);
     
     // Check against category keywords
     for (const catConfig of POLYMARKET_CATEGORIES) {
       if (catConfig.id === 'all') continue;
-      for (const keyword of catConfig.keywords) {
-        if (combined.includes(keyword.toLowerCase())) {
-          category = catConfig.id;
-          break;
-        }
+      const keywordHits = catConfig.keywords.filter((keyword) => hasWholeTerm(combined, keyword)).length;
+      const categoryValueHits = catConfig.categoryValues.filter((value) => hasWholeTerm(combined, value)).length;
+      if (keywordHits > 0 || categoryValueHits > 0 || hasWholeTerm(combined, catConfig.label)) {
+        category = catConfig.id;
+        break;
       }
       if (category && category !== 'general') break;
     }
@@ -686,7 +808,8 @@ export async function fetchMarkets(filters: MarketFilters = {}): Promise<Polymar
  */
 export async function searchMarkets(
   query: string,
-  additionalFilters?: Omit<MarketFilters, 'query'>
+  additionalFilters?: Omit<MarketFilters, 'query'>,
+  category?: MarketCategory
 ): Promise<{ markets: PolymarketMarket[]; hasMore: boolean }> {
   try {
     if (!query || query.trim().length === 0) {
@@ -699,143 +822,52 @@ export async function searchMarkets(
 
     const trimmedQuery = query.trim();
     console.log('[Polymarket Search] Searching for:', trimmedQuery);
+    const categoryConfig = category && category !== 'all' && category !== 'ending-soon'
+      ? POLYMARKET_CATEGORIES.find((item) => item.id === category) ?? null
+      : null;
 
     const filters: MarketFilters = {
       query: trimmedQuery,
       active: true,
       closed: false,
-      limit: 100, // Fetch more results for better search coverage
+      limit: 120,
       orderBy: 'volume', // Use volume since 'created' is not supported by API
       ascending: false,
       ...additionalFilters,
     };
 
     // Make direct API call to Polymarket
-    const markets = await fetchMarkets(filters);
+    let markets = await fetchMarkets(filters);
     console.log(`[Polymarket Search] Found ${markets.length} markets for query: "${trimmedQuery}"`);
-    
-    // Client-side filtering to ensure results are actually relevant to the search query
-    const queryLower = trimmedQuery.toLowerCase();
-    const queryWords = queryLower.split(/\s+/).filter(w => w.length > 0); // Split into words
-    
-    // Filter markets to only include those that match the query
-    const relevantMarkets = markets.filter(market => {
-      const question = (market.question || '').toLowerCase();
-      const description = (market.description || '').toLowerCase();
-      const category = (market.category || '').toLowerCase();
-      const combined = `${question} ${description} ${category}`;
-      
-      // Check if query appears as a whole phrase
-      if (combined.includes(queryLower)) {
-        return true;
-      }
-      
-      // Check if all query words appear (for multi-word queries)
-      if (queryWords.length > 1) {
-        const allWordsMatch = queryWords.every(word => combined.includes(word));
-        if (allWordsMatch) {
-          return true;
-        }
-      }
-      
-      // Check if any significant word matches (for single word or if phrase doesn't match)
-      for (const word of queryWords) {
-        if (word.length >= 3) { // Only check words with 3+ characters
-          // Use word boundary to avoid partial matches in the middle of words
-          const wordRegex = new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
-          if (wordRegex.test(combined)) {
-            return true;
-          }
-          // Also check for substring match as fallback
-          if (combined.includes(word)) {
-            return true;
-          }
-        }
-      }
-      
-      return false;
-    });
-    
-    console.log(`[Polymarket Search] Filtered to ${relevantMarkets.length} relevant markets (from ${markets.length} total)`);
-    
-    if (relevantMarkets.length === 0) {
-      console.warn('[Polymarket Search] No relevant markets found, trying broader search');
-      // Try a broader search without strict filters, but still filter client-side
-      const broaderMarkets = await fetchMarkets({
-        query: trimmedQuery,
-        limit: 200, // Fetch more to account for filtering
-      });
-      
-      // Filter broader results for relevance
-      const broaderRelevant = broaderMarkets.filter(market => {
-        const question = (market.question || '').toLowerCase();
-        const description = (market.description || '').toLowerCase();
-        const category = (market.category || '').toLowerCase();
-        const combined = `${question} ${description} ${category}`;
-        
-        // More lenient matching for broader search
-        if (combined.includes(queryLower)) return true;
-        if (queryWords.length > 1 && queryWords.every(word => combined.includes(word))) return true;
-        for (const word of queryWords) {
-          if (word.length >= 3 && combined.includes(word)) return true;
-        }
-        return false;
-      });
-      
-      if (broaderRelevant.length > 0) {
-        console.log(`[Polymarket Search] Found ${broaderRelevant.length} relevant markets with broader search`);
-        // Sort and return
-        const sorted = broaderRelevant.sort((a, b) => {
-          const aQuestion = (a.question || '').toLowerCase();
-          const bQuestion = (b.question || '').toLowerCase();
-          const aExactMatch = aQuestion.includes(queryLower) ? 1 : 0;
-          const bExactMatch = bQuestion.includes(queryLower) ? 1 : 0;
-          if (aExactMatch !== bExactMatch) return bExactMatch - aExactMatch;
-          return (b.volume || 0) - (a.volume || 0);
+
+    if (categoryConfig) {
+      markets = markets.filter((market) => marketMatchesCategory(market, categoryConfig));
+    }
+
+    let rankedMarkets = rankMarketsForSearch(markets, trimmedQuery, 50);
+    console.log(`[Polymarket Search] Ranked ${rankedMarkets.length} relevant markets for "${trimmedQuery}"`);
+
+    if (rankedMarkets.length === 0) {
+      const fallbackToken = tokenizeSearchQuery(trimmedQuery).sort((a, b) => b.length - a.length)[0];
+      if (fallbackToken && fallbackToken !== normalizeSearchText(trimmedQuery)) {
+        console.warn(`[Polymarket Search] No strong matches for "${trimmedQuery}", retrying with fallback token "${fallbackToken}"`);
+        const broaderMarkets = await fetchMarkets({
+          ...filters,
+          query: fallbackToken,
+          limit: 160,
         });
-        return {
-          markets: sorted.slice(0, 50),
-          hasMore: sorted.length >= 50,
-        };
+
+        const scopedMarkets = categoryConfig
+          ? broaderMarkets.filter((market) => marketMatchesCategory(market, categoryConfig))
+          : broaderMarkets;
+
+        rankedMarkets = rankMarketsForSearch(scopedMarkets, trimmedQuery, 50);
       }
     }
-    
-    // Sort by relevance (query in question/description) and volume
-    const sortedMarkets = relevantMarkets.sort((a, b) => {
-      const aQuestion = (a.question || '').toLowerCase();
-      const bQuestion = (b.question || '').toLowerCase();
-      const aDesc = (a.description || '').toLowerCase();
-      const bDesc = (b.description || '').toLowerCase();
-      
-      // Exact phrase match in question gets highest priority
-      const aPhraseMatch = aQuestion.includes(queryLower) ? 2 : 0;
-      const bPhraseMatch = bQuestion.includes(queryLower) ? 2 : 0;
-      if (aPhraseMatch !== bPhraseMatch) return bPhraseMatch - aPhraseMatch;
-      
-      // Exact match in question gets high priority
-      const aExactMatch = aQuestion.includes(queryLower) ? 1 : 0;
-      const bExactMatch = bQuestion.includes(queryLower) ? 1 : 0;
-      if (aExactMatch !== bExactMatch) return bExactMatch - aExactMatch;
-      
-      // Then check description matches
-      const aDescMatch = aDesc.includes(queryLower) ? 0.5 : 0;
-      const bDescMatch = bDesc.includes(queryLower) ? 0.5 : 0;
-      if (aDescMatch !== bDescMatch) return bDescMatch - aDescMatch;
-      
-      // Count word matches for multi-word queries
-      if (queryWords.length > 1) {
-        const aWordMatches = queryWords.filter(word => aQuestion.includes(word) || aDesc.includes(word)).length;
-        const bWordMatches = queryWords.filter(word => bQuestion.includes(word) || bDesc.includes(word)).length;
-        if (aWordMatches !== bWordMatches) return bWordMatches - aWordMatches;
-      }
-      
-      // Finally by volume
-      return (b.volume || 0) - (a.volume || 0);
-    });
 
     return {
-      markets: sortedMarkets.slice(0, 50), // Limit to 50 results
-      hasMore: sortedMarkets.length >= 50,
+      markets: rankedMarkets,
+      hasMore: rankedMarkets.length >= 50,
     };
   } catch (error) {
     console.error('[Polymarket Search] Error:', error);
@@ -852,81 +884,69 @@ export async function searchMarkets(
  * Made more lenient to ensure we get results, especially for categories without tag_id
  */
 function marketMatchesCategory(market: PolymarketMarket, categoryConfig: typeof POLYMARKET_CATEGORIES[number]): boolean {
-  if (categoryConfig.id === 'all') return true;
+  return getCategoryMatchScore(market, categoryConfig) > 0;
+}
+
+function getCategoryMatchScore(market: PolymarketMarket, categoryConfig: typeof POLYMARKET_CATEGORIES[number]): number {
+  if (categoryConfig.id === 'all') return 100;
   
-  const marketCategory = (market.category || '').toLowerCase().trim();
-  const question = (market.question || '').toLowerCase();
-  const description = (market.description || '').toLowerCase();
-  const combined = `${question} ${description} ${marketCategory}`;
+  const marketCategory = normalizeSearchText(market.category);
+  const question = normalizeSearchText(market.question);
+  const description = normalizeSearchText(market.description);
+  const combined = `${question} ${description} ${marketCategory}`.trim();
+  const label = normalizeSearchText(categoryConfig.label);
   
   // For categories without tag_id (Health, Weather, Economics), be more lenient
   const isTaglessCategory = categoryConfig.tagId === null || categoryConfig.tagId === undefined;
+  let score = 0;
   
   // Check if category field directly matches
   if (marketCategory) {
     // Direct match
-    if (marketCategory === categoryConfig.id.toLowerCase()) {
-      return true;
+    if (marketCategory === normalizeSearchText(categoryConfig.id)) {
+      score += 160;
     }
     
     // Check category values (partial match)
     for (const catValue of categoryConfig.categoryValues) {
-      if (marketCategory.includes(catValue.toLowerCase()) || catValue.toLowerCase().includes(marketCategory)) {
-        return true;
+      const normalizedValue = normalizeSearchText(catValue);
+      if (marketCategory === normalizedValue) {
+        score += 120;
+      } else if (hasWholeTerm(marketCategory, normalizedValue)) {
+        score += 80;
       }
     }
   }
   
-  // Check if keywords appear in question/description
+  // Check if keywords appear as whole terms in question/description
   let keywordMatches = 0;
   for (const keyword of categoryConfig.keywords) {
-    const keywordLower = keyword.toLowerCase();
-    // Check for word boundary matches (more accurate)
-    const wordRegex = new RegExp(`\\b${keywordLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
-    if (wordRegex.test(combined)) {
+    const normalizedKeyword = normalizeSearchText(keyword);
+    if (!normalizedKeyword) continue;
+    if (hasWholeTerm(combined, normalizedKeyword)) {
       keywordMatches++;
-      // For tagless categories, any keyword match is enough
-      if (isTaglessCategory) {
-        return true;
-      }
-      // For tag-based categories, require at least one match
-      if (keywordMatches >= 1) {
-        return true;
-      }
-    }
-    // Also check for simple substring match as fallback (more lenient)
-    if (combined.includes(keywordLower)) {
-      keywordMatches++;
-      if (isTaglessCategory || keywordMatches >= 1) {
-        return true;
-      }
     }
   }
+
+  score += Math.min(keywordMatches, 4) * (isTaglessCategory ? 22 : 18);
+
+  if (hasWholeTerm(combined, label)) {
+    score += 42;
+  }
   
-  // For tagless categories, if we got results from query, be very lenient
-  // Accept markets that match at least one keyword (already handled above)
-  // But also accept if the query returned them (they're likely relevant)
-  if (isTaglessCategory && keywordMatches === 0) {
-    // Last resort: check if any part of the category name appears
-    const categoryName = categoryConfig.label.toLowerCase();
-    if (combined.includes(categoryName)) {
-      return true;
-    }
-    
-    // Also check for partial matches of category name
-    const categoryWords = categoryName.split(' ');
-    for (const word of categoryWords) {
-      if (word.length > 3 && combined.includes(word)) {
-        return true;
-      }
+  if (isTaglessCategory) {
+    const categoryWords = tokenizeSearchQuery(label);
+    const matchingCategoryWords = categoryWords.filter((word) => hasWholeTerm(combined, word)).length;
+    if (matchingCategoryWords > 0) {
+      score += matchingCategoryWords * 12;
     }
     
     // For Health: also check for medical-related terms
     if (categoryConfig.id === 'health') {
       const healthTerms = ['medical', 'medicine', 'hospital', 'doctor', 'patient', 'treatment', 'disease', 'illness'];
       for (const term of healthTerms) {
-        if (combined.includes(term)) {
-          return true;
+        if (hasWholeTerm(combined, term)) {
+          score += 14;
         }
       }
     }
@@ -935,8 +955,8 @@ function marketMatchesCategory(market: PolymarketMarket, categoryConfig: typeof 
     if (categoryConfig.id === 'weather') {
       const weatherTerms = ['temperature', 'rain', 'snow', 'storm', 'hurricane', 'tornado', 'climate'];
       for (const term of weatherTerms) {
-        if (combined.includes(term)) {
-          return true;
+        if (hasWholeTerm(combined, term)) {
+          score += 12;
         }
       }
     }
@@ -945,14 +965,15 @@ function marketMatchesCategory(market: PolymarketMarket, categoryConfig: typeof 
     if (categoryConfig.id === 'economics') {
       const econTerms = ['gdp', 'unemployment', 'inflation', 'economy', 'economic', 'recession', 'fed', 'federal reserve'];
       for (const term of econTerms) {
-        if (combined.includes(term)) {
-          return true;
+        if (hasWholeTerm(combined, term)) {
+          score += 12;
         }
       }
     }
   }
   
-  return false;
+  const threshold = isTaglessCategory ? 28 : 18;
+  return score >= threshold ? score : 0;
 }
 
 /**
@@ -1133,6 +1154,26 @@ export async function fetchMarketsByCategory(category: MarketCategory, limit: nu
 
   // For specific categories, use tag_id if available (most accurate)
   try {
+    const rankCategoryMarkets = (inputMarkets: PolymarketMarket[]): PolymarketMarket[] => {
+      const deduped = inputMarkets.filter((market, index, array) =>
+        array.findIndex((candidate) => candidate.id === market.id) === index
+      );
+
+      return deduped
+        .map((market) => ({ market, score: getCategoryMatchScore(market, categoryConfig) }))
+        .filter(({ score }) => score > 0)
+        .sort((a, b) => {
+          if (b.score !== a.score) return b.score - a.score;
+          if ((b.market.volume || 0) !== (a.market.volume || 0)) return (b.market.volume || 0) - (a.market.volume || 0);
+          if ((b.market.liquidity || 0) !== (a.market.liquidity || 0)) return (b.market.liquidity || 0) - (a.market.liquidity || 0);
+          const dateA = a.market.endDate ? new Date(a.market.endDate).getTime() : 0;
+          const dateB = b.market.endDate ? new Date(b.market.endDate).getTime() : 0;
+          return dateA - dateB;
+        })
+        .slice(0, limit)
+        .map(({ market }) => market);
+    };
+
     let markets: PolymarketMarket[] = [];
     
     // Primary method: Use tag_id if available (most accurate)
@@ -1150,16 +1191,9 @@ export async function fetchMarketsByCategory(category: MarketCategory, limit: nu
         });
         console.log(`[fetchMarketsByCategory] ${categoryConfig.label} (tag_id): ${markets.length} markets`);
         
-        // Sort by creation date client-side if we wanted 'created'
-        markets.sort((a, b) => {
-          const dateA = a.endDate ? new Date(a.endDate).getTime() : 0;
-          const dateB = b.endDate ? new Date(b.endDate).getTime() : 0;
-          return dateB - dateA; // Newest first
-        });
-        
         // If tag_id worked and we got results, return them (API already filtered correctly)
         if (markets.length > 0) {
-          return markets.slice(0, limit);
+          return rankCategoryMarkets(markets);
         }
       } catch (error) {
         console.warn(`[fetchMarketsByCategory] tag_id fetch failed for ${categoryConfig.label}, trying fallback:`, error);
@@ -1281,16 +1315,8 @@ export async function fetchMarketsByCategory(category: MarketCategory, limit: nu
     const seen = new Set(markets.map(m => m.id));
     const newMarkets = queryMarkets.filter(m => !seen.has(m.id));
     markets = [...markets, ...newMarkets];
-    
-    // Sort by date client-side (newest first)
-    markets.sort((a, b) => {
-      const dateA = a.endDate ? new Date(a.endDate).getTime() : 0;
-      const dateB = b.endDate ? new Date(b.endDate).getTime() : 0;
-      return dateB - dateA; // Newest first
-    });
-    
-    // Client-side filtering for accuracy (especially for query-based results)
-    let filteredMarkets = markets.filter(m => marketMatchesCategory(m, categoryConfig));
+
+    let filteredMarkets = rankCategoryMarkets(markets);
     console.log(`[fetchMarketsByCategory] ${categoryConfig.label}: ${filteredMarkets.length} markets after client-side filtering`);
     
     // If we still don't have enough, try fetching ALL markets and filtering (last resort for Health/Weather/Economics)
@@ -1308,59 +1334,12 @@ export async function fetchMarketsByCategory(category: MarketCategory, limit: nu
         
         console.log(`[fetchMarketsByCategory] ${categoryConfig.label} (last resort): fetched ${allMarketsBroad.length} markets for lenient filtering`);
         
-        // Filter client-side with VERY lenient matching
-        const broadFiltered = allMarketsBroad.filter(m => {
-          // Very lenient matching for these categories
-          const question = (m.question || '').toLowerCase();
-          const description = (m.description || '').toLowerCase();
-          const category = (m.category || '').toLowerCase();
-          const combined = `${question} ${description} ${category}`;
-          
-          // Check if ANY keyword appears (even partial matches)
-          for (const keyword of categoryConfig.keywords) {
-            const keywordLower = keyword.toLowerCase();
-            // Check for word boundary or substring match
-            if (combined.includes(keywordLower)) {
-              return true;
-            }
-          }
-          
-          // Check category name
-          if (combined.includes(categoryConfig.label.toLowerCase())) {
-            return true;
-          }
-          
-    // For Health specifically, check for common health-related patterns (very lenient)
-    if (categoryConfig.id === 'health') {
-      const healthPatterns = [
-        'health', 'medical', 'medicine', 'covid', 'vaccine', 'fda', 'drug', 'treatment', 
-        'hospital', 'doctor', 'disease', 'illness', 'patient', 'surgery', 'therapy', 
-        'clinic', 'prescription', 'medication', 'cure', 'symptom', 'infection', 'virus', 
-        'cancer', 'diabetes', 'heart', 'blood', 'organ', 'transplant', 'mental health',
-        'psychology', 'psychiatry', 'wellness', 'fitness', 'nutrition', 'diet', 'healthcare',
-        'pharmaceutical', 'pharma', 'diagnosis', 'nurse', 'physician', 'surgeon', 'therapy',
-        'recovery', 'heal', 'sick', 'ill', 'condition', 'disorder', 'syndrome', 'epidemic',
-        'pandemic', 'outbreak', 'clinical', 'trial', 'research', 'study', 'test', 'scan',
-        'x-ray', 'mri', 'surgery', 'operation', 'procedure', 'medication', 'pill', 'dose'
-      ];
-      for (const pattern of healthPatterns) {
-        if (combined.includes(pattern.toLowerCase())) {
-          return true;
-        }
-      }
-      // Also check for partial matches of health-related words
-      if (combined.match(/\b(health|medical|medicine|hospital|doctor|patient|disease|illness|covid|vaccine)\w*/i)) {
-        return true;
-      }
-    }
-          
-          return false;
-        });
+        const broadFiltered = rankCategoryMarkets(allMarketsBroad);
         
         // Merge with existing
         const seen = new Set(filteredMarkets.map(m => m.id));
         const newBroad = broadFiltered.filter(m => !seen.has(m.id));
-        filteredMarkets = [...filteredMarkets, ...newBroad];
+        filteredMarkets = rankCategoryMarkets([...filteredMarkets, ...newBroad]);
         
         console.log(`[fetchMarketsByCategory] ${categoryConfig.label} (last resort): ${broadFiltered.length} matched from ${allMarketsBroad.length} total, ${newBroad.length} new`);
       } catch (error) {
@@ -1370,20 +1349,12 @@ export async function fetchMarketsByCategory(category: MarketCategory, limit: nu
     
     // If we have results, return them
     if (filteredMarkets.length > 0) {
-      return filteredMarkets.slice(0, limit);
+      return filteredMarkets;
     }
     
     // Last resort for Health: if we still have 0 results after all strategies,
     // and we fetched markets in the broad fetch, return a sample of them
     // (better than showing nothing)
-    if (categoryConfig.id === 'health' && queryMarkets.length > 0) {
-      console.warn(`[fetchMarketsByCategory] Health: No markets matched filters, but we have ${queryMarkets.length} markets from broad fetch. Returning top ${limit} by volume.`);
-      // Return top markets by volume as fallback
-      return queryMarkets
-        .sort((a, b) => (b.volume || 0) - (a.volume || 0))
-        .slice(0, limit);
-    }
-    
     // If still not enough, try without active filter
     console.log(`[fetchMarketsByCategory] ${categoryConfig.label} trying without active filter`);
     let fallbackMarkets: PolymarketMarket[] = [];
@@ -1406,16 +1377,9 @@ export async function fetchMarketsByCategory(category: MarketCategory, limit: nu
       });
     }
     
-    // Sort fallback by date
-    fallbackMarkets.sort((a, b) => {
-      const dateA = a.endDate ? new Date(a.endDate).getTime() : 0;
-      const dateB = b.endDate ? new Date(b.endDate).getTime() : 0;
-      return dateB - dateA;
-    });
-    
     const seenFiltered = new Set(filteredMarkets.map(m => m.id));
-    const newFallback = fallbackMarkets.filter(m => !seenFiltered.has(m.id) && marketMatchesCategory(m, categoryConfig));
-    filteredMarkets.push(...newFallback);
+    const newFallback = rankCategoryMarkets(fallbackMarkets).filter(m => !seenFiltered.has(m.id));
+    filteredMarkets = rankCategoryMarkets([...filteredMarkets, ...newFallback]);
     console.log(`[fetchMarketsByCategory] ${categoryConfig.label} (fallback): ${newFallback.length} additional markets`);
     
     // Remove duplicates and return
@@ -1438,6 +1402,57 @@ export async function fetchMarketsByCategory(category: MarketCategory, limit: nu
 export async function fetchCuratedLatest(): Promise<PolymarketMarket[]> {
   const results: PolymarketMarket[] = [];
   const seen = new Set<string>();
+  const MAX_HORIZON_DAYS = 180;
+  const RECENT_PAST_DAYS = 14;
+  const nowTs = Date.now();
+
+  const getDaysFromNow = (market: PolymarketMarket): number | null => {
+    if (!market.endDate) return null;
+    const ts = new Date(market.endDate).getTime();
+    if (!Number.isFinite(ts)) return null;
+    return (ts - nowTs) / (1000 * 60 * 60 * 24);
+  };
+
+  const isReasonableHorizon = (market: PolymarketMarket): boolean => {
+    const daysFromNow = getDaysFromNow(market);
+    if (daysFromNow == null) return true;
+    return daysFromNow >= -RECENT_PAST_DAYS && daysFromNow <= MAX_HORIZON_DAYS;
+  };
+
+  const scoreCuratedMarket = (market: PolymarketMarket): number => {
+    const daysFromNow = getDaysFromNow(market);
+    let score = 0;
+
+    if (daysFromNow == null) {
+      score += 35;
+    } else if (daysFromNow < -RECENT_PAST_DAYS || daysFromNow > MAX_HORIZON_DAYS) {
+      score -= 200;
+    } else if (daysFromNow <= 1) {
+      score += 130;
+    } else if (daysFromNow <= 7) {
+      score += 105 - daysFromNow * 6;
+    } else if (daysFromNow <= 30) {
+      score += 72 - (daysFromNow - 7) * 1.5;
+    } else {
+      score += Math.max(0, 28 - (daysFromNow - 30) * 0.18);
+    }
+
+    score += Math.min((market.volume || 0) / 25_000, 40);
+    score += Math.min((market.liquidity || 0) / 10_000, 22);
+
+    const prices = market.outcomePrices;
+    if (prices && prices.length >= 2) {
+      const yesProb = parseFloat(prices[0]);
+      const noProb = parseFloat(prices[1]);
+      const sum = yesProb + noProb;
+      if (Number.isFinite(sum) && sum > 0) {
+        const yesP = yesProb / sum;
+        if (Math.abs(yesP - 0.5) > 0.04) score += 8;
+      }
+    }
+
+    return score;
+  };
   
   // Fetch MORE markets to catch new ones that might not be in top volume
   // Increased limit to ensure we capture newly created markets
@@ -1452,30 +1467,12 @@ export async function fetchCuratedLatest(): Promise<PolymarketMarket[]> {
     
     console.log(`[fetchCuratedLatest] Fetched ${allActiveMarkets.length} active markets from API`);
     
-    // Sort by endDate (newer end dates often indicate newer markets)
-    // Also prioritize markets with recent end dates (upcoming events)
-    const now = new Date().getTime();
-    allActiveMarkets.sort((a, b) => {
-      const dateA = a.endDate ? new Date(a.endDate).getTime() : 0;
-      const dateB = b.endDate ? new Date(b.endDate).getTime() : 0;
-      
-      // Prioritize markets with end dates in the future (upcoming events)
-      // These are more likely to be new markets
-      const aIsUpcoming = dateA > now;
-      const bIsUpcoming = dateB > now;
-      
-      if (aIsUpcoming && !bIsUpcoming) return -1; // a is upcoming, b is not
-      if (!aIsUpcoming && bIsUpcoming) return 1;  // b is upcoming, a is not
-      
-      // Both upcoming or both past - sort by date (newer first)
-      return dateB - dateA;
-    });
-    
     // Filter to get diverse markets with real data
     const filtered = allActiveMarkets
       .filter((m) => {
         if (seen.has(m.id)) return false;
         if (m.closed || !m.active) return false;
+        if (!isReasonableHorizon(m)) return false;
         // Only include markets with real data (volume or liquidity > 0, or real probabilities)
         const hasRealData = (m.volume && m.volume > 0) || (m.liquidity && m.liquidity > 0);
         if (!hasRealData) {
@@ -1502,6 +1499,7 @@ export async function fetchCuratedLatest(): Promise<PolymarketMarket[]> {
         seen.add(m.id);
         return true;
       })
+      .sort((a, b) => scoreCuratedMarket(b) - scoreCuratedMarket(a))
       .slice(0, 30); // Return more markets to show variety and catch new ones
     
     if (filtered.length > 0) {
@@ -1518,34 +1516,18 @@ export async function fetchCuratedLatest(): Promise<PolymarketMarket[]> {
   const startDate = now.toISOString();
   const endDate = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000).toISOString(); // Next 90 days
   
-  // Helper function to check if market is recent (prefer current and upcoming events)
-  // Made less restrictive to ensure we get markets
   const isRecentMarket = (market: PolymarketMarket): boolean => {
-    // Always include markets without end dates (ongoing markets)
     if (!market.endDate) {
       return true;
     }
     
     try {
       const marketDate = new Date(market.endDate);
-      const now = new Date();
-      const daysDiff = (marketDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
-      
-      // Include markets that are upcoming (within next 180 days) or recently closed (within last 30 days)
-      if (daysDiff >= -30 && daysDiff <= 180) {
-        return true;
-      }
-      // Also include markets that are not too far in the past (within last 60 days)
-      if (daysDiff >= -60) {
-        return true;
-      }
+      const daysDiff = (marketDate.getTime() - nowTs) / (1000 * 60 * 60 * 24);
+      return daysDiff >= -RECENT_PAST_DAYS && daysDiff <= MAX_HORIZON_DAYS;
     } catch {
-      // If date parsing fails, include the market (might be ongoing)
       return true;
     }
-    
-    // For now, be more permissive - include all active markets
-    return true;
   };
   
   // Helper function to filter out unwanted markets
@@ -1576,37 +1558,8 @@ export async function fetchCuratedLatest(): Promise<PolymarketMarket[]> {
     return new Date(); // Fallback to current date
   };
   
-  // Helper function to calculate relevance score (higher = more relevant)
   const getRelevanceScore = (market: PolymarketMarket): number => {
-    let score = 0;
-    const now = new Date();
-    
-    // Markets with end dates closer to now get higher score (max 100 points)
-    if (market.endDate) {
-      try {
-        const marketDate = new Date(market.endDate);
-        const daysDiff = Math.abs((marketDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-        // Closer to now = higher score (max 100 points, prefer upcoming events)
-        if (daysDiff <= 30) {
-          score += Math.max(0, 100 - daysDiff * 2); // Upcoming events get higher score
-        } else if (daysDiff <= 90) {
-          score += Math.max(0, 40 - (daysDiff - 30)); // Further out events get lower score
-        }
-      } catch {
-        // Invalid date
-      }
-    } else {
-      // Markets without end dates (ongoing) get medium score
-      score += 50;
-    }
-    
-    // Higher volume = higher score (max 50 points)
-    score += Math.min(50, (market.volume || 0) / 10000);
-    
-    // Higher liquidity = higher score (max 30 points)
-    score += Math.min(30, (market.liquidity || 0) / 5000);
-    
-    return score;
+    return scoreCuratedMarket(market);
   };
   
   // Helper function to filter and sort markets
@@ -1616,8 +1569,7 @@ export async function fetchCuratedLatest(): Promise<PolymarketMarket[]> {
         if (seen.has(m.id)) return false;
         // Only filter out closed markets, but be more lenient with active status
         if (m.closed) return false;
-        // Don't filter by isRecentMarket if we have few results - be more permissive
-        if (markets.length < 10 || isRecentMarket(m)) {
+        if (isRecentMarket(m)) {
           if (!isUnwantedMarket(m)) {
             seen.add(m.id);
             return true;
@@ -1788,21 +1740,14 @@ export async function fetchCuratedLatest(): Promise<PolymarketMarket[]> {
   const validResults = filterMarketsWithRealData(results);
   console.log(`[fetchCuratedLatest] Returning ${validResults.length} markets with real data (from ${results.length} total)`);
   
-  // Sort by endDate to prioritize newer/upcoming markets (likely to be new markets)
+  // Final ordering should prefer near-term, active, liquid markets over very long-dated contracts.
   const sortedResults = validResults.sort((a, b) => {
+    const scoreDiff = scoreCuratedMarket(b) - scoreCuratedMarket(a);
+    if (scoreDiff !== 0) return scoreDiff;
+
     const dateA = a.endDate ? new Date(a.endDate).getTime() : 0;
     const dateB = b.endDate ? new Date(b.endDate).getTime() : 0;
-    const now = Date.now();
-    
-    // Prioritize upcoming markets (newer markets often have future end dates)
-    const aIsUpcoming = dateA > now;
-    const bIsUpcoming = dateB > now;
-    
-    if (aIsUpcoming && !bIsUpcoming) return -1;
-    if (!aIsUpcoming && bIsUpcoming) return 1;
-    
-    // Both upcoming or both past - sort by date (newer first)
-    return dateB - dateA;
+    return dateA - dateB;
   });
   
   return sortedResults.slice(0, 30); // Return more markets to show variety and catch new ones

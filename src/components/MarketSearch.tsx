@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Input } from '@/components/ui/input';
 import { Search, Loader2 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
-import { searchMarkets, fetchCuratedLatest, fetchMarketsByCategory, POLYMARKET_CATEGORIES, type MarketCategory } from '@/lib/polymarket.ts';
+import { searchMarkets, fetchCuratedLatest, fetchMarkets, fetchMarketsByCategory, fetchEndingSoonMarkets, rankMarketsForSearch, POLYMARKET_CATEGORIES, type MarketCategory } from '@/lib/polymarket.ts';
 import { MarketCard } from './MarketCard';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent } from '@/components/ui/card';
@@ -23,13 +23,47 @@ export function MarketSearch() {
   }, [query]);
 
   const queryFn = useCallback(async () => {
-    // If there's a search query, use search (ignores category)
+    const trimmedQuery = debouncedQuery.trim();
+    const categoryConfig = POLYMARKET_CATEGORIES.find((category) => category.id === selectedCategory);
+
+    // If there's a search query, search within the selected category scope
     if (debouncedQuery && debouncedQuery.trim().length > 0) {
-      console.log('[MarketSearch] Searching for:', debouncedQuery);
+      console.log('[MarketSearch] Searching for:', trimmedQuery, 'within category:', selectedCategory);
       try {
-        const result = await searchMarkets(debouncedQuery.trim());
-        console.log('[MarketSearch] Search results:', result.markets.length, 'markets found');
-        return result.markets;
+        let scopedMarkets: PolymarketMarket[] = [];
+
+        if (selectedCategory === 'ending-soon') {
+          scopedMarkets = await fetchEndingSoonMarkets(180);
+        } else if (selectedCategory === 'all') {
+          scopedMarkets = await fetchMarkets({
+            active: true,
+            closed: false,
+            limit: 250,
+            orderBy: 'volume',
+            ascending: false,
+          });
+        } else {
+          scopedMarkets = await fetchMarketsByCategory(selectedCategory, 180);
+        }
+
+        let rankedScoped = rankMarketsForSearch(scopedMarkets, trimmedQuery, 50);
+        console.log('[MarketSearch] Scoped search results:', rankedScoped.length, 'markets found');
+
+        if (rankedScoped.length >= 8 || selectedCategory !== 'all') {
+          return rankedScoped;
+        }
+
+        const additionalFilters = categoryConfig?.tagId != null
+          ? { tagId: categoryConfig.tagId }
+          : undefined;
+
+        const result = await searchMarkets(trimmedQuery, additionalFilters, selectedCategory);
+        const merged = [...rankedScoped, ...result.markets].filter((market, index, array) =>
+          array.findIndex((candidate) => candidate.id === market.id) === index
+        );
+        rankedScoped = rankMarketsForSearch(merged, trimmedQuery, 50);
+        console.log('[MarketSearch] Final merged search results:', rankedScoped.length, 'markets found');
+        return rankedScoped;
       } catch (error) {
         console.error('[MarketSearch] Search error:', error);
         return [];
@@ -71,7 +105,7 @@ export function MarketSearch() {
   const isSearchActive = debouncedQuery && debouncedQuery.trim().length > 0;
 
   const { data, isLoading, isFetching, isError, error } = useQuery({
-    queryKey: ['markets', debouncedQuery || selectedCategory, selectedCategory],
+    queryKey: ['markets', debouncedQuery, selectedCategory],
     queryFn,
     staleTime: 0, // Always fetch fresh data for live updates - never use stale data
     // Continuously refetch to catch new markets
@@ -85,51 +119,44 @@ export function MarketSearch() {
     retryDelay: (attemptIndex) => Math.min(500 * 2 ** attemptIndex, 3000), // Faster exponential backoff
   }) as { data?: PolymarketMarket[]; isLoading: boolean; isFetching: boolean; isError: boolean; error: unknown };
 
-  // Reset category when user starts typing and clear it when search is active
-  useEffect(() => {
-    if (query.trim().length > 0) {
-      setSelectedCategory('all');
-    }
-  }, [query]);
-
   return (
     <div className="space-y-6">
       {/* Category Filter Tabs */}
-      {!debouncedQuery && (
-        <div className="flex flex-wrap gap-2">
-          {POLYMARKET_CATEGORIES.map((category) => {
-            const isEndingSoon = category.id === 'ending-soon';
-            return (
-              <Button
-                key={category.id}
-                variant={selectedCategory === category.id ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setSelectedCategory(category.id)}
-                className={cn(
-                  'transition-all duration-200',
-                  selectedCategory === category.id
-                    ? 'bg-primary text-primary-foreground shadow-md'
-                    : 'hover:bg-secondary',
-                  isEndingSoon && selectedCategory === category.id && 'ring-2 ring-orange-500 ring-offset-2',
-                  isEndingSoon && selectedCategory !== category.id && 'border-orange-500/50'
-                )}
-              >
-                {category.label}
-                {isEndingSoon && (
-                  <span className="ml-1.5 text-xs opacity-75">⚡</span>
-                )}
-              </Button>
-            );
-          })}
-        </div>
-      )}
+      <div className="flex flex-wrap gap-2">
+        {POLYMARKET_CATEGORIES.map((category) => {
+          const isEndingSoon = category.id === 'ending-soon';
+          return (
+            <Button
+              key={category.id}
+              variant={selectedCategory === category.id ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setSelectedCategory(category.id)}
+              className={cn(
+                'transition-all duration-200',
+                selectedCategory === category.id
+                  ? 'bg-primary text-primary-foreground shadow-md'
+                  : 'hover:bg-secondary',
+                isEndingSoon && selectedCategory === category.id && 'ring-2 ring-orange-500 ring-offset-2',
+                isEndingSoon && selectedCategory !== category.id && 'border-orange-500/50'
+              )}
+            >
+              {category.label}
+              {isEndingSoon && (
+                <span className="ml-1.5 text-xs opacity-75">⚡</span>
+              )}
+            </Button>
+          );
+        })}
+      </div>
 
       {/* Search Input */}
       <div className="relative">
         <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <Input
           type="text"
-          placeholder="Search any Polymarket... (e.g., Trump, Bitcoin, Super Bowl, Elections)"
+          placeholder={selectedCategory === 'all'
+            ? 'Search any Polymarket... (e.g., Trump, Bitcoin, Super Bowl, Elections)'
+            : `Search within ${POLYMARKET_CATEGORIES.find((category) => category.id === selectedCategory)?.label || selectedCategory}...`}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           className="pl-10 h-12 text-base"
@@ -189,7 +216,9 @@ export function MarketSearch() {
       ) : (
         <div className="text-center py-12 text-muted-foreground">
           {debouncedQuery
-            ? `No markets found for "${debouncedQuery}"`
+            ? selectedCategory === 'all'
+              ? `No markets found for "${debouncedQuery}"`
+              : `No markets found for "${debouncedQuery}" in ${POLYMARKET_CATEGORIES.find(c => c.id === selectedCategory)?.label || selectedCategory}`
             : selectedCategory === 'ending-soon'
             ? 'No markets ending within the next hour. Check back soon!'
             : selectedCategory !== 'all'
