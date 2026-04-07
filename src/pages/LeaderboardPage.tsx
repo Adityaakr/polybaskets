@@ -9,10 +9,10 @@ import {
   formatChipAmount,
   formatUtcDateTime,
   type TodayContestLeaderboard,
-} from '@/lib/contestLeaderboard';
+} from '@/lib/contestLeaderboard.ts';
 import { ENV, isBasketAssetKindEnabled } from '@/env';
-import { truncateAddress } from '@/lib/basket-utils';
-import { NETWORKS } from '@/lib/network';
+import { truncateAddress } from '@/lib/basket-utils.ts';
+import { NETWORKS } from '@/lib/network.ts';
 import { useTodayContestLeaderboard } from '@/hooks/useTodayContestLeaderboard';
 import { actorIdFromAddress } from '@/lib/varaClient';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -33,7 +33,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
-import type { Basket } from '@/types/basket';
+import type { Basket } from '@/types/basket.ts';
 
 type ContestDisplayStatus = 'live' | 'ready' | 'settled' | 'no_winner';
 

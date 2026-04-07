@@ -5,13 +5,13 @@ import { useBasket } from '@/contexts/BasketContext';
 import { useWallet } from '@/contexts/WalletContext';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { useApi, useAccount } from '@gear-js/react-hooks';
-import { getBaskets } from '@/lib/basket-storage';
-import { Basket } from '@/types/basket';
-import type { BasketAssetKind } from '@/types/basket';
-import { createSnapshot, validateBasket } from '@/lib/basket-utils';
-import { OutcomeProbabilities } from '@/types/polymarket';
-import { basketMarketProgramFromApi, toVara } from '@/lib/varaClient';
-import { calculateBetAllocationFromVara, formatVara, formatUsd, VARA_PRICE_USD } from '@/lib/betCalculator';
+import { getBaskets } from '@/lib/basket-storage.ts';
+import { Basket } from '@/types/basket.ts';
+import type { BasketAssetKind } from '@/types/basket.ts';
+import { createSnapshot, validateBasket } from '@/lib/basket-utils.ts';
+import { OutcomeProbabilities } from '@/types/polymarket.ts';
+import { basketMarketProgramFromApi, toVara } from '@/lib/varaClient.ts';
+import { calculateBetAllocationFromVara, formatVara, formatUsd, VARA_PRICE_USD } from '@/lib/betCalculator.ts';
 import {
   betLaneProgramFromApi,
   betTokenProgramFromApi,
@@ -24,7 +24,7 @@ import {
   toTokenUnits,
   waitForQueryMatch,
   withRateLimitRetry,
-} from '@/lib/betPrograms';
+} from '@/lib/betPrograms.ts';
 import { ENV, getDefaultBasketAssetKind, isVaraEnabled } from '@/env';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -32,7 +32,7 @@ import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Save, Circle, CheckCircle2, Clock } from 'lucide-react';
 import { useVaraEthBasketMarket } from '@/hooks/useVaraEthBasketMarket';
-import { toWVara } from '@/lib/varaEthClient';
+import { toWVara } from '@/lib/varaEthClient.ts';
 import { Badge } from '@/components/ui/badge';
 import { actorIdFromAddress } from '@/lib/varaClient';
 import { normalizeAssetKind, toContractAssetKind } from '@/lib/assetKind';

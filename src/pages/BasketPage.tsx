@@ -1,29 +1,29 @@
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useMemo, useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { getBasketById, isFollowing, followBasket, unfollowBasket, getFollowerCount, deleteBasket } from '@/lib/basket-storage';
-import { searchMarkets, getOutcomeProbabilities, getOutcomePrices, getMarketDetails, formatProbability, formatPrice } from '@/lib/polymarket';
-import { OutcomeProbabilities } from '@/types/polymarket';
-import { calculateBasketIndex, truncateAddress, formatWeight, getChangeClass, getCreationSnapshotIndex } from '@/lib/basket-utils';
+import { getBasketById, isFollowing, followBasket, unfollowBasket, getFollowerCount, deleteBasket } from '@/lib/basket-storage.ts';
+import { searchMarkets, getOutcomeProbabilities, getOutcomePrices, getMarketDetails, formatProbability, formatPrice } from '@/lib/polymarket.ts';
+import { OutcomeProbabilities } from '@/types/polymarket.ts';
+import { calculateBasketIndex, truncateAddress, formatWeight, getChangeClass, getCreationSnapshotIndex } from '@/lib/basket-utils.ts';
 import { useWallet } from '@/contexts/WalletContext';
 import { useBasket } from '@/contexts/BasketContext';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { useApi, useAccount } from '@gear-js/react-hooks';
-import { NETWORKS } from '@/lib/network';
-import { basketMarketProgramFromApi, toVara, fromVara, actorIdFromAddress } from '@/lib/varaClient';
-import { extractOnChainBasketId, fetchOnChainBasket, fetchOnChainPositions, fetchOnChainSettlement, getUserPositionForBasket, calculatePayout, onChainBasketToFrontend } from '@/lib/basket-onchain';
+import { NETWORKS } from '@/lib/network.ts';
+import { basketMarketProgramFromApi, toVara, fromVara, actorIdFromAddress } from '@/lib/varaClient.ts';
+import { extractOnChainBasketId, fetchOnChainBasket, fetchOnChainPositions, fetchOnChainSettlement, getUserPositionForBasket, calculatePayout, onChainBasketToFrontend } from '@/lib/basket-onchain.ts';
 import { ENV, isBasketAssetKindEnabled, isVaraEnabled } from '@/env';
-import { isFtAssetKind, normalizeAssetKind, type ContractBasketAssetKind } from '@/lib/assetKind';
-import { betLaneProgramFromApi, isBetProgramsConfigured, readSailsQuery } from '@/lib/betPrograms';
+import { isFtAssetKind, normalizeAssetKind, type ContractBasketAssetKind } from '@/lib/assetKind.ts';
+import { betLaneProgramFromApi, isBetProgramsConfigured, readSailsQuery } from '@/lib/betPrograms.ts';
 import { useVaraEthBasketMarket } from '@/hooks/useVaraEthBasketMarket';
-import { toWVara, fromWVara } from '@/lib/varaEthClient';
+import { toWVara, fromWVara } from '@/lib/varaEthClient.ts';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
-import { Basket } from '@/types/basket';
+import { Basket } from '@/types/basket.ts';
 import { 
   ArrowLeft, Heart, Copy, Share2, Circle, ExternalLink,
   Layers, Clock, Users, Check, Loader2, TrendingUp, Coins, AlertCircle, CheckCircle2, Trash2, Calculator, CheckCircle, XCircle, Trophy

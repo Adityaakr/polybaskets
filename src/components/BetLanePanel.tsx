@@ -25,7 +25,7 @@ import {
   toBigIntValue,
   toTokenUnits,
   waitForQueryMatch,
-} from '@/lib/betPrograms';
+} from '@/lib/betPrograms.ts';
 
 type BetLanePanelProps = {
   basketId: number | null;

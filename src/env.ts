@@ -1,5 +1,5 @@
-import type { BasketAssetKind } from '@/types/basket';
-import { normalizeAssetKind } from '@/lib/assetKind';
+import type { BasketAssetKind } from '@/types/basket.ts';
+import { normalizeAssetKind } from '@/lib/assetKind.ts';
 
 const parseBooleanEnv = (value: unknown, fallback: boolean): boolean => {
   if (typeof value !== 'string') {

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { PolymarketMarket } from '@/types/polymarket';
-import { Outcome } from '@/types/basket';
-import { getOutcomeProbabilities, getOutcomePrices, formatVolume, formatProbability, formatPrice, formatCategoryName } from '@/lib/polymarket';
+import { PolymarketMarket } from '@/types/polymarket.ts';
+import { Outcome } from '@/types/basket.ts';
+import { getOutcomeProbabilities, getOutcomePrices, formatVolume, formatProbability, formatPrice, formatCategoryName } from '@/lib/polymarket.ts';
 import { useBasket } from '@/contexts/BasketContext';
 import { useCountdown } from '@/hooks/useCountdown';
 import { useCryptoPrice, fmtCryptoPrice } from '@/hooks/useCryptoPrice';
@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Plus, Check, ExternalLink, Info, Clock, TrendingUp, TrendingDown } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { cn } from '@/lib/utils';
+import { cn } from '@/lib/utils.ts';
 
 interface MarketCardProps {
   market: PolymarketMarket;
