@@ -36,7 +36,9 @@ type BetPlacedPayload = {
   user: string;
   amount: number | string | bigint;
   user_total: number | string | bigint;
-  index_at_creation_bps: number;
+  quoted_index_bps: number;
+  position_index_at_creation_bps: number;
+  quote_nonce: number | string | bigint;
 };
 
 type BetClaimedPayload = {
@@ -420,7 +422,7 @@ export class DailyContestHandler extends BaseHandler {
       basketId,
       user: String(payload.user),
       shares: toBigIntValue(payload.user_total),
-      indexAtCreationBps: payload.index_at_creation_bps,
+      indexAtCreationBps: payload.position_index_at_creation_bps,
       claimed: false,
       updatedAt: blockTimestamp,
     });
