@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { PolymarketMarket } from '@/types/polymarket.ts';
 import { Outcome } from '@/types/basket.ts';
 import { getOutcomeProbabilities, getOutcomePrices, formatVolume, formatProbability, formatPrice, formatCategoryName } from '@/lib/polymarket.ts';
@@ -17,6 +17,62 @@ import { cn } from '@/lib/utils.ts';
 interface MarketCardProps {
   market: PolymarketMarket;
   index?: number;
+}
+
+function parseClockToMinutes(value: string): number | null {
+  const match = value.trim().match(/^(\d{1,2}):(\d{2})(AM|PM)$/i);
+  if (!match) return null;
+  let hours = Number.parseInt(match[1], 10);
+  const minutes = Number.parseInt(match[2], 10);
+  const meridiem = match[3].toUpperCase();
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) return null;
+  if (hours === 12) hours = 0;
+  if (meridiem === 'PM') hours += 12;
+  return hours * 60 + minutes;
+}
+
+function extractQuestionWindow(question: string): { title: string; durationMinutes: number } | null {
+  const match = question.match(/^(.*?)\s*-\s*[A-Za-z]+\s+\d{1,2},\s*(\d{1,2}:\d{2}(?:AM|PM))\s*-\s*(\d{1,2}:\d{2}(?:AM|PM))\s*ET$/i);
+  if (!match) return null;
+  const start = parseClockToMinutes(match[2]);
+  const end = parseClockToMinutes(match[3]);
+  if (start == null || end == null) return null;
+  const delta = end > start ? end - start : end - start + 24 * 60;
+  if (delta <= 0) return null;
+  return { title: match[1].trim(), durationMinutes: delta };
+}
+
+function formatQuestionInUserTimezone(market: PolymarketMarket): string {
+  const question = market.question || '';
+  const parsed = extractQuestionWindow(question);
+  if (!parsed) return question;
+
+  const endTs = market.endDate ? new Date(market.endDate).getTime() : Number.NaN;
+  const startTs = Number.isFinite(endTs)
+    ? endTs - parsed.durationMinutes * 60_000
+    : Number.NaN;
+  const effectiveEndTs = endTs;
+
+  if (!Number.isFinite(startTs) || !Number.isFinite(effectiveEndTs)) return question;
+
+  const startDate = new Date(startTs);
+  const endDate = new Date(effectiveEndTs);
+  const dateFormatter = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' });
+  const timeFormatter = new Intl.DateTimeFormat(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
+  const startDateLabel = dateFormatter.format(startDate);
+  const endDateLabel = dateFormatter.format(endDate);
+  const startTimeLabel = timeFormatter.format(startDate).replace(/\s/g, '');
+  const endTimeLabel = timeFormatter.format(endDate).replace(/\s/g, '');
+
+  if (startDateLabel === endDateLabel) {
+    return `${parsed.title} - ${startDateLabel}, ${startTimeLabel}-${endTimeLabel}`;
+  }
+
+  return `${parsed.title} - ${startDateLabel} ${startTimeLabel} to ${endDateLabel} ${endTimeLabel}`;
 }
 
 export function MarketCard({ market, index = 0 }: MarketCardProps) {
@@ -78,6 +134,7 @@ export function MarketCard({ market, index = 0 }: MarketCardProps) {
 
   const yesSelected = hasItem(market.id, 'YES');
   const noSelected = hasItem(market.id, 'NO');
+  const displayQuestion = useMemo(() => formatQuestionInUserTimezone(market), [market]);
 
   const polymarketUrl = market.slug 
     ? `https://polymarket.com/event/${market.slug}`
@@ -166,7 +223,7 @@ export function MarketCard({ market, index = 0 }: MarketCardProps) {
               )}
             </div>
             <h3 className={cn("font-display text-base font-semibold leading-snug break-words", market.image && "pl-11")} title={market.question}>
-              {market.question}
+              {displayQuestion}
             </h3>
 
             {/* ── Live Price Panel for Up/Down Markets ── */}
