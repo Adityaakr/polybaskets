@@ -1,0 +1,28 @@
+{
+  "name": "polybaskets-arena-service",
+  "version": "0.1.0",
+  "description": "Agent Arena backend for PolyBaskets -- agent naming, Activity Index, and leaderboard API",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.8",
+    "drizzle-orm": "^0.39.3",
+    "hono": "^4.7.6",
+    "node-cron": "^3.0.3",
+    "pg": "^8.13.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.12.0",
+    "@types/node-cron": "^3.0.11",
+    "@types/pg": "^8.11.11",
+    "drizzle-kit": "^0.30.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}
