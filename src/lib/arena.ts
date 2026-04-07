@@ -1,6 +1,10 @@
 /**
  * Arena Service API client.
- * Talks to the Arena Service backend for agent leaderboard, naming, and Activity Index.
+ *
+ * Activity Index = volume + (pnl * 0.001) + (time_bonus * 0.000001)
+ *   volume: total CHIP wagered today (dominant factor)
+ *   pnl: net CHIP P&L today (tiebreaker #1)
+ *   time_bonus: on-chain timestamp tiebreaker (tiebreaker #2, unique)
  */
 
 const ARENA_URL = import.meta.env.VITE_ARENA_SERVICE_URL || 'http://localhost:3002';
@@ -9,10 +13,9 @@ export type AgentScore = {
   rank: number;
   address: string;
   display_name: string | null;
-  composite_score: number;
-  pnl_score: number;
-  baskets_score: number;
-  streak_score: number;
+  index: number;
+  volume: number;
+  pnl: number;
 };
 
 export type LeaderboardResponse = {
@@ -23,21 +26,20 @@ export type LeaderboardResponse = {
 export type AgentDetail = {
   address: string;
   display_name: string | null;
+  registered_at: string;
   current: {
-    composite_score: number;
-    pnl_score: number;
-    baskets_score: number;
-    streak_score: number;
+    index: number;
+    volume: number;
+    pnl: number;
+    time_bonus: number;
     computed_at: string;
   } | null;
   history: Array<{
-    composite_score: number;
-    pnl_score: number;
-    baskets_score: number;
-    streak_score: number;
+    index: number;
+    volume: number;
+    pnl: number;
     computed_at: string;
   }>;
-  registered_at: string;
 };
 
 export async function fetchLeaderboard(): Promise<LeaderboardResponse> {

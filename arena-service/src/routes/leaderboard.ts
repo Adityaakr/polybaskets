@@ -9,7 +9,9 @@ const leaderboard = new Hono();
 let leaderboardCache: { data: unknown; expiresAt: number } | null = null;
 const CACHE_TTL_MS = 60_000; // 60 seconds
 
-// GET /api/leaderboard -- ranked agents by Activity Index (composite_score)
+// GET /api/leaderboard -- ranked agents by Activity Index
+// Index = volume + (pnl * 0.001) + (time_bonus * 0.000001)
+// Sorted by composite_score desc. Volume dominates, P&L is tiebreaker #1, time_bonus is #2.
 leaderboard.get("/leaderboard", async (c) => {
   const now = Date.now();
 
@@ -18,13 +20,12 @@ leaderboard.get("/leaderboard", async (c) => {
   }
 
   try {
-    // Get the latest score per agent using a subquery for max computed_at
     const latestScores = await db
       .select({
         address: agentScores.address,
-        pnlScore: agentScores.pnlScore,
-        basketsScore: agentScores.basketsScore,
-        streakScore: agentScores.streakScore,
+        volume: agentScores.volume,
+        pnl: agentScores.pnl,
+        timeBonus: agentScores.timeBonus,
         compositeScore: agentScores.compositeScore,
         computedAt: agentScores.computedAt,
       })
@@ -49,16 +50,13 @@ leaderboard.get("/leaderboard", async (c) => {
           rank: idx + 1,
           address: score.address,
           display_name: nameRow.length > 0 ? nameRow[0].displayName : null,
-          composite_score: score.compositeScore,
-          pnl_score: score.pnlScore,
-          baskets_score: score.basketsScore,
-          streak_score: score.streakScore,
-          last_computed_at: score.computedAt.toISOString(),
+          index: score.compositeScore,
+          volume: score.volume,
+          pnl: score.pnl,
         };
       })
     );
 
-    // Get the most recent computation timestamp
     let lastComputedAt: string | null = null;
     if (latestScores.length > 0) {
       const maxDate = latestScores.reduce((max, s) =>
@@ -73,7 +71,6 @@ leaderboard.get("/leaderboard", async (c) => {
     };
 
     leaderboardCache = { data: response, expiresAt: now + CACHE_TTL_MS };
-
     return c.json(response);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "unknown error";
@@ -84,12 +81,11 @@ leaderboard.get("/leaderboard", async (c) => {
   }
 });
 
-// GET /api/agents/:addr -- agent detail with index breakdown
+// GET /api/agents/:addr -- agent detail with expanded info
 leaderboard.get("/agents/:addr", async (c) => {
   const addr = c.req.param("addr");
 
   try {
-    // Check if agent is registered
     const agent = await db
       .select()
       .from(agentRegistry)
@@ -100,14 +96,12 @@ leaderboard.get("/agents/:addr", async (c) => {
       return c.json({ error: "agent not found" }, 404);
     }
 
-    // Get display name
     const nameRow = await db
       .select()
       .from(agentNames)
       .where(eq(agentNames.address, addr))
       .limit(1);
 
-    // Get latest score
     const latestScore = await db
       .select()
       .from(agentScores)
@@ -115,7 +109,7 @@ leaderboard.get("/agents/:addr", async (c) => {
       .orderBy(desc(agentScores.computedAt))
       .limit(1);
 
-    // Get score history (last 24 entries = 24 hours)
+    // Last 24 snapshots for history
     const history = await db
       .select()
       .from(agentScores)
@@ -129,20 +123,19 @@ leaderboard.get("/agents/:addr", async (c) => {
       address: addr,
       display_name: nameRow.length > 0 ? nameRow[0].displayName : null,
       registered_at: agent[0].registeredAt.toISOString(),
-      current_score: score
+      current: score
         ? {
-            composite_score: score.compositeScore,
-            pnl_score: score.pnlScore,
-            baskets_score: score.basketsScore,
-            streak_score: score.streakScore,
+            index: score.compositeScore,
+            volume: score.volume,
+            pnl: score.pnl,
+            time_bonus: score.timeBonus,
             computed_at: score.computedAt.toISOString(),
           }
         : null,
-      score_history: history.map((h) => ({
-        composite_score: h.compositeScore,
-        pnl_score: h.pnlScore,
-        baskets_score: h.basketsScore,
-        streak_score: h.streakScore,
+      history: history.map((h) => ({
+        index: h.compositeScore,
+        volume: h.volume,
+        pnl: h.pnl,
         computed_at: h.computedAt.toISOString(),
       })),
     });

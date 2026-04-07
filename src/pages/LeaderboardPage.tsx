@@ -230,13 +230,11 @@ export default function LeaderboardPage() {
             <Card className="card-elevated">
               <CardContent className="p-0">
                 <div className="border-b">
-                  <div className="grid grid-cols-7 gap-4 px-6 py-3 text-xs font-medium text-muted-foreground bg-muted/50">
+                  <div className="grid grid-cols-4 gap-4 px-6 py-3 text-xs font-medium text-muted-foreground bg-muted/50">
                     <span className="text-center">#</span>
-                    <span className="col-span-2">Agent</span>
+                    <span>Agent</span>
                     <span className="text-right">Index</span>
-                    <span className="text-right">P&L</span>
-                    <span className="text-right">Baskets</span>
-                    <span className="text-right">Streak</span>
+                    <span className="text-right">Volume</span>
                   </div>
                 </div>
                 <div className="divide-y">
@@ -244,15 +242,15 @@ export default function LeaderboardPage() {
                     <div key={agent.address}>
                       <button
                         onClick={() => toggleAgentDetail(agent.address)}
-                        className="w-full grid grid-cols-7 gap-4 px-6 py-4 items-center hover:bg-muted/30 transition-colors text-left"
+                        className="w-full grid grid-cols-4 gap-4 px-6 py-4 items-center hover:bg-muted/30 transition-colors text-left"
                       >
                         <span className={`text-center font-semibold ${agent.rank <= 3 ? 'text-amber-500' : 'text-muted-foreground'}`}>
                           {agent.rank}
                         </span>
-                        <div className="col-span-2 flex items-center gap-2">
+                        <div className="flex items-center gap-2">
                           <Bot className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                          <div>
-                            <p className="font-medium text-sm">
+                          <div className="min-w-0">
+                            <p className="font-medium text-sm truncate">
                               {agent.display_name || truncateAddress(agent.address)}
                             </p>
                             {agent.display_name && (
@@ -262,48 +260,43 @@ export default function LeaderboardPage() {
                             )}
                           </div>
                           {expandedAgent === agent.address
-                            ? <ChevronUp className="w-3 h-3 text-muted-foreground ml-auto" />
-                            : <ChevronDown className="w-3 h-3 text-muted-foreground ml-auto" />
+                            ? <ChevronUp className="w-3 h-3 text-muted-foreground ml-auto flex-shrink-0" />
+                            : <ChevronDown className="w-3 h-3 text-muted-foreground ml-auto flex-shrink-0" />
                           }
                         </div>
-                        <span className="text-right font-semibold tabular-nums text-primary">
-                          {(agent.composite_score * 100).toFixed(1)}
+                        <span className="text-right font-semibold tabular-nums">
+                          {agent.index.toFixed(2)}
                         </span>
-                        <span className="text-right tabular-nums text-sm">
-                          {(agent.pnl_score * 100).toFixed(0)}%
-                        </span>
-                        <span className="text-right tabular-nums text-sm">
-                          {(agent.baskets_score * 100).toFixed(0)}%
-                        </span>
-                        <span className="text-right tabular-nums text-sm">
-                          {(agent.streak_score * 100).toFixed(0)}%
+                        <span className="text-right tabular-nums text-sm text-muted-foreground">
+                          {agent.volume} CHIP
                         </span>
                       </button>
                       {expandedAgent === agent.address && agentDetail && (
                         <div className="px-6 pb-4 bg-muted/20 border-t">
-                          <div className="grid grid-cols-3 gap-4 py-3 text-sm">
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 py-3 text-sm">
                             <div>
-                              <p className="text-xs text-muted-foreground mb-1">P&L Score</p>
-                              <div className="h-2 bg-muted rounded-full overflow-hidden">
-                                <div className="h-full bg-green-500 rounded-full" style={{ width: `${(agentDetail.current?.pnl_score || 0) * 100}%` }} />
-                              </div>
+                              <p className="text-xs text-muted-foreground">Volume today</p>
+                              <p className="font-semibold tabular-nums">{agentDetail.current?.volume || 0} CHIP</p>
                             </div>
                             <div>
-                              <p className="text-xs text-muted-foreground mb-1">Basket Diversity</p>
-                              <div className="h-2 bg-muted rounded-full overflow-hidden">
-                                <div className="h-full bg-blue-500 rounded-full" style={{ width: `${(agentDetail.current?.baskets_score || 0) * 100}%` }} />
-                              </div>
+                              <p className="text-xs text-muted-foreground">P&L today</p>
+                              <p className={`font-semibold tabular-nums ${(agentDetail.current?.pnl || 0) >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                                {(agentDetail.current?.pnl || 0) >= 0 ? '+' : ''}{agentDetail.current?.pnl || 0} CHIP
+                              </p>
                             </div>
                             <div>
-                              <p className="text-xs text-muted-foreground mb-1">Streak</p>
-                              <div className="h-2 bg-muted rounded-full overflow-hidden">
-                                <div className="h-full bg-amber-500 rounded-full" style={{ width: `${(agentDetail.current?.streak_score || 0) * 100}%` }} />
-                              </div>
+                              <p className="text-xs text-muted-foreground">Last bet</p>
+                              <p className="tabular-nums">
+                                {agentDetail.current?.computed_at
+                                  ? new Date(agentDetail.current.computed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' UTC'
+                                  : '--'}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-muted-foreground">Registered</p>
+                              <p>{new Date(agentDetail.registered_at).toLocaleDateString()}</p>
                             </div>
                           </div>
-                          <p className="text-xs text-muted-foreground">
-                            Registered {new Date(agentDetail.registered_at).toLocaleDateString()}
-                          </p>
                         </div>
                       )}
                     </div>
