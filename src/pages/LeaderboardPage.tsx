@@ -7,6 +7,7 @@ import { fetchAllOnChainBaskets } from '@/lib/basket-onchain';
 import { basketMarketProgramFromApi } from '@/lib/varaClient';
 import {
   formatChipAmount,
+  formatCompactChipAmount,
   formatUtcDateTime,
   type TodayContestLeaderboard,
 } from '@/lib/contestLeaderboard.ts';
@@ -15,6 +16,7 @@ import { ENV, isBasketAssetKindEnabled } from '@/env';
 import { truncateAddress } from '@/lib/basket-utils.ts';
 import { NETWORKS } from '@/lib/network.ts';
 import { useTodayContestLeaderboard } from '@/hooks/useTodayContestLeaderboard';
+import { useAllTimeContestWinners } from '@/hooks/useAllTimeContestWinners';
 import { actorIdFromAddress } from '@/lib/varaClient';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -33,6 +35,7 @@ import {
   Radio,
   ChevronLeft,
   ChevronRight,
+  Coins,
 } from 'lucide-react';
 import type { Basket } from '@/types/basket.ts';
 
@@ -460,6 +463,7 @@ function CommunityVaraLeaderboard() {
   const { network } = useNetwork();
   const [onChainBaskets, setOnChainBaskets] = useState<Basket[]>([]);
   const [loading, setLoading] = useState(false);
+  const allTimeWinnersQuery = useAllTimeContestWinners();
 
   useEffect(() => {
     if (network !== 'vara' || !isApiReady || !api) {
@@ -550,9 +554,87 @@ function CommunityVaraLeaderboard() {
       .slice(0, 20);
   }, [onChainBaskets]);
 
+  const topAllTimeWinners = useMemo(
+    () => allTimeWinnersQuery.data?.slice(0, 20) ?? [],
+    [allTimeWinnersQuery.data],
+  );
+
+  const allTimeProfitTotal = useMemo(
+    () =>
+      (allTimeWinnersQuery.data ?? []).reduce(
+        (sum, entry) => sum + BigInt(entry.totalRealizedProfit),
+        0n,
+      ),
+    [allTimeWinnersQuery.data],
+  );
+
   return (
-    <Tabs defaultValue="baskets" className="space-y-6">
+    <div className="space-y-6">
+      <Card className="card-elevated overflow-hidden">
+        <CardHeader className="gap-4 md:flex-row md:items-start md:justify-between">
+          <div className="space-y-2">
+            <CardTitle className="text-2xl">Top All-Time PnL</CardTitle>
+            <CardDescription>
+              Cumulative realized trading profit by address across the full contest history.
+            </CardDescription>
+          </div>
+          {allTimeWinnersQuery.data && allTimeWinnersQuery.data.length > 0 ? (
+            <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-amber-300">
+              {formatCompactChipAmount(allTimeProfitTotal.toString())} total PnL
+            </Badge>
+          ) : null}
+        </CardHeader>
+        <CardContent>
+          {allTimeWinnersQuery.isLoading ? (
+            <div className="grid gap-4 md:grid-cols-3">
+              <Skeleton className="h-24 w-full" />
+              <Skeleton className="h-24 w-full" />
+              <Skeleton className="h-24 w-full" />
+            </div>
+          ) : allTimeWinnersQuery.isError ? (
+            <div className="rounded-md border border-destructive/40 bg-destructive/5 p-4 text-sm">
+              <p className="font-medium">Unable to load all-time trading PnL from the indexer.</p>
+              <p className="mt-1 text-muted-foreground">
+                {(allTimeWinnersQuery.error as Error)?.message ?? 'Unknown indexer error'}
+              </p>
+            </div>
+          ) : topAllTimeWinners.length === 0 ? (
+            <div className="rounded-md border border-border/60 bg-background/40 p-6 text-center">
+              <Coins className="mx-auto mb-3 h-10 w-10 text-muted-foreground" />
+              <p className="font-medium">No realized trading history yet.</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                This card will populate once the indexer has daily aggregate PnL recorded.
+              </p>
+            </div>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-3">
+              {topAllTimeWinners.slice(0, 3).map((entry) => (
+                <div
+                  key={entry.user}
+                  className="rounded-md border border-primary/10 bg-background/60 p-4"
+                >
+                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    #{entry.rank} all-time
+                  </div>
+                  <div className="mt-2 font-mono text-sm text-muted-foreground">
+                    {truncateAddress(entry.user)}
+                  </div>
+                  <div className="mt-3 text-2xl font-semibold tabular-nums">
+                    {formatCompactChipAmount(entry.totalRealizedProfit)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Tabs defaultValue="winnings" className="space-y-6">
       <TabsList>
+        <TabsTrigger value="winnings" className="gap-2">
+          <Coins className="w-4 h-4" />
+          All-Time PnL
+        </TabsTrigger>
         <TabsTrigger value="baskets" className="gap-2">
           <Trophy className="w-4 h-4" />
           Top Baskets
@@ -706,7 +788,72 @@ function CommunityVaraLeaderboard() {
           </Card>
         )}
       </TabsContent>
-    </Tabs>
+
+      <TabsContent value="winnings">
+        {allTimeWinnersQuery.isLoading ? (
+          <Card className="card-elevated">
+            <CardContent className="p-0">
+              <div className="border-b px-6 py-3">
+                <Skeleton className="h-4 w-40" />
+              </div>
+              <div className="divide-y">
+                {Array.from({ length: 5 }).map((_, index) => (
+                  <div
+                    key={`winnings-skeleton-${index}`}
+                    className="grid grid-cols-4 gap-4 px-6 py-4 items-center"
+                  >
+                    <Skeleton className="h-4 w-6" />
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-4 w-20 ml-auto" />
+                    <Skeleton className="h-4 w-28 ml-auto" />
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        ) : topAllTimeWinners.length === 0 ? (
+          <Card>
+            <CardContent className="py-12 text-center">
+              <Coins className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+              <p className="text-muted-foreground">
+                No all-time trading PnL yet. Settled history will appear here.
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          <Card className="card-elevated">
+            <CardContent className="p-0">
+              <div className="border-b">
+                <div className="grid grid-cols-3 gap-4 px-6 py-3 text-xs font-medium text-muted-foreground bg-muted/50">
+                  <span className="text-center">#</span>
+                  <span>Address</span>
+                  <span className="text-right">All-Time PnL</span>
+                </div>
+              </div>
+              <div className="divide-y">
+                {topAllTimeWinners.map((entry) => (
+                  <div
+                    key={entry.user}
+                    className="grid grid-cols-3 gap-4 px-6 py-4 items-center"
+                  >
+                    <span className="text-center font-semibold text-muted-foreground">
+                      {entry.rank}
+                    </span>
+                    <span className="font-mono text-sm">
+                      {truncateAddress(entry.user)}
+                    </span>
+                    <span className="text-right font-semibold tabular-nums">
+                      {formatCompactChipAmount(entry.totalRealizedProfit)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </TabsContent>
+      </Tabs>
+    </div>
   );
 }
 

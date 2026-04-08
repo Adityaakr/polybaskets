@@ -45,6 +45,17 @@ type TodayContestLeaderboardQuery = {
   };
 };
 
+type DailyUserAggregateProfitNode = {
+  user: string;
+  realizedProfit: string;
+};
+
+type AllTimeTradingPnlQuery = {
+  allDailyUserAggregates: {
+    nodes: DailyUserAggregateProfitNode[];
+  };
+};
+
 export type ContestLeaderboardDay = ContestDayProjectionNode | null;
 
 export type ContestLeaderboardEntry = DailyUserAggregateNode & {
@@ -57,6 +68,12 @@ export type TodayContestLeaderboard = {
   dayId: string;
   projection: ContestLeaderboardDay;
   entries: ContestLeaderboardEntry[];
+};
+
+export type AllTimeTradingPnlEntry = {
+  rank: number;
+  user: string;
+  totalRealizedProfit: string;
 };
 
 const TODAY_CONTEST_LEADERBOARD_QUERY = `
@@ -109,6 +126,23 @@ const TODAY_CONTEST_LEADERBOARD_QUERY = `
     }
   }
 `;
+
+const ALL_TIME_TRADING_PNL_QUERY = `
+  query AllTimeTradingPnl($offset: Int!, $first: Int!) {
+    allDailyUserAggregates(
+      orderBy: [USER_ASC, DAY_ID_ASC]
+      offset: $offset
+      first: $first
+    ) {
+      nodes {
+        user
+        realizedProfit
+      }
+    }
+  }
+`;
+
+const ALL_TIME_TRADING_BATCH_SIZE = 500;
 
 export const getCurrentUtcDayId = (now = Date.now()): string =>
   Math.floor(now / DAY_MS).toString();
@@ -171,6 +205,25 @@ export const formatChipAmount = (value: string | null): string =>
 export const formatVaraAmount = (value: string | null): string =>
   formatTokenAmount(value, VARA_DECIMALS, "VARA");
 
+export const formatCompactChipAmount = (value: string | null): string => {
+  if (value === null) {
+    return "0 CHIP";
+  }
+
+  const amount = BigInt(value);
+  const sign = amount < 0n ? "-" : "";
+  const absolute = amount < 0n ? -amount : amount;
+  const scaled = Number(absolute) / 10 ** CHIP_DECIMALS;
+
+  const formatter = new Intl.NumberFormat("en-US", {
+    notation: "compact",
+    compactDisplay: "short",
+    maximumFractionDigits: scaled >= 100 ? 0 : 1,
+  });
+
+  return `${sign}${formatter.format(scaled)} CHIP`;
+};
+
 const graphQLRequest = async <T>(
   query: string,
   variables: Record<string, string>,
@@ -222,4 +275,58 @@ export const fetchTodayContestLeaderboard = async (
       isCurrentWinner: winners.has(entry.user),
     })),
   };
+};
+
+export const fetchAllTimeTradingPnl = async (): Promise<AllTimeTradingPnlEntry[]> => {
+  const profitTotals = new Map<string, { user: string; totalRealizedProfit: bigint }>();
+
+  for (let offset = 0; ; offset += ALL_TIME_TRADING_BATCH_SIZE) {
+    const data = await graphQLRequest<AllTimeTradingPnlQuery>(
+      ALL_TIME_TRADING_PNL_QUERY,
+      {
+        offset: offset.toString(),
+        first: ALL_TIME_TRADING_BATCH_SIZE.toString(),
+      },
+    );
+
+    const nodes = data.allDailyUserAggregates.nodes;
+    if (nodes.length === 0) {
+      break;
+    }
+
+    for (const node of nodes) {
+      const realizedProfit = BigInt(node.realizedProfit);
+
+      const key = node.user.toLowerCase();
+      const current = profitTotals.get(key);
+
+      if (current) {
+        current.totalRealizedProfit += realizedProfit;
+        continue;
+      }
+
+      profitTotals.set(key, {
+        user: node.user,
+        totalRealizedProfit: realizedProfit,
+      });
+    }
+
+    if (nodes.length < ALL_TIME_TRADING_BATCH_SIZE) {
+      break;
+    }
+  }
+
+  return Array.from(profitTotals.values())
+    .sort((left, right) => {
+      if (left.totalRealizedProfit === right.totalRealizedProfit) {
+        return left.user.localeCompare(right.user);
+      }
+
+      return right.totalRealizedProfit > left.totalRealizedProfit ? 1 : -1;
+    })
+    .map((entry, index) => ({
+      rank: index + 1,
+      user: entry.user,
+      totalRealizedProfit: entry.totalRealizedProfit.toString(),
+    }));
 };
