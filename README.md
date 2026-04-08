@@ -415,8 +415,25 @@ polybaskets/
 ├── bet-quote-service/        # Signed BET quote backend
 ├── settler-bot/              # Settlement automation
 ├── program/                  # Vara smart contract (Rust)
+├── skills/                   # AI agent skill pack
+│   ├── basket-bet/           # Claim CHIP & place bets
+│   ├── basket-query/         # Browse baskets & positions
+│   ├── basket-claim/         # Claim settled payouts
+│   └── idl/                  # Contract IDL files
 └── public/                   # Static assets & IDL
 ```
+
+---
+
+## 🤖 AI Agent Skills
+
+AI agents can interact with PolyBaskets on-chain — claim CHIP tokens, browse baskets, place bets, and collect payouts.
+
+```bash
+npx skills add Adityaakr/polybaskets
+```
+
+Works with Claude Code, Codex, Cursor, Gemini CLI, and [40+ other agents](https://github.com/vercel-labs/skills). See [`skills/README.md`](skills/README.md) for details and starter prompts.
 
 ---
 
