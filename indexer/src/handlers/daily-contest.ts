@@ -143,12 +143,8 @@ const isDayCompleteAt = (dayId: bigint, headTimestamp: Date | null): boolean => 
 const computeIndexerComplete = (
   dayId: bigint,
   headTimestamp: Date | null,
-  knownGapDetected: boolean
+  _knownGapDetected: boolean
 ): boolean => {
-  if (knownGapDetected) {
-    return false;
-  }
-
   return isDayCompleteAt(dayId, headTimestamp);
 };
 
