@@ -14,7 +14,7 @@ const PROGRAMS = [
   {
     name: 'BasketMarket',
     address:
-      '0x4d47cb784a0b1e3788181a6cedb52db11aad0cef4268848e612670f7d950f089',
+      '0x43b9703636ea9eda9e25398962adb6c19cba9a4a20fa6b3dd2e66a244ff6d04a',
     varaToIssue: 3, // 3 VARA per voucher (covers ~7 tx/day)
     duration: 86400, // 24 hours
     oneTime: false,
@@ -22,7 +22,7 @@ const PROGRAMS = [
   {
     name: 'BetToken',
     address:
-      '0x0a54e06ac29344f127d90b669f4fcd9de86efa4a67c3b8568f6182cf203d4294',
+      '0x16aa2dff1365dd04733306a39205cf1bc2a730d8b8d488d0467b98cfdf2a88c1',
     varaToIssue: 3,
     duration: 86400,
     oneTime: false,
@@ -30,7 +30,7 @@ const PROGRAMS = [
   {
     name: 'BetLane',
     address:
-      '0x1764868fba789527b9ded67a8bd0052517ceb308e7b2f08b9c7cf85efbed5dbc',
+      '0x501921de35cbd677c724449761b8477cf8fbb41e603deab80f68565943def59a',
     varaToIssue: 3,
     duration: 86400,
     oneTime: false,
