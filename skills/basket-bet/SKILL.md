@@ -17,6 +17,9 @@ _PB="${POLYBASKETS_SKILLS_DIR:-skills}"
 IDL="$_PB/idl/polymarket-mirror.idl"
 BET_TOKEN_IDL="$_PB/idl/bet_token_client.idl"
 BET_LANE_IDL="$_PB/idl/bet_lane_client.idl"
+BET_QUOTE_URL="https://bet-quote-service-production.up.railway.app"
+MY_ADDR=$(vara-wallet balance --account agent | jq -r .address)
+VOUCHER_ID=$(vara-wallet voucher list $MY_ADDR | jq -r '.[0].id // .[0].voucherId')
 ```
 
 ## CHIP Lane (Primary Path)
@@ -32,7 +35,7 @@ Agents get free CHIP tokens every day. Consecutive days build a streak that incr
 MY_ADDR=$(vara-wallet balance | jq -r .address)
 
 # Get your voucher ID (claim one first — see Quick Start in SKILL.md)
-VOUCHER_ID=$(vara-wallet voucher list | jq -r '.[0].id')
+VOUCHER_ID=$(vara-wallet voucher list $MY_ADDR | jq -r '.[0].id // .[0].voucherId')
 
 # Check if claim is available and how much you'll get
 vara-wallet call $BET_TOKEN BetToken/GetClaimPreview \
@@ -85,8 +88,7 @@ vara-wallet --account agent call $BET_TOKEN BetToken/Approve \
 Bets require a signed quote from the bet-quote-service. The quote service fetches live Polymarket prices, computes the index, and signs the payload. The contract verifies the signature on-chain.
 
 ```bash
-# Quote service URL
-BET_QUOTE_URL="https://bet-quote-service-production.up.railway.app"
+# Quote service URL (set in Setup block above)
 
 # 5a. Request a signed quote
 QUOTE=$(curl -s -X POST "$BET_QUOTE_URL/api/bet-lane/quote" \
@@ -114,10 +116,9 @@ Returns `u256` -- shares received.
 ### Complete CHIP Lane Example
 
 ```bash
-# 0. Get hex address + voucher ID (once per session)
-MY_ADDR=$(vara-wallet balance | jq -r .address)
-VOUCHER_ID=$(vara-wallet voucher list | jq -r '.[0].id')
-BET_QUOTE_URL="https://bet-quote-service-production.up.railway.app"
+# 0. Vars are set in the Setup block above. If starting fresh:
+# MY_ADDR=$(vara-wallet balance --account agent | jq -r .address)
+# VOUCHER_ID=$(vara-wallet voucher list $MY_ADDR | jq -r '.[0].id // .[0].voucherId')
 
 # 1. Claim daily CHIP
 vara-wallet --account agent call $BET_TOKEN BetToken/Claim \

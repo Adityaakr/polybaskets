@@ -68,7 +68,7 @@ Step 8: Go to Step 2 tomorrow
 ## Quick Start — Copy-Paste Full Flow
 
 ```bash
-# Setup
+# Setup — copy this entire block at the start of every session
 BASKET_MARKET="0x1fa6fd12433accef350a68da4555a2a71acab261c4ae9eb713033023fc0775ea"
 BET_TOKEN="0xad1a120f24f62eb68537791fe94c3b381e81677e9bd73d811c319838846c27dd"
 BET_LANE="0x40dc1597c8e3beb3523f9c05ad2b44e00a11be6e665da20e4323bb7dfae1ecda"
@@ -76,6 +76,8 @@ _PB="${POLYBASKETS_SKILLS_DIR:-skills}"
 IDL="$_PB/idl/polymarket-mirror.idl"
 BET_TOKEN_IDL="$_PB/idl/bet_token_client.idl"
 BET_LANE_IDL="$_PB/idl/bet_lane_client.idl"
+VOUCHER_URL="https://voucher-backend-production-5a1b.up.railway.app/voucher"
+BET_QUOTE_URL="https://bet-quote-service-production.up.railway.app"
 
 # 1. Create wallet (one-time)
 vara-wallet wallet create --name agent
@@ -84,9 +86,8 @@ vara-wallet wallet create --name agent
 MY_ADDR=$(vara-wallet balance | jq -r .address)
 
 # 3. Claim gas vouchers (free — no VARA purchase needed)
-#    Claim for all 3 programs. The backend returns the same voucher ID
-#    if one already exists. Re-run anytime to renew expired vouchers.
-VOUCHER_URL="https://voucher-backend-production-5a1b.up.railway.app/voucher"
+#    Claim for all 3 programs. The backend returns the same voucher ID.
+#    Re-run anytime to renew an expired voucher.
 VOUCHER_ID=$(curl -s -X POST "$VOUCHER_URL" \
   -H 'Content-Type: application/json' \
   -d '{"account":"'"$MY_ADDR"'","program":"'"$BASKET_MARKET"'"}' | jq -r .voucherId)
@@ -97,13 +98,15 @@ curl -s -X POST "$VOUCHER_URL" \
   -H 'Content-Type: application/json' \
   -d '{"account":"'"$MY_ADDR"'","program":"'"$BET_LANE"'"}'
 echo "Voucher: $VOUCHER_ID"
+#    To check voucher status later: vara-wallet voucher list $MY_ADDR
 
 # 4. Claim daily CHIP tokens (free — do this every day)
 #    NOTE: --voucher is required on ALL write calls (agent has no VARA for gas)
 vara-wallet --account agent call $BET_TOKEN BetToken/Claim \
   --args '[]' --voucher $VOUCHER_ID --idl $BET_TOKEN_IDL
 
-# 5. Browse baskets
+# 5. Browse baskets — find one with status "Active"
+#    If no active baskets exist, create one: see basket-create/SKILL.md
 vara-wallet call $BASKET_MARKET BasketMarket/GetBasketCount --args '[]' --idl $IDL
 vara-wallet call $BASKET_MARKET BasketMarket/GetBasket --args '[0]' --idl $IDL
 
@@ -115,7 +118,7 @@ vara-wallet --account agent call $BET_TOKEN BetToken/Approve \
 # 7. Get a signed quote from the bet-quote-service
 #    The service fetches live Polymarket prices and signs the quote.
 #    Replace BASKET_ID with a real basket number (0, 1, 2, ...)
-BET_QUOTE_URL="https://bet-quote-service-production.up.railway.app"
+#    If no active baskets exist, create one first: see basket-create/SKILL.md
 QUOTE=$(curl -s -X POST "$BET_QUOTE_URL/api/bet-lane/quote" \
   -H 'Content-Type: application/json' \
   -d '{"user":"'"$MY_ADDR"'","basketId":BASKET_ID,"amount":"100000000000000","targetProgramId":"'"$BET_LANE"'"}')
