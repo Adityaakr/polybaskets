@@ -76,20 +76,43 @@ vara-wallet --account agent call $BET_TOKEN BetToken/Approve \
   --args '["'$BET_LANE'", <amount>]' --idl $BET_TOKEN_IDL
 ```
 
-### Step 5: Place Bet
+### Step 5: Get Signed Quote + Place Bet
+
+Bets require a signed quote from the bet-quote-service. The quote service fetches live Polymarket prices, computes the index, and signs the payload. The contract verifies the signature on-chain.
 
 ```bash
+# Quote service URL
+BET_QUOTE_URL="${VITE_BET_QUOTE_SERVICE_URL:-http://127.0.0.1:4360}"
+
+# 5a. Request a signed quote
+QUOTE=$(curl -s -X POST "$BET_QUOTE_URL/api/bet-lane/quote" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "user": "'$MY_ADDR'",
+    "basketId": <BASKET_ID>,
+    "amount": "<AMOUNT_RAW>",
+    "targetProgramId": "'$BET_LANE'"
+  }')
+
+echo "$QUOTE" | jq .
+# Returns: { "payload": { "target_program_id": "...", "user": "...", ... }, "signature": "0x..." }
+
+# 5b. Place bet with the signed quote
+# Extract the signed_quote object from the response and pass it to PlaceBet
 vara-wallet --account agent call $BET_LANE BetLane/PlaceBet \
-  --args '[<basket_id>, <amount>, <index_at_creation_bps>]' --idl $BET_LANE_IDL
+  --args '[<BASKET_ID>, "<AMOUNT_RAW>", '"$QUOTE"']' --idl $BET_LANE_IDL
 ```
 
-Returns `u256` — shares received.
+The quote is valid for 30 seconds. If it expires, request a new one. Each quote has a unique nonce and can only be used once.
+
+Returns `u256` -- shares received.
 
 ### Complete CHIP Lane Example
 
 ```bash
 # 0. Get hex address (once per session)
 MY_ADDR=$(vara-wallet balance | jq -r .address)
+BET_QUOTE_URL="${VITE_BET_QUOTE_SERVICE_URL:-http://127.0.0.1:4360}"
 
 # 1. Claim daily CHIP
 vara-wallet --account agent call $BET_TOKEN BetToken/Claim \
@@ -99,48 +122,44 @@ vara-wallet --account agent call $BET_TOKEN BetToken/Claim \
 vara-wallet --account agent call $BET_TOKEN BetToken/Approve \
   --args '["'$BET_LANE'", "100000000000000"]' --idl $BET_TOKEN_IDL
 
-# 3. Bet 100 CHIP on basket 0 at index 7500
-vara-wallet --account agent call $BET_LANE BetLane/PlaceBet \
-  --args '[0, "100000000000000", 7500]' --idl $BET_LANE_IDL
+# 3. Get a signed quote for basket 0, 100 CHIP
+QUOTE=$(curl -s -X POST "$BET_QUOTE_URL/api/bet-lane/quote" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "user": "'$MY_ADDR'",
+    "basketId": 0,
+    "amount": "100000000000000",
+    "targetProgramId": "'$BET_LANE'"
+  }')
 
-# 4. Verify position
+# 4. Place bet with the signed quote
+vara-wallet --account agent call $BET_LANE BetLane/PlaceBet \
+  --args '[0, "100000000000000", '"$QUOTE"']' --idl $BET_LANE_IDL
+
+# 5. Verify position
 vara-wallet call $BET_LANE BetLane/GetPosition \
   --args '["'$MY_ADDR'", 0]' --idl $BET_LANE_IDL
 ```
 
-**Important:** CHIP has 12 decimals. 100 CHIP = `100000000000000` (100 * 10^12) in raw units. The `BetLane/PlaceBet` `amount` and `BetToken/Approve` `value` args use raw units (u256).
+**Important:** CHIP has 12 decimals. 100 CHIP = `100000000000000` (100 * 10^12) in raw units.
 
-## Calculating index_at_creation_bps
+## How the Quote Works
 
-The `index_at_creation_bps` is your entry price (1-10000). It determines your payout.
+The agent does NOT calculate `index_at_creation_bps` manually anymore. The bet-quote-service:
+1. Reads the basket from chain (validates it's active + Bet kind)
+2. Fetches live Polymarket prices for each outcome
+3. Computes the weighted `quoted_index_bps`
+4. Signs the payload with SR25519 (includes user, basket_id, amount, deadline, nonce)
+5. Returns the signed quote
 
-**Formula:** `index = sum(weight_bps[i] / 10000 * probability[i])` then `bps = round(index * 10000)`
+The BetLane contract verifies the signature on-chain. This prevents price manipulation.
 
-**Step-by-step:** fetch live prices for each basket item, then compute:
+**Quote properties:**
+- Valid for 30 seconds (`deadline_ms`)
+- One-time use (nonce prevents replay)
+- Bound to specific user, basket, and amount
 
-```bash
-# 1. Get the basket items
-BASKET=$(vara-wallet call $BASKET_MARKET BasketMarket/GetBasket \
-  --args '[3]' --idl $IDL)
-
-# 2. Fetch prices for each item's slug from Polymarket
-curl -s "https://gamma-api.polymarket.com/markets?slug=russia-ukraine-ceasefire-before-gta-vi-554" \
-  | python3 -c "import sys,json; m=json.load(sys.stdin)[0]; print(f'YES={m[\"outcomePrices\"][0]} NO={m[\"outcomePrices\"][1]}')"
-
-# 3. Calculate index (example: 3 items)
-python3 -c "
-items = [
-    (4000, 0.535),  # weight_bps, probability of selected outcome
-    (3500, 0.595),
-    (2500, 0.650),
-]
-index = sum(w/10000 * p for w, p in items)
-print(f'index_at_creation_bps = {round(index * 10000)}')
-"
-# → index_at_creation_bps = 5848
-```
-
-**Why it matters:** `payout = shares * (settlement_index / entry_index)`. Lower entry index = higher potential return if the basket resolves well. See `../references/index-math.md`.
+See `../references/index-math.md` for payout formula: `payout = shares * (settlement_index / entry_index)`.
 
 ## VARA Lane (asset_kind: Vara)
 
@@ -171,7 +190,10 @@ vara-wallet call $BASKET_MARKET BasketMarket/IsVaraEnabled --args '[]' --idl $ID
 
 | Error | Cause | Fix |
 |-------|-------|-----|
-| `InvalidIndexAtCreation` | bps is 0 or > 10000 | Use value 1-10000 |
+| `InvalidQuoteSignature` | Quote not signed by configured signer | Check bet-quote-service config |
+| `QuoteExpired` | Quote older than 30 seconds | Request a fresh quote |
+| `QuoteNonceAlreadyUsed` | Same quote submitted twice | Request a new quote for each bet |
+| `QuoteTargetMismatch` | Quote was for a different BetLane | Check `targetProgramId` matches `$BET_LANE` |
 | `InvalidBetAmount` | No `--value` attached (VARA lane) | Add `--value <amount>` |
 | `BasketNotActive` | Basket in settlement/settled | Cannot bet on non-active baskets |
 | `BasketAssetMismatch` | Wrong lane for basket | Check basket's `asset_kind` |
