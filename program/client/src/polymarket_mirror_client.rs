@@ -72,6 +72,13 @@ pub mod basket_market {
             item_resolutions: Vec<ItemResolution>,
             payload: String,
         ) -> sails_rs::client::PendingCall<io::ProposeSettlement, Self::Env>;
+        /// Register an agent with a display name, or rename if already registered.
+        /// Input is normalized to lowercase. Names must be 3-20 chars, alphanumeric
+        /// and hyphens only, no leading/trailing hyphens. Rename has a 7-day cooldown.
+        fn register_agent(
+            &mut self,
+            name: String,
+        ) -> sails_rs::client::PendingCall<io::RegisterAgent, Self::Env>;
         fn set_config(
             &mut self,
             config: BasketMarketConfig,
@@ -80,6 +87,12 @@ pub mod basket_market {
             &mut self,
             enabled: bool,
         ) -> sails_rs::client::PendingCall<io::SetVaraEnabled, Self::Env>;
+        fn get_agent(
+            &self,
+            address: ActorId,
+        ) -> sails_rs::client::PendingCall<io::GetAgent, Self::Env>;
+        fn get_agent_count(&self) -> sails_rs::client::PendingCall<io::GetAgentCount, Self::Env>;
+        fn get_all_agents(&self) -> sails_rs::client::PendingCall<io::GetAllAgents, Self::Env>;
         fn get_basket(
             &self,
             basket_id: u64,
@@ -132,6 +145,12 @@ pub mod basket_market {
         ) -> sails_rs::client::PendingCall<io::ProposeSettlement, Self::Env> {
             self.pending_call((basket_id, item_resolutions, payload))
         }
+        fn register_agent(
+            &mut self,
+            name: String,
+        ) -> sails_rs::client::PendingCall<io::RegisterAgent, Self::Env> {
+            self.pending_call((name,))
+        }
         fn set_config(
             &mut self,
             config: BasketMarketConfig,
@@ -143,6 +162,18 @@ pub mod basket_market {
             enabled: bool,
         ) -> sails_rs::client::PendingCall<io::SetVaraEnabled, Self::Env> {
             self.pending_call((enabled,))
+        }
+        fn get_agent(
+            &self,
+            address: ActorId,
+        ) -> sails_rs::client::PendingCall<io::GetAgent, Self::Env> {
+            self.pending_call((address,))
+        }
+        fn get_agent_count(&self) -> sails_rs::client::PendingCall<io::GetAgentCount, Self::Env> {
+            self.pending_call(())
+        }
+        fn get_all_agents(&self) -> sails_rs::client::PendingCall<io::GetAllAgents, Self::Env> {
+            self.pending_call(())
         }
         fn get_basket(
             &self,
@@ -180,8 +211,12 @@ pub mod basket_market {
         sails_rs::io_struct_impl!(CreateBasket (name: String, description: String, items: Vec<super::BasketItem>, asset_kind: super::BasketAssetKind) -> u64);
         sails_rs::io_struct_impl!(FinalizeSettlement (basket_id: u64) -> ());
         sails_rs::io_struct_impl!(ProposeSettlement (basket_id: u64, item_resolutions: Vec<super::ItemResolution>, payload: String) -> ());
+        sails_rs::io_struct_impl!(RegisterAgent (name: String) -> ());
         sails_rs::io_struct_impl!(SetConfig (config: super::BasketMarketConfig) -> ());
         sails_rs::io_struct_impl!(SetVaraEnabled (enabled: bool) -> ());
+        sails_rs::io_struct_impl!(GetAgent (address: ActorId) -> Option<super::AgentInfo>);
+        sails_rs::io_struct_impl!(GetAgentCount () -> u64);
+        sails_rs::io_struct_impl!(GetAllAgents () -> Vec<super::AgentInfo>);
         sails_rs::io_struct_impl!(GetBasket (basket_id: u64) -> Result<super::Basket, super::BasketMarketError>);
         sails_rs::io_struct_impl!(GetBasketCount () -> u64);
         sails_rs::io_struct_impl!(GetConfig () -> super::BasketMarketConfig);
@@ -226,6 +261,15 @@ pub mod basket_market {
                 user: ActorId,
                 amount: u128,
             },
+            AgentRegistered {
+                agent: ActorId,
+                name: String,
+            },
+            AgentRenamed {
+                agent: ActorId,
+                old_name: String,
+                new_name: String,
+            },
             VaraSupportUpdated {
                 enabled: bool,
             },
@@ -240,6 +284,8 @@ pub mod basket_market {
                 "SettlementProposed",
                 "SettlementFinalized",
                 "Claimed",
+                "AgentRegistered",
+                "AgentRenamed",
                 "VaraSupportUpdated",
                 "ConfigUpdated",
             ];
@@ -303,6 +349,15 @@ pub struct BasketMarketConfig {
 #[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]
 #[codec(crate = sails_rs::scale_codec)]
 #[scale_info(crate = sails_rs::scale_info)]
+pub struct AgentInfo {
+    pub address: ActorId,
+    pub name: String,
+    pub registered_at: u64,
+    pub name_updated_at: u64,
+}
+#[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
 pub struct Basket {
     pub id: u64,
     pub creator: ActorId,
@@ -357,6 +412,11 @@ pub enum BasketMarketError {
     MathOverflow,
     EventEmitFailed,
     InvalidConfig,
+    AgentNameTooShort,
+    AgentNameTooLong,
+    AgentNameInvalid,
+    AgentNameTaken,
+    AgentRenameCooldown,
 }
 #[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]
 #[codec(crate = sails_rs::scale_codec)]

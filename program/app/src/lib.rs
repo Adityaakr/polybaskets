@@ -417,6 +417,7 @@ impl<'a> BasketMarketService<'a> {
     }
 
     fn validate_agent_name(name: &str) -> Result<(), BasketMarketError> {
+        
         if name.len() < MIN_AGENT_NAME_LEN {
             return Err(BasketMarketError::AgentNameTooShort);
         }
