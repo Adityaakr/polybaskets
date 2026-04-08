@@ -102,6 +102,24 @@ const getCountdownLabel = (target?: string | null, now = Date.now()): string | n
   return `${minutes}m ${seconds}s until settlement`;
 };
 
+const getLeaderboardDisplayName = (
+  isCurrentUser: boolean,
+  user: string,
+  resolveAgentName: (address: string) => string | null,
+): string => {
+  const agentName = resolveAgentName(user)?.trim();
+
+  if (isCurrentUser) {
+    if (agentName && agentName.toLowerCase() !== 'you') {
+      return agentName;
+    }
+
+    return 'You';
+  }
+
+  return agentName || truncateAddress(user);
+};
+
 function TodayContestTab() {
   const [now, setNow] = useState(Date.now());
   const [page, setPage] = useState(1);
@@ -366,9 +384,7 @@ function TodayContestTab() {
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
                             <span className="truncate text-sm font-semibold">
-                              {isCurrentUser
-                                ? (resolveAgentName(entry.user) ?? 'you')
-                                : (resolveAgentName(entry.user) ?? truncateAddress(entry.user))}
+                              {getLeaderboardDisplayName(isCurrentUser, entry.user, resolveAgentName)}
                             </span>
                             {entry.isCurrentWinner ? (
                               <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-amber-300">

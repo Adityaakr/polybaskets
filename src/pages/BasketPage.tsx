@@ -56,6 +56,25 @@ function getReadyOutcomeProbabilities(market: { outcomePrices?: string[] | null 
   };
 }
 
+function formatDurationFromSeconds(totalSeconds: number): string {
+  if (totalSeconds <= 0) {
+    return '0 minutes';
+  }
+
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+
+  if (hours > 0 && minutes > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+
+  if (hours > 0) {
+    return `${hours}h`;
+  }
+
+  return `${Math.max(1, minutes)} minute${minutes === 1 ? '' : 's'}`;
+}
+
 export default function BasketPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -579,6 +598,20 @@ export default function BasketPage() {
       ? Object.keys(settlement.status)[0] 
       : settlement.status;
   }, [settlement?.status]);
+  const challengeWindowLabel = useMemo(() => {
+    if (!settlement) {
+      return null;
+    }
+
+    const proposedAt = Number(settlement.proposed_at);
+    const challengeDeadline = Number(settlement.challenge_deadline);
+
+    if (!Number.isFinite(proposedAt) || !Number.isFinite(challengeDeadline) || challengeDeadline <= proposedAt) {
+      return null;
+    }
+
+    return formatDurationFromSeconds(challengeDeadline - proposedAt);
+  }, [settlement]);
   
   // Calculate expected payout (must be before early returns)
   // Note: expectedPayout can be "0" (string) for total losses, which is valid
@@ -1601,7 +1634,7 @@ export default function BasketPage() {
                   </div>
                 ) : (
                   <div className="text-sm text-muted-foreground">
-                    Waiting for all markets to settle. Once settled, there will be a 12-minute challenge period before you can claim your payout.
+                    Settlement has not been proposed yet. Claiming becomes available only after a settlement is proposed and the challenge window has ended.
                   </div>
                 )}
               </CardContent>
@@ -2051,9 +2084,11 @@ export default function BasketPage() {
                       ? `Settlement is finalized. Claim your winnings (${expectedPayout} ${isVaraEth ? 'wVARA' : 'TVARA'}).`
                       : `Settlement is finalized. Finalize your position (you lost ${fromVara(BigInt(String(userPosition.shares)))} ${isVaraEth ? 'wVARA' : 'TVARA'}).`
                     : !settlement 
-                      ? 'Waiting for all markets to settle. Once settled, there will be a 12-minute challenge period before you can claim your payout.'
+                      ? 'Settlement has not been proposed yet. Claiming becomes available only after a settlement is proposed and the challenge window has ended.'
                       : settlementStatus !== 'Finalized'
-                        ? `Settlement status: ${settlementStatus || 'Unknown'}. ${settlementStatus === 'Proposed' ? 'Waiting for challenge period to end (12 minutes).' : 'Settlement must be finalized before claiming.'}`
+                        ? `Settlement status: ${settlementStatus || 'Unknown'}. ${settlementStatus === 'Proposed'
+                            ? `Waiting for the challenge window${challengeWindowLabel ? ` (${challengeWindowLabel})` : ''} to end before claiming.`
+                            : 'Settlement must be finalized before claiming.'}`
                         : !userPosition
                           ? address 
                             ? 'You don\'t have a position in this basket. You need to place a bet to participate. Creating a basket does not automatically give you a position.'
