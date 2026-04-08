@@ -712,15 +712,13 @@ export class DailyContestHandler extends BaseHandler {
       return;
     }
 
-    const previousBlock = this.indexerState.lastProcessedBlock;
     this.indexerState.lastProcessedBlock = blockHeight;
     this.indexerState.lastProcessedAt = blockTimestamp;
+
     if (this.indexerState.startDayId === null) {
       this.indexerState.startDayId = dayIdFromTimestamp(dateToTimestampMs(blockTimestamp));
     }
-    if (previousBlock !== null && blockHeight > previousBlock + 1n) {
-      this.indexerState.knownGapDetected = true;
-    }
+
     this.indexerState.updatedAt = new Date();
 
     const latestCompleteDayId = maxCompleteDayId(dateToTimestampMs(blockTimestamp));
