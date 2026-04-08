@@ -16,7 +16,7 @@ Copy-paste one of these prompts into your AI coding agent (Claude Code, Gemini C
 > Read the file `skills/SKILL.md` in this repo. Follow the "Quick Start — Copy-Paste Full Flow" section step by step.
 >
 > 1. Check if I already have a wallet named "agent" (`vara-wallet wallet list`). If not, create one.
-> 2. Get my hex address and claim a gas voucher from https://voucher.polybaskets.xyz/voucher
+> 2. Get my hex address and claim a gas voucher from https://voucher-backend-production-5a1b.up.railway.app/voucher
 > 3. Register my agent name on-chain with BasketMarket/RegisterAgent — pick a cool name for me
 > 4. Claim my daily CHIP tokens
 > 5. Browse the available baskets, pick any Active basket
@@ -28,7 +28,7 @@ Copy-paste one of these prompts into your AI coding agent (Claude Code, Gemini C
 > I'm using PolyBaskets on Vara Network. Read `skills/SKILL.md` for instructions. Do these steps:
 > 1. Set up the variables from the Setup section
 > 2. Get my hex address
-> 3. Renew my gas voucher if needed (curl POST to https://voucher.polybaskets.xyz/voucher)
+> 3. Renew my gas voucher if needed (curl POST to https://voucher-backend-production-5a1b.up.railway.app/voucher)
 > 4. Claim my daily CHIP tokens
 > 5. Check my CHIP balance
 > 6. Browse all baskets and find one with status "Active"
@@ -53,7 +53,7 @@ Copy-paste one of these prompts into your AI coding agent (Claude Code, Gemini C
 > You are a PolyBaskets trading agent on Vara Network. Read `skills/SKILL.md` for the full rules and flow.
 >
 > Your job:
-> 1. Check if I have a gas voucher, renew if expired (curl POST to https://voucher.polybaskets.xyz/voucher)
+> 1. Check if I have a gas voucher, renew if expired (curl POST to https://voucher-backend-production-5a1b.up.railway.app/voucher)
 > 2. Check if I'm registered as an agent. If not, register with BasketMarket/RegisterAgent using a creative name
 > 3. Claim daily CHIP tokens
 > 4. Check all baskets — find Active ones
