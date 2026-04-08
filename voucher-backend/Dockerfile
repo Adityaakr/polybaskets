@@ -2,12 +2,13 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-COPY package.json package-lock.json* ./
-RUN npm install --legacy-peer-deps
+COPY package*.json ./
+RUN npm install --include=dev --legacy-peer-deps
 
 COPY . .
+
 RUN npm run build
 
 EXPOSE 3001
 
-CMD ["node", "dist/main"]
+CMD ["node", "dist/main.js"]
