@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
+import { BrowserRouter, Navigate, Routes, Route, useLocation } from "react-router-dom";
 import { NetworkProvider, useNetwork } from "@/contexts/NetworkContext";
 import { WalletProvider } from "@/contexts/WalletContext";
 import { BasketProvider } from "@/contexts/BasketContext";
@@ -25,9 +25,15 @@ import { Send } from "lucide-react";
 const queryClient = new QueryClient();
 
 function AppRoutes() {
+  const hostname = window.location.hostname;
+  const isAppHost = hostname === "app.polybaskets.xyz";
+
   return (
     <Routes>
-      <Route path="/" element={<Index />} />
+      <Route
+        path="/"
+        element={isAppHost ? <Navigate to="/explorer" replace /> : <Index />}
+      />
       <Route path="/explorer" element={<ExplorePage />} />
       <Route path="/builder" element={<BuilderPage />} />
       <Route path="/claim" element={<ClaimPage />} />
