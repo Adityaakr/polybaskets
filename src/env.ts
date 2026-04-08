@@ -17,6 +17,8 @@ const parseBooleanEnv = (value: unknown, fallback: boolean): boolean => {
   return fallback;
 };
 
+const normalizeUrl = (value: string): string => value.replace(/\/+$/, '');
+
 export const ENV = {
   ENABLE_VARA: parseBooleanEnv(import.meta.env.VITE_ENABLE_VARA, false),
   NODE_ADDRESS: import.meta.env.VITE_NODE_ADDRESS || 'wss://testnet.vara.network',
@@ -30,6 +32,22 @@ export const ENV = {
   VARAETH_WS: import.meta.env.VITE_VARAETH_WS || 'wss://hoodi-reth-rpc.gear-tech.io/ws',
   VARAETH_ROUTER: import.meta.env.VITE_VARAETH_ROUTER || '0xBC888a8B050B9B76a985d91c815d2c4f2131a58A',
   VARAETH_PROGRAM_ID: import.meta.env.VITE_VARAETH_PROGRAM_ID || '0x1fa6fd12433accef350a68da4555a2a71acab261c4ae9eb713033023fc0775ea',
+};
+
+export const getLaunchAppUrl = (): string => {
+  const configuredUrl = import.meta.env.VITE_APP_URL;
+  if (typeof configuredUrl === 'string' && configuredUrl.trim()) {
+    return normalizeUrl(configuredUrl.trim());
+  }
+
+  if (typeof window !== 'undefined') {
+    const { hostname } = window.location;
+    if (hostname === 'polybaskets.xyz' || hostname === 'www.polybaskets.xyz') {
+      return 'https://app.polybaskets.xyz';
+    }
+  }
+
+  return '/explorer';
 };
 
 export const isVaraEnabled = () => ENV.ENABLE_VARA;
