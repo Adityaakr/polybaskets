@@ -16,12 +16,10 @@ class DailyContestProgram {
   constructor(public readonly api: GearApi, programId: `0x${string}`) {
     this.program = new BaseGearProgram(programId, api);
     this.registry = new TypeRegistry();
-    this.registry.setKnownTypes({
-      types: {
-        WinnerInput: {
-          account: "[u8;32]",
-          realized_profit: "i128",
-        },
+    this.registry.register({
+      WinnerInput: {
+        account: "[u8;32]",
+        realized_profit: "i128",
       },
     });
   }
@@ -62,12 +60,19 @@ export class SailsDailyContestChainClient implements DailyContestChainClient {
     this.program = new DailyContestProgram(this.api, this.programId);
     const keyring = new Keyring({ type: "sr25519", ss58Format: 137 });
     this.account = keyring.addFromUri(this.seed);
+    console.log(
+      `[contest-bot] Chain client initialized for program ${this.programId} with settler ${this.account.address}`,
+    );
   }
 
   async settleDay(day: ProjectedContestDay): Promise<string> {
     if (!this.api || !this.program || !this.account) {
       await this.init();
     }
+
+    console.log(
+      `[contest-bot] Attempting settlement for day ${day.dayId.toString()} with ${day.winners.length} winner(s)`,
+    );
 
     const tx = this.program!.settleDay(
       day.dayId,
@@ -79,9 +84,21 @@ export class SailsDailyContestChainClient implements DailyContestChainClient {
       day.evidenceHash,
     ).withAccount(this.account!);
 
+    console.log(
+      `[contest-bot] Calculating gas for day ${day.dayId.toString()} settlement`,
+    );
     await tx.calculateGas();
+    console.log(
+      `[contest-bot] Signing and sending settlement for day ${day.dayId.toString()}`,
+    );
     const { txHash, response } = await tx.signAndSend();
+    console.log(
+      `[contest-bot] Submitted tx ${txHash} for day ${day.dayId.toString()}, waiting for chain response`,
+    );
     await response();
+    console.log(
+      `[contest-bot] Settlement submitted for day ${day.dayId.toString()}, txHash=${txHash}`,
+    );
     return txHash;
   }
 }

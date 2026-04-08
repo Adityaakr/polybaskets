@@ -33,6 +33,10 @@ export class GraphqlReadModelClient implements ReadModelClient {
   constructor(private readonly endpoint: string) {}
 
   async getOldestUnsettledDay(): Promise<ProjectedContestDay | null> {
+    console.log(
+      `[contest-bot] Querying oldest unsettled contest day from ${this.endpoint}`,
+    );
+
     const projectionResponse = await fetch(this.endpoint, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -72,8 +76,15 @@ export class GraphqlReadModelClient implements ReadModelClient {
 
     const day = projectionBody.data?.allContestDayProjections.nodes[0];
     if (!day) {
+      console.log(
+        "[contest-bot] Read model returned no unsettled day with indexerComplete=true and settledOnChain=false",
+      );
       return null;
     }
+
+    console.log(
+      `[contest-bot] Candidate day ${day.dayId}: status=${day.status}, indexerComplete=${day.indexerComplete}, settledOnChain=${day.settledOnChain}, settlementAllowedAt=${day.settlementAllowedAt}`,
+    );
 
     const winnersResponse = await fetch(this.endpoint, {
       method: "POST",
@@ -106,6 +117,9 @@ export class GraphqlReadModelClient implements ReadModelClient {
     }
 
     const winners = winnersBody.data?.allContestDayWinners.nodes ?? [];
+    console.log(
+      `[contest-bot] Loaded ${winners.length} projected winner row(s) for day ${day.dayId}`,
+    );
 
     return {
       dayId: BigInt(day.dayId),
