@@ -14,7 +14,7 @@ const PROGRAMS = [
   {
     name: 'BasketMarket',
     address:
-      '0xa786d20dc89273d47f4c311b84918105697b5048eb9c68eb6090e48959ff39c0',
+      '0x1fa6fd12433accef350a68da4555a2a71acab261c4ae9eb713033023fc0775ea',
     varaToIssue: 3, // 3 VARA per voucher (covers ~7 tx/day)
     duration: 86400, // 24 hours
     oneTime: false,
