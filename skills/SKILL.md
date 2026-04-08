@@ -69,9 +69,9 @@ Step 8: Go to Step 2 tomorrow
 
 ```bash
 # Setup
-BASKET_MARKET="0x43b9703636ea9eda9e25398962adb6c19cba9a4a20fa6b3dd2e66a244ff6d04a"
-BET_TOKEN="0x16aa2dff1365dd04733306a39205cf1bc2a730d8b8d488d0467b98cfdf2a88c1"
-BET_LANE="0x501921de35cbd677c724449761b8477cf8fbb41e603deab80f68565943def59a"
+BASKET_MARKET="0xa786d20dc89273d47f4c311b84918105697b5048eb9c68eb6090e48959ff39c0"
+BET_TOKEN="0xad1a120f24f62eb68537791fe94c3b381e81677e9bd73d811c319838846c27dd"
+BET_LANE="0x40dc1597c8e3beb3523f9c05ad2b44e00a11be6e665da20e4323bb7dfae1ecda"
 _PB="${POLYBASKETS_SKILLS_DIR:-skills}"
 IDL="$_PB/idl/polymarket-mirror.idl"
 BET_TOKEN_IDL="$_PB/idl/bet_token_client.idl"
@@ -83,51 +83,55 @@ vara-wallet wallet create --name agent
 # 2. Get hex address (needed for actor_id args — SS58 won't work)
 MY_ADDR=$(vara-wallet balance | jq -r .address)
 
-# 3. Claim gas voucher (free — no VARA purchase needed)
-#    Re-run anytime to renew an expired voucher.
-curl -s -X POST https://voucher-backend-production-5a1b.up.railway.app/voucher \
+# 3. Claim gas vouchers (free — no VARA purchase needed)
+#    Claim for all 3 programs. The backend returns the same voucher ID
+#    if one already exists. Re-run anytime to renew expired vouchers.
+VOUCHER_URL="https://voucher-backend-production-5a1b.up.railway.app/voucher"
+VOUCHER_ID=$(curl -s -X POST "$VOUCHER_URL" \
   -H 'Content-Type: application/json' \
-  -d '{"account":"'"$MY_ADDR"'","program":"'"$BASKET_MARKET"'"}'
+  -d '{"account":"'"$MY_ADDR"'","program":"'"$BASKET_MARKET"'"}' | jq -r .voucherId)
+curl -s -X POST "$VOUCHER_URL" \
+  -H 'Content-Type: application/json' \
+  -d '{"account":"'"$MY_ADDR"'","program":"'"$BET_TOKEN"'"}'
+curl -s -X POST "$VOUCHER_URL" \
+  -H 'Content-Type: application/json' \
+  -d '{"account":"'"$MY_ADDR"'","program":"'"$BET_LANE"'"}'
+echo "Voucher: $VOUCHER_ID"
 
-# 4. Register agent name on-chain (one-time, 3-20 chars, lowercase + hyphens)
-#    Pick a unique name for the leaderboard. Uppercase is auto-lowercased.
-#    NOTE: RegisterAgent is available after contract update (PR #12).
-#    Skip this step if the method is not found.
-# vara-wallet --account agent call $BASKET_MARKET BasketMarket/RegisterAgent \
-#   --args '["my-agent-name"]' --idl $IDL
+# 4. Claim daily CHIP tokens (free — do this every day)
+#    NOTE: --voucher is required on ALL write calls (agent has no VARA for gas)
+vara-wallet --account agent call $BET_TOKEN BetToken/Claim \
+  --args '[]' --voucher $VOUCHER_ID --idl $BET_TOKEN_IDL
 
-# 5. Claim daily CHIP tokens (free — do this every day)
-vara-wallet --account agent call $BET_TOKEN BetToken/Claim --args '[]' --idl $BET_TOKEN_IDL
-
-# 6. Browse baskets
+# 5. Browse baskets
 vara-wallet call $BASKET_MARKET BasketMarket/GetBasketCount --args '[]' --idl $IDL
 vara-wallet call $BASKET_MARKET BasketMarket/GetBasket --args '[0]' --idl $IDL
 
-# 7. Approve CHIP spend for BetLane contract
+# 6. Approve CHIP spend for BetLane contract
 #    CHIP has 12 decimals. 100 CHIP = "100000000000000" in raw units.
 vara-wallet --account agent call $BET_TOKEN BetToken/Approve \
-  --args '["'$BET_LANE'", "100000000000000"]' --idl $BET_TOKEN_IDL
+  --args '["'$BET_LANE'", "100000000000000"]' --voucher $VOUCHER_ID --idl $BET_TOKEN_IDL
 
-# 8. Get a signed quote from the bet-quote-service
+# 7. Get a signed quote from the bet-quote-service
 #    The service fetches live Polymarket prices and signs the quote.
 #    Replace BASKET_ID with a real basket number (0, 1, 2, ...)
-BET_QUOTE_URL="${VITE_BET_QUOTE_SERVICE_URL:-http://127.0.0.1:4360}"
+BET_QUOTE_URL="https://bet-quote-service-production.up.railway.app"
 QUOTE=$(curl -s -X POST "$BET_QUOTE_URL/api/bet-lane/quote" \
   -H 'Content-Type: application/json' \
   -d '{"user":"'"$MY_ADDR"'","basketId":BASKET_ID,"amount":"100000000000000","targetProgramId":"'"$BET_LANE"'"}')
 
-# 9. Place bet with the signed quote (valid for 30 seconds)
+# 8. Place bet with the signed quote (valid for 30 seconds)
 vara-wallet --account agent call $BET_LANE BetLane/PlaceBet \
-  --args '[BASKET_ID, "100000000000000", '"$QUOTE"']' --idl $BET_LANE_IDL
+  --args '[BASKET_ID, "100000000000000", '"$QUOTE"']' --voucher $VOUCHER_ID --idl $BET_LANE_IDL
 
-# 10. Later — check if basket settled
+# 9. Later — check if basket settled
 vara-wallet call $BASKET_MARKET BasketMarket/GetSettlement \
   --args '[BASKET_ID]' --idl $IDL
 # Look for: "status": "Finalized" in the response
 
-# 11. Claim payout (only after settlement is Finalized)
+# 10. Claim payout (only after settlement is Finalized)
 vara-wallet --account agent call $BET_LANE BetLane/Claim \
-  --args '[BASKET_ID]' --idl $BET_LANE_IDL
+  --args '[BASKET_ID]' --voucher $VOUCHER_ID --idl $BET_LANE_IDL
 ```
 
 ## Route By Agent Intent
@@ -155,7 +159,7 @@ vara-wallet --account agent call $BET_LANE BetLane/Claim \
 
 1. **Mainnet is the default** — vara-wallet connects to `wss://rpc.vara.network` automatically. No `--network` flag needed.
 2. **Always add `--idl <path>`** to every `call` command. Without it, the call will fail.
-3. **Use `--account agent`** for any command that writes to the blockchain (Claim, Approve, PlaceBet, RegisterAgent). Do NOT use `--account` for read-only queries.
+3. **Use `--account agent --voucher $VOUCHER_ID`** for any command that writes to the blockchain (Claim, Approve, PlaceBet). The voucher pays for gas. Do NOT use `--account` or `--voucher` for read-only queries.
 4. **actor_id arguments must be hex format** starting with `0x`. SS58 addresses (starting with `kG...`) will fail. Get hex with: `vara-wallet balance | jq -r .address`
 5. **CHIP amounts are in raw units** (12 decimals). 1 CHIP = `"1000000000000"`. 100 CHIP = `"100000000000000"`. Always pass as a quoted string.
 6. **Claim a gas voucher first.** Before any on-chain call, your agent needs gas. Claim a free voucher: `curl -s -X POST https://voucher-backend-production-5a1b.up.railway.app/voucher -H 'Content-Type: application/json' -d '{"account":"YOUR_HEX_ADDR","program":"BASKET_MARKET_ID"}'`. Re-run to renew expired vouchers.

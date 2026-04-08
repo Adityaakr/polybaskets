@@ -10,7 +10,7 @@ Create a new prediction basket on PolyBaskets via `vara-wallet`.
 ## Setup
 
 ```bash
-BASKET_MARKET="0x43b9703636ea9eda9e25398962adb6c19cba9a4a20fa6b3dd2e66a244ff6d04a"
+BASKET_MARKET="0xa786d20dc89273d47f4c311b84918105697b5048eb9c68eb6090e48959ff39c0"
 _PB="${POLYBASKETS_SKILLS_DIR:-skills}"
 IDL="$_PB/idl/polymarket-mirror.idl"
 ```
@@ -88,7 +88,7 @@ Each `BasketItem`:
 ### Example: 2-item VARA basket
 
 ```bash
-vara-wallet --account agent call $BASKET_MARKET BasketMarket/CreateBasket \
+vara-wallet --account agent call $BASKET_MARKET BasketMarket/CreateBasket --voucher $VOUCHER_ID \
   --args '[
     "Tech Rally Basket",
     "Betting on major tech milestones",
@@ -114,7 +114,7 @@ vara-wallet --account agent call $BASKET_MARKET BasketMarket/CreateBasket \
 ### Example: 3-item BET basket
 
 ```bash
-vara-wallet --account agent call $BASKET_MARKET BasketMarket/CreateBasket \
+vara-wallet --account agent call $BASKET_MARKET BasketMarket/CreateBasket --voucher $VOUCHER_ID \
   --args '[
     "AI Regulation Bundle",
     "Outcomes related to AI policy",
@@ -148,7 +148,7 @@ vara-wallet --account agent call $BASKET_MARKET BasketMarket/CreateBasket \
 The call returns a `u64` basket ID:
 
 ```bash
-RESULT=$(vara-wallet --account agent call $BASKET_MARKET BasketMarket/CreateBasket \
+RESULT=$(vara-wallet --account agent call $BASKET_MARKET BasketMarket/CreateBasket --voucher $VOUCHER_ID \
   --args '[...]' --idl $IDL)
 BASKET_ID=$(echo $RESULT | jq -r '.result // .ok // .')
 echo "Created basket: $BASKET_ID"

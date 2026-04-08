@@ -10,9 +10,9 @@ Claim CHIP tokens and bet on a PolyBaskets basket via `vara-wallet`.
 ## Setup
 
 ```bash
-BASKET_MARKET="0x43b9703636ea9eda9e25398962adb6c19cba9a4a20fa6b3dd2e66a244ff6d04a"
-BET_TOKEN="0x16aa2dff1365dd04733306a39205cf1bc2a730d8b8d488d0467b98cfdf2a88c1"
-BET_LANE="0x501921de35cbd677c724449761b8477cf8fbb41e603deab80f68565943def59a"
+BASKET_MARKET="0xa786d20dc89273d47f4c311b84918105697b5048eb9c68eb6090e48959ff39c0"
+BET_TOKEN="0xad1a120f24f62eb68537791fe94c3b381e81677e9bd73d811c319838846c27dd"
+BET_LANE="0x40dc1597c8e3beb3523f9c05ad2b44e00a11be6e665da20e4323bb7dfae1ecda"
 _PB="${POLYBASKETS_SKILLS_DIR:-skills}"
 IDL="$_PB/idl/polymarket-mirror.idl"
 BET_TOKEN_IDL="$_PB/idl/bet_token_client.idl"
@@ -31,13 +31,17 @@ Agents get free CHIP tokens every day. Consecutive days build a streak that incr
 # Get your hex address (required for actor_id args — SS58 won't work)
 MY_ADDR=$(vara-wallet balance | jq -r .address)
 
+# Get your voucher ID (claim one first — see Quick Start in SKILL.md)
+VOUCHER_ID=$(vara-wallet voucher list | jq -r '.[0].id')
+
 # Check if claim is available and how much you'll get
 vara-wallet call $BET_TOKEN BetToken/GetClaimPreview \
   --args '["'$MY_ADDR'"]' --idl $BET_TOKEN_IDL
 
 # Claim daily CHIP (do this every day to build streak)
+# NOTE: --voucher is required on ALL write calls (agent has no VARA for gas)
 vara-wallet --account agent call $BET_TOKEN BetToken/Claim \
-  --args '[]' --idl $BET_TOKEN_IDL
+  --args '[]' --voucher $VOUCHER_ID --idl $BET_TOKEN_IDL
 ```
 
 The response includes your `streak_days` and `total_claimed`. Higher streak = more CHIP per claim.
@@ -73,7 +77,7 @@ Allow the BetLane contract to spend your CHIP:
 
 ```bash
 vara-wallet --account agent call $BET_TOKEN BetToken/Approve \
-  --args '["'$BET_LANE'", <amount>]' --idl $BET_TOKEN_IDL
+  --args '["'$BET_LANE'", <amount>]' --voucher $VOUCHER_ID --idl $BET_TOKEN_IDL
 ```
 
 ### Step 5: Get Signed Quote + Place Bet
@@ -82,7 +86,7 @@ Bets require a signed quote from the bet-quote-service. The quote service fetche
 
 ```bash
 # Quote service URL
-BET_QUOTE_URL="${VITE_BET_QUOTE_SERVICE_URL:-http://127.0.0.1:4360}"
+BET_QUOTE_URL="https://bet-quote-service-production.up.railway.app"
 
 # 5a. Request a signed quote
 QUOTE=$(curl -s -X POST "$BET_QUOTE_URL/api/bet-lane/quote" \
@@ -100,7 +104,7 @@ echo "$QUOTE" | jq .
 # 5b. Place bet with the signed quote
 # Extract the signed_quote object from the response and pass it to PlaceBet
 vara-wallet --account agent call $BET_LANE BetLane/PlaceBet \
-  --args '[<BASKET_ID>, "<AMOUNT_RAW>", '"$QUOTE"']' --idl $BET_LANE_IDL
+  --args '[<BASKET_ID>, "<AMOUNT_RAW>", '"$QUOTE"']' --voucher $VOUCHER_ID --idl $BET_LANE_IDL
 ```
 
 The quote is valid for 30 seconds. If it expires, request a new one. Each quote has a unique nonce and can only be used once.
@@ -110,17 +114,18 @@ Returns `u256` -- shares received.
 ### Complete CHIP Lane Example
 
 ```bash
-# 0. Get hex address (once per session)
+# 0. Get hex address + voucher ID (once per session)
 MY_ADDR=$(vara-wallet balance | jq -r .address)
-BET_QUOTE_URL="${VITE_BET_QUOTE_SERVICE_URL:-http://127.0.0.1:4360}"
+VOUCHER_ID=$(vara-wallet voucher list | jq -r '.[0].id')
+BET_QUOTE_URL="https://bet-quote-service-production.up.railway.app"
 
 # 1. Claim daily CHIP
 vara-wallet --account agent call $BET_TOKEN BetToken/Claim \
-  --args '[]' --idl $BET_TOKEN_IDL
+  --args '[]' --voucher $VOUCHER_ID --idl $BET_TOKEN_IDL
 
 # 2. Approve BetLane to spend 100 CHIP
 vara-wallet --account agent call $BET_TOKEN BetToken/Approve \
-  --args '["'$BET_LANE'", "100000000000000"]' --idl $BET_TOKEN_IDL
+  --args '["'$BET_LANE'", "100000000000000"]' --voucher $VOUCHER_ID --idl $BET_TOKEN_IDL
 
 # 3. Get a signed quote for basket 0, 100 CHIP
 QUOTE=$(curl -s -X POST "$BET_QUOTE_URL/api/bet-lane/quote" \
@@ -134,7 +139,7 @@ QUOTE=$(curl -s -X POST "$BET_QUOTE_URL/api/bet-lane/quote" \
 
 # 4. Place bet with the signed quote
 vara-wallet --account agent call $BET_LANE BetLane/PlaceBet \
-  --args '[0, "100000000000000", '"$QUOTE"']' --idl $BET_LANE_IDL
+  --args '[0, "100000000000000", '"$QUOTE"']' --voucher $VOUCHER_ID --idl $BET_LANE_IDL
 
 # 5. Verify position
 vara-wallet call $BET_LANE BetLane/GetPosition \

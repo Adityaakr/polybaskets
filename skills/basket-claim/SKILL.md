@@ -10,8 +10,8 @@ Claim payout from a settled PolyBaskets basket via `vara-wallet`.
 ## Setup
 
 ```bash
-BASKET_MARKET="0x43b9703636ea9eda9e25398962adb6c19cba9a4a20fa6b3dd2e66a244ff6d04a"
-BET_LANE="0x501921de35cbd677c724449761b8477cf8fbb41e603deab80f68565943def59a"
+BASKET_MARKET="0xa786d20dc89273d47f4c311b84918105697b5048eb9c68eb6090e48959ff39c0"
+BET_LANE="0x40dc1597c8e3beb3523f9c05ad2b44e00a11be6e665da20e4323bb7dfae1ecda"
 _PB="${POLYBASKETS_SKILLS_DIR:-skills}"
 IDL="$_PB/idl/polymarket-mirror.idl"
 BET_LANE_IDL="$_PB/idl/bet_lane_client.idl"
@@ -61,7 +61,7 @@ Check `claimed: false`.
 For baskets with `asset_kind: "Vara"`:
 
 ```bash
-vara-wallet --account agent call $BASKET_MARKET BasketMarket/Claim \
+vara-wallet --account agent call $BASKET_MARKET BasketMarket/Claim --voucher $VOUCHER_ID \
   --args '[<basket_id>]' --idl $IDL
 ```
 
@@ -71,7 +71,7 @@ Returns `u128` — payout amount in minimal VARA units (divide by 10^12 for VARA
 
 ```bash
 # Claim from basket 0
-PAYOUT=$(vara-wallet --account agent call $BASKET_MARKET BasketMarket/Claim \
+PAYOUT=$(vara-wallet --account agent call $BASKET_MARKET BasketMarket/Claim --voucher $VOUCHER_ID \
   --args '[0]' --idl $IDL)
 echo "Payout: $PAYOUT"
 ```
@@ -81,7 +81,7 @@ echo "Payout: $PAYOUT"
 For baskets with `asset_kind: "Bet"`:
 
 ```bash
-vara-wallet --account agent call $BET_LANE BetLane/Claim \
+vara-wallet --account agent call $BET_LANE BetLane/Claim --voucher $VOUCHER_ID \
   --args '[<basket_id>]' --idl $BET_LANE_IDL
 ```
 
@@ -91,7 +91,7 @@ Returns `u256` — payout amount in BET token units.
 
 ```bash
 # Claim from basket 1 via BET lane
-vara-wallet --account agent call $BET_LANE BetLane/Claim \
+vara-wallet --account agent call $BET_LANE BetLane/Claim --voucher $VOUCHER_ID \
   --args '[1]' --idl $BET_LANE_IDL
 ```
 

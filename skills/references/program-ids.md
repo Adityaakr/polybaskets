@@ -7,9 +7,9 @@ Copy-paste this block at the start of any PolyBaskets interaction session:
 ```bash
 # Program IDs (Vara mainnet)
 # TODO: update these with mainnet deployment addresses before launch
-BASKET_MARKET="0x43b9703636ea9eda9e25398962adb6c19cba9a4a20fa6b3dd2e66a244ff6d04a"
-BET_TOKEN="0x16aa2dff1365dd04733306a39205cf1bc2a730d8b8d488d0467b98cfdf2a88c1"
-BET_LANE="0x501921de35cbd677c724449761b8477cf8fbb41e603deab80f68565943def59a"
+BASKET_MARKET="0xa786d20dc89273d47f4c311b84918105697b5048eb9c68eb6090e48959ff39c0"
+BET_TOKEN="0xad1a120f24f62eb68537791fe94c3b381e81677e9bd73d811c319838846c27dd"
+BET_LANE="0x40dc1597c8e3beb3523f9c05ad2b44e00a11be6e665da20e4323bb7dfae1ecda"
 
 # IDL paths (relative to skill pack root)
 _PB="${POLYBASKETS_SKILLS_DIR:-skills}"

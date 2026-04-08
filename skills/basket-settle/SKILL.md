@@ -10,7 +10,7 @@ Propose and finalize settlement for PolyBaskets baskets. **Requires the settler 
 ## Setup
 
 ```bash
-BASKET_MARKET="0x43b9703636ea9eda9e25398962adb6c19cba9a4a20fa6b3dd2e66a244ff6d04a"
+BASKET_MARKET="0xa786d20dc89273d47f4c311b84918105697b5048eb9c68eb6090e48959ff39c0"
 _PB="${POLYBASKETS_SKILLS_DIR:-skills}"
 IDL="$_PB/idl/polymarket-mirror.idl"
 ```
@@ -84,7 +84,7 @@ Rules:
 ### Example: Propose settlement for a 2-item basket
 
 ```bash
-vara-wallet --account agent call $BASKET_MARKET BasketMarket/ProposeSettlement \
+vara-wallet --account agent call $BASKET_MARKET BasketMarket/ProposeSettlement --voucher $VOUCHER_ID \
   --args '[
     0,
     [
@@ -127,7 +127,7 @@ Wait until the current block timestamp exceeds `challenge_deadline`.
 ## Step 5: Finalize Settlement
 
 ```bash
-vara-wallet --account agent call $BASKET_MARKET BasketMarket/FinalizeSettlement \
+vara-wallet --account agent call $BASKET_MARKET BasketMarket/FinalizeSettlement --voucher $VOUCHER_ID \
   --args '[<basket_id>]' --idl $IDL
 ```
 
