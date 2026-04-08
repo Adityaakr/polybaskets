@@ -3,7 +3,7 @@ import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Download, Twitter, Send, X, TrendingUp, TrendingDown, CheckCircle } from 'lucide-react';
 import { toPng } from 'html-to-image';
-import { getMarketDetails } from '@/lib/polymarket';
+import { getMarketDetails } from '@/lib/polymarket.ts';
 
 interface MarketItem {
   question: string;

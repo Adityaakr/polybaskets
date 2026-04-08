@@ -1,16 +1,13 @@
-import 'dotenv/config';
 import { BasketMarketVaraClient } from './vara.js';
 import { fetchMarketBySlug, fetchMarketById, checkMarketResolution, type PolymarketMarket } from './polymarket.js';
-
-// Hardcoded config (to avoid Railway env var issues)
-const VARA_RPC = 'wss://testnet.vara.network';
-const PROGRAM_ID = '0x4d47cb784a0b1e3788181a6cedb52db11aad0cef4268848e612670f7d950f089';
-const SETTLER_SEED = process.env.SETTLER_SEED?.trim() || 'grocery usual immune burger vote wheat build slot unit lamp client tornado';
-const POLL_INTERVAL = 30000;
-const SHOULD_FINALIZE = true;
+import { config } from './config.js';
 
 // Initialize Vara client
-const varaClient = new BasketMarketVaraClient(PROGRAM_ID, VARA_RPC, SETTLER_SEED);
+const varaClient = new BasketMarketVaraClient(
+  config.basketMarketProgramId,
+  config.varaRpcUrl,
+  config.settlerSeed,
+);
 
 /**
  * Fetch Polymarket data for all items in a basket
@@ -20,11 +17,11 @@ async function fetchBasketItemMarkets(items: Array<{ poly_market_id: string; pol
     items.map(async (item) => {
       // Try by ID first, then by slug
       if (item.poly_market_id) {
-        const market = await fetchMarketById(item.poly_market_id);
+        const market = await fetchMarketById(item.poly_market_id, config.polymarketGammaBaseUrl);
         if (market) return market;
       }
       if (item.poly_slug) {
-        return await fetchMarketBySlug(item.poly_slug);
+        return await fetchMarketBySlug(item.poly_slug, config.polymarketGammaBaseUrl);
       }
       return null;
     })
@@ -59,6 +56,10 @@ async function processBasket(basketId: number): Promise<void> {
       console.log(`${timestamp} ${logPrefix} Settlement already exists, skipping`);
       return;
     }
+
+    console.log(
+      `${timestamp} ${logPrefix} Candidate basket loaded: status=${basket.status}, asset_kind=${basket.asset_kind}, items=${basket.items.length}`
+    );
 
     // Fetch Polymarket data for all items
     console.log(`${timestamp} ${logPrefix} Fetching Polymarket data for ${basket.items.length} items...`);
@@ -191,16 +192,19 @@ async function processBasket(basketId: number): Promise<void> {
  * Process settlements that can be finalized (after challenge deadline)
  */
 async function processSettlements(): Promise<void> {
-  if (!SHOULD_FINALIZE) {
+  if (!config.shouldFinalize) {
     return;
   }
 
   try {
     // Get contract config to show actual liveness_seconds
-    const config = await varaClient.getConfig();
-    const livenessMinutes = config ? (config.livenessMs / 60_000).toFixed(0) : 'unknown';
-    if (config) {
-      console.log(`[processSettlements] Contract liveness_ms: ${config.livenessMs} (${livenessMinutes} minutes challenge period)`);
+    const contractConfig = await varaClient.getConfig();
+    const livenessMinutes = contractConfig ? (contractConfig.livenessMs / 60_000).toFixed(0) : 'unknown';
+    if (contractConfig) {
+      console.log(`[processSettlements] Contract liveness_ms: ${contractConfig.livenessMs} (${livenessMinutes} minutes challenge period)`);
+      console.log(
+        `[processSettlements] Contract roles: admin=${contractConfig.adminRole}, settler=${contractConfig.settlerRole}, varaEnabled=${contractConfig.varaEnabled}`
+      );
     }
 
     const basketCount = await varaClient.getBasketCount();
@@ -270,14 +274,24 @@ async function processSettlements(): Promise<void> {
  */
 async function main() {
   console.log('Starting BasketMarket Settler Bot...');
-  console.log(`Vara RPC: ${VARA_RPC}`);
-  console.log(`Program ID: ${PROGRAM_ID} (length: ${PROGRAM_ID.length})`);
-  console.log(`Poll interval: ${POLL_INTERVAL}ms`);
-  console.log(`Finalize enabled: ${SHOULD_FINALIZE}`);
+  console.log(`Vara RPC: ${config.varaRpcUrl}`);
+  console.log(`BasketMarket program: ${config.basketMarketProgramId}`);
+  console.log(`Poll interval: ${config.pollIntervalMs}ms`);
+  console.log(`Finalize enabled: ${config.shouldFinalize}`);
+  console.log(`Polymarket Gamma API: ${config.polymarketGammaBaseUrl}`);
   console.log('');
 
   await varaClient.waitForReady();
   console.log('Connected to Vara Network');
+  const contractConfig = await varaClient.getConfig();
+  if (contractConfig) {
+    console.log(`BasketMarket settler role: ${contractConfig.settlerRole}`);
+    console.log(`BasketMarket admin role: ${contractConfig.adminRole}`);
+    console.log(`BasketMarket liveness_ms: ${contractConfig.livenessMs}`);
+    console.log(`BasketMarket varaEnabled: ${contractConfig.varaEnabled}`);
+  } else {
+    console.warn('Unable to read BasketMarket config at startup');
+  }
   console.log('');
 
   const poll = async () => {
@@ -305,7 +319,7 @@ async function main() {
       }
 
       // Process settlements that can be finalized
-      if (SHOULD_FINALIZE) {
+      if (config.shouldFinalize) {
         try {
           await processSettlements();
         } catch (error: any) {
@@ -338,7 +352,7 @@ async function main() {
   await poll();
 
   // Set up interval
-  const intervalId = setInterval(poll, POLL_INTERVAL);
+  const intervalId = setInterval(poll, config.pollIntervalMs);
 
   // Graceful shutdown
   process.on('SIGINT', async () => {

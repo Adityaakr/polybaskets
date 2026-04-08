@@ -30,6 +30,20 @@ type ItemResolution = struct {
   poly_price_no: u16,
 };
 
+type BasketMarketConfig = struct {
+  admin_role: actor_id,
+  settler_role: actor_id,
+  liveness_ms: u64,
+  vara_enabled: bool,
+};
+
+type AgentInfo = struct {
+  address: actor_id,
+  name: str,
+  registered_at: u64,
+  name_updated_at: u64,
+};
+
 type Basket = struct {
   id: u64,
   creator: actor_id,
@@ -80,13 +94,11 @@ type BasketMarketError = enum {
   MathOverflow,
   EventEmitFailed,
   InvalidConfig,
-};
-
-type BasketMarketConfig = struct {
-  admin_role: actor_id,
-  settler_role: actor_id,
-  liveness_ms: u64,
-  vara_enabled: bool,
+  AgentNameTooShort,
+  AgentNameTooLong,
+  AgentNameInvalid,
+  AgentNameTaken,
+  AgentRenameCooldown,
 };
 
 type Position = struct {
@@ -124,8 +136,12 @@ service BasketMarket {
   CreateBasket : (name: str, description: str, items: vec BasketItem, asset_kind: BasketAssetKind) -> u64;
   FinalizeSettlement : (basket_id: u64) -> null;
   ProposeSettlement : (basket_id: u64, item_resolutions: vec ItemResolution, payload: str) -> null;
+  RegisterAgent : (name: str) -> null;
   SetConfig : (config: BasketMarketConfig) -> null;
   SetVaraEnabled : (enabled: bool) -> null;
+  query GetAgent : (address: actor_id) -> opt AgentInfo;
+  query GetAgentCount : () -> u64;
+  query GetAllAgents : () -> vec AgentInfo;
   query GetBasket : (basket_id: u64) -> result (Basket, BasketMarketError);
   query GetBasketCount : () -> u64;
   query GetConfig : () -> BasketMarketConfig;
@@ -148,12 +164,14 @@ service BasketMarket {
     };
     SettlementProposed: struct {
       basket_id: u64,
+      asset_kind: BasketAssetKind,
       proposer: actor_id,
       payout_per_share: u128,
       challenge_deadline: u64,
     };
     SettlementFinalized: struct {
       basket_id: u64,
+      asset_kind: BasketAssetKind,
       finalized_at: u64,
       payout_per_share: u128,
     };
@@ -162,11 +180,21 @@ service BasketMarket {
       user: actor_id,
       amount: u128,
     };
-    ConfigUpdated: struct {
-      config: BasketMarketConfig,
+    AgentRegistered: struct {
+      agent: actor_id,
+      name: str,
+    };
+    AgentRenamed: struct {
+      agent: actor_id,
+      old_name: str,
+      new_name: str,
     };
     VaraSupportUpdated: struct {
       enabled: bool
     };
+    ConfigUpdated: struct {
+      config: BasketMarketConfig
+    };
   }
 };
+

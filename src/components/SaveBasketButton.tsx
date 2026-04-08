@@ -5,13 +5,13 @@ import { useBasket } from '@/contexts/BasketContext';
 import { useWallet } from '@/contexts/WalletContext';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { useApi, useAccount } from '@gear-js/react-hooks';
-import { getBaskets } from '@/lib/basket-storage';
-import { Basket } from '@/types/basket';
-import type { BasketAssetKind } from '@/types/basket';
-import { createSnapshot, validateBasket } from '@/lib/basket-utils';
-import { OutcomeProbabilities } from '@/types/polymarket';
-import { basketMarketProgramFromApi, toVara } from '@/lib/varaClient';
-import { calculateBetAllocationFromVara, formatVara, formatUsd, VARA_PRICE_USD } from '@/lib/betCalculator';
+import { getBaskets } from '@/lib/basket-storage.ts';
+import { Basket } from '@/types/basket.ts';
+import type { BasketAssetKind } from '@/types/basket.ts';
+import { createSnapshot, validateBasket } from '@/lib/basket-utils.ts';
+import { OutcomeProbabilities } from '@/types/polymarket.ts';
+import { basketMarketProgramFromApi, toVara } from '@/lib/varaClient.ts';
+import { calculateBetAllocationFromVara, formatVara, formatUsd, VARA_PRICE_USD } from '@/lib/betCalculator.ts';
 import {
   betLaneProgramFromApi,
   betTokenProgramFromApi,
@@ -24,7 +24,7 @@ import {
   toTokenUnits,
   waitForQueryMatch,
   withRateLimitRetry,
-} from '@/lib/betPrograms';
+} from '@/lib/betPrograms.ts';
 import { ENV, getDefaultBasketAssetKind, isVaraEnabled } from '@/env';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -32,10 +32,11 @@ import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Save, Circle, CheckCircle2, Clock } from 'lucide-react';
 import { useVaraEthBasketMarket } from '@/hooks/useVaraEthBasketMarket';
-import { toWVara } from '@/lib/varaEthClient';
+import { toWVara } from '@/lib/varaEthClient.ts';
 import { Badge } from '@/components/ui/badge';
 import { actorIdFromAddress } from '@/lib/varaClient';
 import { normalizeAssetKind, toContractAssetKind } from '@/lib/assetKind';
+import { requestBetQuote } from '@/lib/betQuoteService';
 
 interface SaveBasketButtonProps {
   marketProbabilities: Map<string, OutcomeProbabilities>;
@@ -462,12 +463,12 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
       const snapshotIndex = snapshot.basketIndex;
       const indexAtCreationBps = Math.max(1, Math.min(10000, Math.round(snapshotIndex * 10000)));
 
-      console.log(`[SaveBasketButton] Basket created with ID: ${basketId}, calculated index at creation: ${snapshotIndex} (${indexAtCreationBps} bps)`);
+      console.log(`[SaveBasketButton] Basket created with ID: ${basketId}, calculated snapshot index: ${snapshotIndex} (${indexAtCreationBps} bps)`);
 
       // IMPORTANT: Always place a bet if bet amount is provided
       // If no bet amount, user will need to bet separately (but warn them)
       if (betAmount && betAmountNum > 0) {
-        console.log(`[SaveBasketButton] Bet amount provided: ${betAmountNum}, placing bet with index ${indexAtCreationBps} bps`);
+        console.log(`[SaveBasketButton] Bet amount provided: ${betAmountNum}, placing bet for basket ${basketId}`);
         try {
           if (assetKind === 'FT') {
             if (!api || !account) {
@@ -480,6 +481,12 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
             const betTokenProgram = betTokenProgramFromApi(api);
             const betLaneProgram = betLaneProgramFromApi(api);
             const betUnits = toTokenUnits(betAmount, tokenDecimals);
+            const signedQuote = await requestBetQuote({
+              targetProgramId: betLaneProgram.programId,
+              user: walletActorId,
+              basketId,
+              amount: betUnits.toString(),
+            });
             const liveAllowance = toBigIntValue(
               await withRateLimitRetry(
                 () =>
@@ -502,7 +509,7 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
               });
 
               const placeBetTx = betLaneProgram.betLane
-                .placeBet(basketId, betUnits, indexAtCreationBps)
+                .placeBet(basketId, betUnits, signedQuote)
                 .withAccount(account.address, { signer: (account as any).signer })
                 .withGas('max');
 
@@ -514,7 +521,7 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
               });
             } else {
               const placeBetTx = betLaneProgram.betLane
-                .placeBet(basketId, betUnits, indexAtCreationBps)
+                .placeBet(basketId, betUnits, signedQuote)
                 .withAccount(account.address, { signer: (account as any).signer });
 
               try {
@@ -555,7 +562,7 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
 
             toast({
               title: `${tokenSymbol} Basket Created`,
-              description: `Your basket "${name}" was created and funded with ${betAmountNum.toFixed(4)} ${tokenSymbol} at index ${(indexAtCreationBps / 100).toFixed(2)}%.`,
+              description: `Your basket "${name}" was created and funded with ${betAmountNum.toFixed(4)} ${tokenSymbol} at index ${(signedQuote.payload.quoted_index_bps / 100).toFixed(2)}%.`,
             });
           } else if (isVaraEth) {
             console.log('Placing bet on basket (Vara.eth)...', { basketId, betAmountWVara: betAmountNum });
@@ -652,7 +659,7 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
             error: betError?.message || String(betError),
             stack: betError?.stack,
             basketId,
-            indexAtCreationBps,
+            snapshotIndexBps: indexAtCreationBps,
             betAmount: betAmountNum,
             network: isVaraEth ? 'Vara.eth' : 'Vara Network'
           });

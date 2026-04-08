@@ -109,8 +109,11 @@ export class VaraClient {
       .resolveMarket(marketId, winningIndex, resolverPayload)
       .withAccount(this.relayerAccount);
 
+    console.log(`[relayer] Market ${marketId}: calculating gas for resolveMarket(winningIndex=${winningIndex})`);
     await tx.calculateGas();
+    console.log(`[relayer] Market ${marketId}: signing and sending resolveMarket`);
     const { txHash, response } = await tx.signAndSend();
+    console.log(`[relayer] Market ${marketId}: resolve tx submitted (${txHash}), waiting for response`);
     const result = await response();
     if (result && typeof result === 'object' && 'err' in result) {
       throw new Error(`ResolveMarket error: ${result.err}`);

@@ -1,9 +1,9 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
-import { BasketItem, BasketDraft, Outcome } from '@/types/basket';
-import { PolymarketMarket, OutcomeProbabilities } from '@/types/polymarket';
-import { getDraft, saveDraft, clearDraft } from '@/lib/basket-storage';
-import { normalizeWeights, createItemFromMarket } from '@/lib/basket-utils';
-import { getOutcomeProbabilities } from '@/lib/polymarket';
+import { BasketItem, BasketDraft, Outcome } from '@/types/basket.ts';
+import { PolymarketMarket, OutcomeProbabilities } from '@/types/polymarket.ts';
+import { getDraft, saveDraft, clearDraft } from '@/lib/basket-storage.ts';
+import { normalizeWeights, createItemFromMarket } from '@/lib/basket-utils.ts';
+import { getOutcomeProbabilities } from '@/lib/polymarket.ts';
 
 interface BasketContextType {
   items: BasketItem[];

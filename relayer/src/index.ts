@@ -84,6 +84,7 @@ function updateMarketStatus(
 
 async function discoverMarketsFromChain(): Promise<MirroredMarket[]> {
   const count = await varaClient.getMarketCount();
+  console.log(`[relayer] Discovering markets from chain, count=${count}`);
   const discovered: MirroredMarket[] = [];
   for (let i = 0; i < count; i++) {
     const m = await varaClient.getMarket(i);
@@ -112,6 +113,10 @@ async function processMarket(market: MirroredMarket): Promise<void> {
       console.log(`${timestamp} ${logPrefix} Already resolved on-chain, skipping`);
       return;
     }
+
+    console.log(
+      `${timestamp} ${logPrefix} Candidate market loaded: polySlug=${market.polySlug}, polyId=${market.polyId}, lastStatus=${market.lastStatus}`
+    );
 
     // Fetch current Polymarket data
     let polyMarket: PolymarketMarket | null = null;
@@ -189,6 +194,7 @@ async function main() {
   console.log('');
 
   let markets = await loadMarkets();
+  console.log(`Loaded ${markets.length} mirrored markets from ${MARKETS_FILE}`);
 
   if (SHOULD_DISCOVER && markets.length === 0) {
     console.log('markets.json empty; discovering markets from on-chain program...');
@@ -204,10 +210,15 @@ async function main() {
     if (SHOULD_DISCOVER) {
       const discovered = await discoverMarketsFromChain();
       const existingIds = new Set(markets.map((m) => m.marketId));
+      let added = 0;
       for (const d of discovered) {
         if (!existingIds.has(d.marketId)) {
           markets.push(d);
+          added += 1;
         }
+      }
+      if (added > 0) {
+        console.log(`${timestamp} Added ${added} newly discovered market(s) from chain`);
       }
     }
 

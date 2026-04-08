@@ -58,7 +58,18 @@ export class SailsProgram {
           'MathOverflow',
           'EventEmitFailed',
           'InvalidConfig',
+          'AgentNameTooShort',
+          'AgentNameTooLong',
+          'AgentNameInvalid',
+          'AgentNameTaken',
+          'AgentRenameCooldown',
         ],
+      },
+      AgentInfo: {
+        address: '[u8;32]',
+        name: 'String',
+        registered_at: 'u64',
+        name_updated_at: 'u64',
       },
       BasketItem: {
         poly_market_id: 'String',
@@ -256,6 +267,21 @@ export class BasketMarket {
     );
   }
 
+  public registerAgent(name: string): TransactionBuilder<null> {
+    if (!this._program.programId) throw new Error('Program ID is not set');
+    return new TransactionBuilder<null>(
+      this._program.api,
+      this._program.registry,
+      'send_message',
+      'BasketMarket',
+      'RegisterAgent',
+      name,
+      'String',
+      'Null',
+      this._program.programId,
+    );
+  }
+
   public setConfig(config: BasketMarketConfig): TransactionBuilder<null> {
     if (!this._program.programId) throw new Error('Program ID is not set');
     return new TransactionBuilder<null>(
@@ -283,6 +309,45 @@ export class BasketMarket {
       'bool',
       'Null',
       this._program.programId,
+    );
+  }
+
+  public getAgent(address: ActorId): QueryBuilder<AgentInfo | null> {
+    return new QueryBuilder<AgentInfo | null>(
+      this._program.api,
+      this._program.registry,
+      this._program.programId,
+      'BasketMarket',
+      'GetAgent',
+      address,
+      '[u8;32]',
+      'Option<AgentInfo>',
+    );
+  }
+
+  public getAgentCount(): QueryBuilder<bigint> {
+    return new QueryBuilder<bigint>(
+      this._program.api,
+      this._program.registry,
+      this._program.programId,
+      'BasketMarket',
+      'GetAgentCount',
+      null,
+      null,
+      'u64',
+    );
+  }
+
+  public getAllAgents(): QueryBuilder<Array<AgentInfo>> {
+    return new QueryBuilder<Array<AgentInfo>>(
+      this._program.api,
+      this._program.registry,
+      this._program.programId,
+      'BasketMarket',
+      'GetAllAgents',
+      null,
+      null,
+      'Vec<AgentInfo>',
     );
   }
 

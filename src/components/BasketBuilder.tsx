@@ -1,6 +1,6 @@
 import { useBasket } from '@/contexts/BasketContext';
-import { formatWeight } from '@/lib/basket-utils';
-import { formatPrice, formatProbability } from '@/lib/polymarket';
+import { formatWeight } from '@/lib/basket-utils.ts';
+import { formatPrice, formatProbability } from '@/lib/polymarket.ts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';

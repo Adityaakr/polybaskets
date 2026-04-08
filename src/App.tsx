@@ -2,12 +2,13 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { NetworkProvider, useNetwork } from "@/contexts/NetworkContext";
 import { WalletProvider } from "@/contexts/WalletContext";
 import { BasketProvider } from "@/contexts/BasketContext";
 import { Header } from "@/components/layout/Header";
 import Index from "./pages/Index";
+import ExplorePage from "./pages/ExplorePage";
 import BuilderPage from "./pages/BuilderPage";
 import ClaimPage from "./pages/ClaimPage";
 import BasketPage from "./pages/BasketPage";
@@ -19,8 +20,61 @@ import { ApiProvider, AlertProvider, AccountProvider } from "@gear-js/react-hook
 import { Alert, alertStyles } from "@gear-js/vara-ui";
 import { ENV } from "./env";
 import { ReactNode } from "react";
+import { Send } from "lucide-react";
 
 const queryClient = new QueryClient();
+
+function AppRoutes() {
+  return (
+    <Routes>
+      <Route path="/" element={<Index />} />
+      <Route path="/explorer" element={<ExplorePage />} />
+      <Route path="/builder" element={<BuilderPage />} />
+      <Route path="/claim" element={<ClaimPage />} />
+      <Route path="/basket/:id" element={<BasketPage />} />
+      <Route path="/me" element={<MyBasketsPage />} />
+      <Route path="/leaderboard" element={<LeaderboardPage />} />
+      <Route path="*" element={<NotFound />} />
+    </Routes>
+  );
+}
+
+function TelegramUpdatesCta() {
+  return (
+    <a
+      href="https://t.me/polybaskets"
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label="Join PolyBaskets on Telegram"
+      className="fixed bottom-4 right-4 z-40 inline-flex items-center gap-2 rounded-full border border-primary/40 bg-background/90 px-4 py-2 text-sm font-medium text-primary shadow-[0_0_24px_rgba(132,255,0,0.12)] backdrop-blur-md transition-all duration-200 hover:border-primary/70 hover:bg-background hover:text-primary hover:shadow-[0_0_28px_rgba(132,255,0,0.2)]"
+    >
+      <Send className="h-4 w-4" />
+      <span>Get Updates</span>
+    </a>
+  );
+}
+
+function RoutedLayout() {
+  const location = useLocation();
+
+  if (location.pathname === "/") {
+    return (
+      <>
+        <AppRoutes />
+        <TelegramUpdatesCta />
+      </>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-background bg-pattern scanlines relative">
+      <div className="fixed inset-0 pointer-events-none -z-10" />
+      <Header />
+      <AppRoutes />
+      <TelegramUpdatesCta />
+    </div>
+  );
+}
 
 // Conditional Gear providers - only for Vara Network
 function GearProviders({ children }: { children: ReactNode }) {
@@ -47,20 +101,7 @@ function AppInner() {
           <Toaster />
           <Sonner />
           <BrowserRouter>
-            <div className="min-h-screen bg-background bg-pattern scanlines relative">
-              {/* Neon grid overlay */}
-              <div className="fixed inset-0 pointer-events-none -z-10" />
-              <Header />
-              <Routes>
-                <Route path="/" element={<Index />} />
-                <Route path="/builder" element={<BuilderPage />} />
-                <Route path="/claim" element={<ClaimPage />} />
-                <Route path="/basket/:id" element={<BasketPage />} />
-                <Route path="/me" element={<MyBasketsPage />} />
-                <Route path="/leaderboard" element={<LeaderboardPage />} />
-                <Route path="*" element={<NotFound />} />
-              </Routes>
-            </div>
+            <RoutedLayout />
           </BrowserRouter>
         </TooltipProvider>
       </BasketProvider>

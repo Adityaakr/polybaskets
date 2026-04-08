@@ -7,7 +7,7 @@ import {
   isMetaMaskInstalled,
   switchToHoodiNetwork,
   isOnHoodiNetwork
-} from '@/lib/evmWallet';
+} from '@/lib/evmWallet.ts';
 
 interface WalletContextType {
   address: string | null;

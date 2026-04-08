@@ -24,6 +24,8 @@ gtest = "1.10.0"
 awesome-sails-vft-admin = "0.2.0"
 bet-token = { path = "../bet-token" }
 polymarket-mirror = { path = "../program", features = ["wasm-binary"] }
+rand_core = "0.6"
+schnorrkel = { version = "0.10", default-features = false, features = ["u64_backend", "getrandom"] }
 
 [build-dependencies]
 bet-lane-app.workspace = true

@@ -1,8 +1,8 @@
 import { useMemo } from 'react';
 import { useBasket } from '@/contexts/BasketContext';
-import { calculateBasketIndex, formatChange, getChangeClass } from '@/lib/basket-utils';
-import { formatProbability, formatPrice } from '@/lib/polymarket';
-import { OutcomeProbabilities } from '@/types/polymarket';
+import { calculateBasketIndex, formatChange, getChangeClass } from '@/lib/basket-utils.ts';
+import { formatProbability, formatPrice } from '@/lib/polymarket.ts';
+import { OutcomeProbabilities } from '@/types/polymarket.ts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { TrendingUp, Clock, Layers, BarChart3 } from 'lucide-react';
 

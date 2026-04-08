@@ -2,8 +2,8 @@
 import { useMemo } from 'react';
 import { useWallet } from '@/contexts/WalletContext';
 import { useNetwork } from '@/contexts/NetworkContext';
-import { createVaraEthClients } from '@/lib/varaEthClient';
-import { createVaraEthBasketMarket, VaraEthBasketMarket } from '@/lib/varaEthBasketClient';
+import { createVaraEthClients } from '@/lib/varaEthClient.ts';
+import { createVaraEthBasketMarket, VaraEthBasketMarket } from '@/lib/varaEthBasketClient.ts';
 import { useState, useEffect } from 'react';
 
 export function useVaraEthBasketMarket(): {

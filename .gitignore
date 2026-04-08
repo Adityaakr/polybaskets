@@ -2,18 +2,29 @@
 node_modules
 settler-bot/node_modules
 relayer/node_modules
+contest-bot/node_modules
+indexer/node_modules
 
 # Build outputs
 dist
 dist-ssr
 *.local
+indexer/lib
+indexer/dist
+contest-bot/dist
+settler-bot/dist
 
 # Environment files
 .env
+.env.secrets
 .env.local
 .env.*.local
+.env.daily-contest
+.env.daily-contest.secrets
 settler-bot/.env
 relayer/.env
+contest-bot/.env
+indexer/.env
 
 # Logs
 logs
@@ -41,8 +52,10 @@ Thumbs.db
 program/target
 bet-lane/target
 bet-token/target
+daily-contest/target
 bet-lane/Cargo.lock
 bet-token/Cargo.lock
+daily-contest/Cargo.lock
 test-app/
 
 # Lock files (keep package-lock.json)

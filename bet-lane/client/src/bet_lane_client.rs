@@ -72,7 +72,7 @@ pub mod bet_lane {
             &mut self,
             basket_id: u64,
             amount: U256,
-            index_at_creation_bps: u16,
+            signed_quote: SignedBetQuote,
         ) -> sails_rs::client::PendingCall<io::PlaceBet, Self::Env>;
         fn resume(&mut self) -> sails_rs::client::PendingCall<io::Resume, Self::Env>;
         fn revoke_role(
@@ -80,6 +80,10 @@ pub mod bet_lane {
             role_id: [u8; 32],
             account: ActorId,
         ) -> sails_rs::client::PendingCall<io::RevokeRole, Self::Env>;
+        fn rotate_quote_signer(
+            &mut self,
+            new_quote_signer: ActorId,
+        ) -> sails_rs::client::PendingCall<io::RotateQuoteSigner, Self::Env>;
         fn set_config(
             &mut self,
             config: BetLaneConfig,
@@ -107,6 +111,12 @@ pub mod bet_lane {
             limit: u32,
         ) -> sails_rs::client::PendingCall<io::GetPositions, Self::Env>;
         fn is_paused(&self) -> sails_rs::client::PendingCall<io::IsPaused, Self::Env>;
+        fn is_quote_nonce_used(
+            &self,
+            user: ActorId,
+            nonce: u128,
+        ) -> sails_rs::client::PendingCall<io::IsQuoteNonceUsed, Self::Env>;
+        fn quote_signer(&self) -> sails_rs::client::PendingCall<io::QuoteSigner, Self::Env>;
     }
     pub struct BetLaneImpl;
     impl<E: sails_rs::client::GearEnv> BetLane for sails_rs::client::Service<BetLaneImpl, E> {
@@ -134,9 +144,9 @@ pub mod bet_lane {
             &mut self,
             basket_id: u64,
             amount: U256,
-            index_at_creation_bps: u16,
+            signed_quote: SignedBetQuote,
         ) -> sails_rs::client::PendingCall<io::PlaceBet, Self::Env> {
-            self.pending_call((basket_id, amount, index_at_creation_bps))
+            self.pending_call((basket_id, amount, signed_quote))
         }
         fn resume(&mut self) -> sails_rs::client::PendingCall<io::Resume, Self::Env> {
             self.pending_call(())
@@ -147,6 +157,12 @@ pub mod bet_lane {
             account: ActorId,
         ) -> sails_rs::client::PendingCall<io::RevokeRole, Self::Env> {
             self.pending_call((role_id, account))
+        }
+        fn rotate_quote_signer(
+            &mut self,
+            new_quote_signer: ActorId,
+        ) -> sails_rs::client::PendingCall<io::RotateQuoteSigner, Self::Env> {
+            self.pending_call((new_quote_signer,))
         }
         fn set_config(
             &mut self,
@@ -194,6 +210,16 @@ pub mod bet_lane {
         fn is_paused(&self) -> sails_rs::client::PendingCall<io::IsPaused, Self::Env> {
             self.pending_call(())
         }
+        fn is_quote_nonce_used(
+            &self,
+            user: ActorId,
+            nonce: u128,
+        ) -> sails_rs::client::PendingCall<io::IsQuoteNonceUsed, Self::Env> {
+            self.pending_call((user, nonce))
+        }
+        fn quote_signer(&self) -> sails_rs::client::PendingCall<io::QuoteSigner, Self::Env> {
+            self.pending_call(())
+        }
     }
 
     pub mod io {
@@ -202,9 +228,10 @@ pub mod bet_lane {
         sails_rs::io_struct_impl!(Claim (basket_id: u64) -> U256);
         sails_rs::io_struct_impl!(GrantRole (role_id: [u8; 32], account: ActorId) -> ());
         sails_rs::io_struct_impl!(Pause () -> ());
-        sails_rs::io_struct_impl!(PlaceBet (basket_id: u64, amount: U256, index_at_creation_bps: u16) -> U256);
+        sails_rs::io_struct_impl!(PlaceBet (basket_id: u64, amount: U256, signed_quote: super::SignedBetQuote) -> U256);
         sails_rs::io_struct_impl!(Resume () -> ());
         sails_rs::io_struct_impl!(RevokeRole (role_id: [u8; 32], account: ActorId) -> ());
+        sails_rs::io_struct_impl!(RotateQuoteSigner (new_quote_signer: ActorId) -> ());
         sails_rs::io_struct_impl!(SetConfig (config: super::BetLaneConfig) -> ());
         sails_rs::io_struct_impl!(SetDependencies (dependencies: super::BetLaneDependencies) -> ());
         sails_rs::io_struct_impl!(BasketProgramId () -> ActorId);
@@ -214,6 +241,8 @@ pub mod bet_lane {
         sails_rs::io_struct_impl!(GetPosition (user: ActorId, basket_id: u64) -> super::Position);
         sails_rs::io_struct_impl!(GetPositions (user: ActorId, offset: u32, limit: u32) -> Result<Vec<super::UserPositionView>, super::BetLaneError>);
         sails_rs::io_struct_impl!(IsPaused () -> bool);
+        sails_rs::io_struct_impl!(IsQuoteNonceUsed (user: ActorId, nonce: u128) -> bool);
+        sails_rs::io_struct_impl!(QuoteSigner () -> ActorId);
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -227,7 +256,9 @@ pub mod bet_lane {
                 user: ActorId,
                 amount: U256,
                 user_total: U256,
-                index_at_creation_bps: u16,
+                quoted_index_bps: u16,
+                position_index_at_creation_bps: u16,
+                quote_nonce: u128,
             },
             Claimed {
                 basket_id: u64,
@@ -238,6 +269,10 @@ pub mod bet_lane {
             Resumed,
             ConfigUpdated(BetLaneConfig),
             DependenciesUpdated(BetLaneDependencies),
+            QuoteSignerRotated {
+                previous_quote_signer: ActorId,
+                new_quote_signer: ActorId,
+            },
         }
         impl sails_rs::client::Event for BetLaneEvents {
             const EVENT_NAMES: &'static [Route] = &[
@@ -247,6 +282,7 @@ pub mod bet_lane {
                 "Resumed",
                 "ConfigUpdated",
                 "DependenciesUpdated",
+                "QuoteSignerRotated",
             ];
         }
         impl sails_rs::client::ServiceWithEvents for BetLaneImpl {
@@ -576,6 +612,26 @@ pub struct BetLaneConfig {
     pub min_bet: U256,
     pub max_bet: U256,
     pub payouts_allowed_while_paused: bool,
+    pub quote_signer: ActorId,
+}
+#[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
+pub struct SignedBetQuote {
+    pub payload: BetQuotePayload,
+    pub signature: Vec<u8>,
+}
+#[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
+pub struct BetQuotePayload {
+    pub target_program_id: ActorId,
+    pub user: ActorId,
+    pub basket_id: u64,
+    pub amount: U256,
+    pub quoted_index_bps: u16,
+    pub deadline_ms: u64,
+    pub nonce: u128,
 }
 #[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]
 #[codec(crate = sails_rs::scale_codec)]
@@ -610,6 +666,16 @@ pub enum BetLaneError {
     AmountBelowMinBet,
     AmountAboveMaxBet,
     InvalidIndexAtCreation,
+    QuoteSignerNotConfigured,
+    QuoteTargetMismatch,
+    QuoteUserMismatch,
+    QuoteBasketMismatch,
+    QuoteAmountMismatch,
+    QuoteExpired,
+    QuoteNonceAlreadyUsed,
+    InvalidQuoteSignature,
+    InvalidQuoteSigner,
+    QuoteVerificationFailed,
     BasketQueryFailed,
     BasketNotFound,
     BasketNotActive,

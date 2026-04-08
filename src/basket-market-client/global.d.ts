@@ -46,7 +46,12 @@ declare global {
     | "TransferFailed"
     | "MathOverflow"
     | "EventEmitFailed"
-    | "InvalidConfig";
+    | "InvalidConfig"
+    | "AgentNameTooShort"
+    | "AgentNameTooLong"
+    | "AgentNameInvalid"
+    | "AgentNameTaken"
+    | "AgentRenameCooldown";
 
   export interface BasketItem {
     poly_market_id: string;
@@ -102,4 +107,11 @@ declare global {
   }
 
   export type SettlementStatus = "Proposed" | "Finalized";
+
+  export interface AgentInfo {
+    address: ActorId;
+    name: string;
+    registered_at: number | string | bigint;
+    name_updated_at: number | string | bigint;
+  }
 };

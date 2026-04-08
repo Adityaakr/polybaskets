@@ -202,6 +202,34 @@
     opacity: 1;
   }
 
+  .market-card-neutral {
+    box-shadow: 0 10px 28px -18px rgb(0 0 0 / 0.7), 0 0 0 1px hsl(220 15% 26% / 0.2);
+    @apply border-border/70;
+  }
+
+  .market-card-neutral::before {
+    background: linear-gradient(180deg, hsl(220 15% 24% / 0.22), hsl(220 14% 18% / 0.12));
+    opacity: 0.9;
+  }
+
+  .market-card-neutral:hover {
+    box-shadow: 0 14px 32px -20px rgb(0 0 0 / 0.75), 0 0 0 1px hsl(220 15% 30% / 0.35);
+    @apply border-primary/25;
+  }
+
+  .market-card-neutral:hover::before {
+    opacity: 1;
+  }
+
+  .market-live-panel {
+    border-color: hsl(var(--border) / 0.75);
+    background:
+      linear-gradient(180deg, hsl(220 18% 16% / 0.96) 0%, hsl(220 16% 14% / 0.96) 100%);
+    box-shadow:
+      inset 0 1px 0 hsl(0 0% 100% / 0.03),
+      0 0 0 1px hsl(220 15% 26% / 0.12);
+  }
+
   /* Logo glow effect - Neon Green */
   .logo-glow {
     filter: drop-shadow(0 0 12px hsl(120 100% 50% / 0.6));
