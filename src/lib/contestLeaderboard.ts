@@ -226,7 +226,7 @@ export const formatCompactChipAmount = (value: string | null): string => {
 
 const graphQLRequest = async <T>(
   query: string,
-  variables: Record<string, string>,
+  variables: Record<string, string | number>,
 ): Promise<T> => {
   const response = await fetch(GRAPHQL_ENDPOINT, {
     method: "POST",
@@ -284,8 +284,8 @@ export const fetchAllTimeTradingPnl = async (): Promise<AllTimeTradingPnlEntry[]
     const data = await graphQLRequest<AllTimeTradingPnlQuery>(
       ALL_TIME_TRADING_PNL_QUERY,
       {
-        offset: offset.toString(),
-        first: ALL_TIME_TRADING_BATCH_SIZE.toString(),
+        offset,
+        first: ALL_TIME_TRADING_BATCH_SIZE,
       },
     );
 
