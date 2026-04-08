@@ -1,3 +1,4 @@
+import { webcrypto } from 'node:crypto';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -9,6 +10,10 @@ import { GaslessProgram } from './entities/gasless-program.entity';
 import { Voucher } from './entities/voucher.entity';
 import { GaslessModule } from './gasless/gasless.module';
 import configuration from './config/configuration';
+
+if (!globalThis.crypto) {
+  globalThis.crypto = webcrypto as typeof globalThis.crypto;
+}
 
 @Module({
   imports: [
