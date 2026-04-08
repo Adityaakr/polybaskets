@@ -57,6 +57,10 @@ async function processBasket(basketId: number): Promise<void> {
       return;
     }
 
+    console.log(
+      `${timestamp} ${logPrefix} Candidate basket loaded: status=${basket.status}, asset_kind=${basket.asset_kind}, items=${basket.items.length}`
+    );
+
     // Fetch Polymarket data for all items
     console.log(`${timestamp} ${logPrefix} Fetching Polymarket data for ${basket.items.length} items...`);
     const markets = await fetchBasketItemMarkets(basket.items);
@@ -198,6 +202,9 @@ async function processSettlements(): Promise<void> {
     const livenessMinutes = contractConfig ? (contractConfig.livenessMs / 60_000).toFixed(0) : 'unknown';
     if (contractConfig) {
       console.log(`[processSettlements] Contract liveness_ms: ${contractConfig.livenessMs} (${livenessMinutes} minutes challenge period)`);
+      console.log(
+        `[processSettlements] Contract roles: admin=${contractConfig.adminRole}, settler=${contractConfig.settlerRole}, varaEnabled=${contractConfig.varaEnabled}`
+      );
     }
 
     const basketCount = await varaClient.getBasketCount();
@@ -276,6 +283,15 @@ async function main() {
 
   await varaClient.waitForReady();
   console.log('Connected to Vara Network');
+  const contractConfig = await varaClient.getConfig();
+  if (contractConfig) {
+    console.log(`BasketMarket settler role: ${contractConfig.settlerRole}`);
+    console.log(`BasketMarket admin role: ${contractConfig.adminRole}`);
+    console.log(`BasketMarket liveness_ms: ${contractConfig.livenessMs}`);
+    console.log(`BasketMarket varaEnabled: ${contractConfig.varaEnabled}`);
+  } else {
+    console.warn('Unable to read BasketMarket config at startup');
+  }
   console.log('');
 
   const poll = async () => {

@@ -72,7 +72,7 @@ export class BasketMarketVaraClient {
 
       this.isConnected = true;
       this.reconnectAttempts = 0;
-      console.log('BasketMarket Vara client initialized');
+      console.log(`BasketMarket Vara client initialized for program ${this.programId}`);
     } catch (error) {
       this.isConnected = false;
       throw error;
@@ -280,8 +280,11 @@ export class BasketMarketVaraClient {
         .proposeSettlement(basketId, itemResolutions, payload)
         .withAccount(this.settlerAccount);
 
+      console.log(`[settler-bot] Basket ${basketId}: calculating gas for settlement proposal`);
       await tx.calculateGas();
+      console.log(`[settler-bot] Basket ${basketId}: signing and sending settlement proposal`);
       const { txHash, response } = await tx.signAndSend();
+      console.log(`[settler-bot] Basket ${basketId}: proposal tx submitted (${txHash}), waiting for response`);
       await response();
       
       return txHash;
@@ -303,8 +306,11 @@ export class BasketMarketVaraClient {
         .finalizeSettlement(basketId)
         .withAccount(this.settlerAccount);
 
+      console.log(`[settler-bot] Basket ${basketId}: calculating gas for settlement finalization`);
       await tx.calculateGas();
+      console.log(`[settler-bot] Basket ${basketId}: signing and sending settlement finalization`);
       const { txHash, response } = await tx.signAndSend();
+      console.log(`[settler-bot] Basket ${basketId}: finalization tx submitted (${txHash}), waiting for response`);
       await response();
       
       return txHash;

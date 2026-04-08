@@ -87,12 +87,20 @@ export class SailsDecoder {
     args: {
       message: { payload },
     },
-  }: UserMessageSentEvent): EventMessage<T> {
+  }: UserMessageSentEvent): EventMessage<T> | null {
     const service = this.service(payload);
     const method = this.method(payload);
-    const result = this.program.services[service].events[method]?.decode(
-      payload
-    );
+    const serviceDef = this.program.services[service];
+    if (!serviceDef?.events) {
+      return null;
+    }
+
+    const eventDef = serviceDef.events[method];
+    if (!eventDef) {
+      return null;
+    }
+
+    const result = eventDef.decode(payload);
 
     return {
       service,

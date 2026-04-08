@@ -87,7 +87,19 @@ export class SailsDailyContestChainClient implements DailyContestChainClient {
     console.log(
       `[contest-bot] Calculating gas for day ${day.dayId.toString()} settlement`,
     );
-    await tx.calculateGas();
+    try {
+      await tx.calculateGas();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes("DayAlreadySettled")) {
+        console.log(
+          `[contest-bot] Day ${day.dayId.toString()} is already settled on-chain; skipping duplicate settlement attempt while indexer catches up`,
+        );
+        return "already-settled";
+      }
+
+      throw error;
+    }
     console.log(
       `[contest-bot] Signing and sending settlement for day ${day.dayId.toString()}`,
     );

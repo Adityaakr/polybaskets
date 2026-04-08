@@ -339,8 +339,15 @@ export class DailyContestHandler extends BaseHandler {
 
     const service = decoder.service(event.args.message.payload);
     const method = decoder.method(event.args.message.payload);
+    const decodedEvent = decoder.decodeEvent(event);
+    if (!decodedEvent) {
+      console.warn(
+        `[indexer] Skipping undecodable Sails payload from program ${event.args.message.source}: service=${service}, method=${method}, messageId=${event.args.message.id}`,
+      );
+      return;
+    }
 
-    const payload = decoder.decodeEvent(event).payload;
+    const payload = decodedEvent.payload;
 
     if (event.args.message.source === config.basketMarketProgramId) {
       if (service !== "BasketMarket") {
