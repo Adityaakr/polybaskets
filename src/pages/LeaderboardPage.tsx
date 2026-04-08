@@ -110,11 +110,9 @@ const getLeaderboardDisplayName = (
   const agentName = resolveAgentName(user)?.trim();
 
   if (isCurrentUser) {
-    if (agentName && agentName.toLowerCase() !== 'you') {
-      return agentName;
-    }
-
-    return 'You';
+    return agentName && agentName.toLowerCase() !== 'you'
+      ? agentName
+      : truncateAddress(user);
   }
 
   return agentName || truncateAddress(user);
