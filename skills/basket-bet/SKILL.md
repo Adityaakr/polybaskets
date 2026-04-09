@@ -118,30 +118,48 @@ vara-wallet --account agent call $BET_TOKEN BetToken/Approve \
 
 Bets require a signed quote from the bet-quote-service. The quote service fetches live Polymarket prices, computes the index, and signs the payload. The contract verifies the signature on-chain.
 
-**All-in-one command** (get quote + convert signature + place bet — must run in one shell command to avoid the 30-second quote expiry):
+**Recommended: Use the helper script** (avoids shell escaping issues with the 64-byte signature array):
 
 ```bash
 # Replace <BASKET_ID> and <AMOUNT_RAW> with real values
+python3 $_PB/basket-bet/place_bet.py \
+  --user "$MY_ADDR" \
+  --basket-id <BASKET_ID> \
+  --amount "<AMOUNT_RAW>" \
+  --bet-lane "$BET_LANE" \
+  --voucher "$VOUCHER_ID" \
+  --idl "$BET_LANE_IDL" \
+  --quote-url "$BET_QUOTE_URL"
+```
+
+The script gets a fresh quote, converts the signature to a byte array, and calls `vara-wallet PlaceBet` — all in one process, no shell escaping.
+
+**Alternative: Shell one-liner** (works but fragile — shell variable expansion can break with the signature byte array):
+
+```bash
 QUOTE=$(curl -s -X POST "$BET_QUOTE_URL/api/bet-lane/quote" \
   -H 'Content-Type: application/json' \
   -d '{"user":"'"$MY_ADDR"'","basketId":<BASKET_ID>,"amount":"<AMOUNT_RAW>","targetProgramId":"'"$BET_LANE"'"}') && \
 echo "$QUOTE" | jq -e '.payload' >/dev/null 2>&1 || { echo "Quote failed: $QUOTE"; exit 1; } && \
 python3 -c "
-import json, sys
+import json, subprocess, sys
 q = json.loads('''$QUOTE''')
 sig = q['signature']
 q['signature'] = list(bytes.fromhex(sig[2:] if sig.startswith('0x') else sig))
-args = [<BASKET_ID>, '<AMOUNT_RAW>', q]
-with open('/tmp/placebet_args.json', 'w') as f:
-    json.dump(args, f)
-" && \
-vara-wallet --account agent call $BET_LANE BetLane/PlaceBet \
-  --args "$(cat /tmp/placebet_args.json)" --voucher $VOUCHER_ID --idl $BET_LANE_IDL
+args = json.dumps([<BASKET_ID>, '<AMOUNT_RAW>', q])
+r = subprocess.run(['vara-wallet', '--account', 'agent', 'call',
+  '$BET_LANE', 'BetLane/PlaceBet',
+  '--args', args, '--voucher', '$VOUCHER_ID', '--idl', '$BET_LANE_IDL'],
+  capture_output=True, text=True)
+print(r.stdout)
+if r.stderr: print(r.stderr, file=sys.stderr)
+sys.exit(r.returncode)
+"
 ```
 
 **CRITICAL rules for placing bets:**
 1. **Do NOT manually reconstruct the quote object.** The quote has a `{"payload": {...}, "signature": "0x..."}` structure — if you rebuild it without the `payload` wrapper, the contract will reject it with `InvalidIndexAtCreation`.
-2. **Do NOT use inline `$QUOTE` variable expansion** in `--args`. Shell escaping breaks with the 64-byte signature array. Always write args to a file and use `--args "$(cat /tmp/placebet_args.json)"`.
+2. **Do NOT pass args via shell variable expansion** (`--args "$ARGS"` or `--args "$(cat file)"`). Shell escaping breaks with the 64-byte signature array, producing `[object Object]` errors. Instead, use the `place_bet.py` script or call `vara-wallet` from within Python via `subprocess.run()`.
 
 The quote is valid for 30 seconds. If it expires, request a new one. Each quote has a unique nonce and can only be used once.
 
@@ -162,20 +180,12 @@ vara-wallet --account agent call $BET_TOKEN BetToken/Claim \
 vara-wallet --account agent call $BET_TOKEN BetToken/Approve \
   --args '["'$BET_LANE'", "100000000000000"]' --voucher $VOUCHER_ID --idl $BET_TOKEN_IDL
 
-# 3. Get quote + convert signature + write args to file + place bet (30s expiry!)
-# ⚠ Do NOT manually reconstruct the quote. Do NOT use inline $QUOTE in --args.
-QUOTE=$(curl -s -X POST "$BET_QUOTE_URL/api/bet-lane/quote" \
-  -H 'Content-Type: application/json' \
-  -d '{"user":"'"$MY_ADDR"'","basketId":0,"amount":"100000000000000","targetProgramId":"'"$BET_LANE"'"}') && \
-python3 -c "
-import json
-q = json.loads('''$QUOTE''')
-sig = q['signature']
-q['signature'] = list(bytes.fromhex(sig[2:] if sig.startswith('0x') else sig))
-json.dump([0, '100000000000000', q], open('/tmp/placebet_args.json', 'w'))
-" && \
-vara-wallet --account agent call $BET_LANE BetLane/PlaceBet \
-  --args "$(cat /tmp/placebet_args.json)" --voucher $VOUCHER_ID --idl $BET_LANE_IDL
+# 3. Get quote + place bet (uses helper script to avoid shell escaping issues)
+# ⚠ Do NOT manually reconstruct the quote. Do NOT pass args via shell variables.
+python3 $_PB/basket-bet/place_bet.py \
+  --user "$MY_ADDR" --basket-id 0 --amount "100000000000000" \
+  --bet-lane "$BET_LANE" --voucher "$VOUCHER_ID" \
+  --idl "$BET_LANE_IDL" --quote-url "$BET_QUOTE_URL"
 
 # 5. Verify position
 vara-wallet call $BET_LANE BetLane/GetPosition \

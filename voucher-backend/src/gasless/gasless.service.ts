@@ -57,6 +57,28 @@ export class GaslessService {
     return Math.abs(hash);
   }
 
+  /**
+   * Compute VARA to issue for a program based on its weight relative to all
+   * enabled programs and the daily cap. Heavier programs (higher gas per tx)
+   * get a proportionally larger share.
+   *
+   * Formula: amount = floor(dailyCap * weight / totalWeight)
+   * Minimum 1 VARA per program.
+   */
+  private async computeVaraToIssue(program: GaslessProgram): Promise<number> {
+    const dailyCap = this.configService.get<number>('dailyVaraCap');
+
+    const programs = await this.programRepo.findBy({
+      status: GaslessProgramStatus.Enabled,
+    });
+    const totalWeight = programs.reduce((sum, p) => sum + p.weight, 0);
+
+    if (totalWeight === 0) return program.varaToIssue; // fallback to DB value
+
+    const amount = Math.floor(dailyCap * program.weight / totalWeight);
+    return Math.max(amount, 1);
+  }
+
   async getVoucherInfo() {
     return {
       address: this.voucherService.account?.address,
@@ -89,7 +111,8 @@ export class GaslessService {
       );
     }
 
-    const { duration, varaToIssue: amount } = program;
+    const { duration } = program;
+    const amount = await this.computeVaraToIssue(program);
 
     // Use a QueryRunner to pin lock/unlock + queries to the same DB connection.
     // pg_advisory_lock is session-scoped, so using DataSource.query() risks
