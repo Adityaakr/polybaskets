@@ -1,5 +1,5 @@
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useDeferredValue } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { getBasketById, isFollowing, followBasket, unfollowBasket, getFollowerCount, deleteBasket } from '@/lib/basket-storage.ts';
 import { searchMarkets, getOutcomeProbabilities, getOutcomePrices, getMarketDetailsBatch, formatProbability, formatPrice } from '@/lib/polymarket.ts';
@@ -108,6 +108,32 @@ function formatDurationFromSeconds(totalSeconds: number): string {
 
   return `${Math.max(1, minutes)} minute${minutes === 1 ? '' : 's'}`;
 }
+
+type BasketItemChange = {
+  currentProb: number;
+  originalProb: number;
+  change: number;
+  changePercent: number | null;
+  multiple: number | null;
+  isLowBase: boolean;
+};
+
+type BasketItemRow = {
+  key: string;
+  item: Basket['items'][number];
+  price: number | null;
+  currentProb: number | null;
+  change?: BasketItemChange;
+  isPositive: boolean;
+  polymarketUrl: string | null;
+  marketStatus?: { closed: boolean; active: boolean; resolved?: 'YES' | 'NO' | null };
+  isClosed: boolean;
+  isResolved: boolean;
+  resolvedOutcome?: 'YES' | 'NO' | null;
+  weight: number;
+  contribution: number | null;
+  probChange: number;
+};
 
 export default function BasketPage() {
   const { id } = useParams<{ id: string }>();
@@ -861,6 +887,92 @@ export default function BasketPage() {
 
     return changes;
   }, [basket, itemMarketsData, liveMarketPricesById, snapshotComponentsByIndex]);
+  const basketItemRows = useMemo(() => {
+    if (!basket) {
+      return [] as BasketItemRow[];
+    }
+
+    const settlementResolutionsByIndex = new Map(
+      usesSettlementIndex
+        ? (settlement?.item_resolutions ?? []).map((resolution) => [resolution.item_index, resolution])
+        : [],
+    );
+
+    return basket.items.map((item, index) => {
+      const settlementResolution = settlementResolutionsByIndex.get(index);
+      const hasFinalResolution = Boolean(settlementResolution);
+      const resolutionPrices = settlementResolution
+        ? {
+            YES: settlementResolution.poly_price_yes / 10000,
+            NO: settlementResolution.poly_price_no / 10000,
+          }
+        : null;
+      const prices = hasFinalResolution
+        ? resolutionPrices
+        : marketPrices.get(item.marketId) ?? null;
+      const price = prices ? (item.outcome === 'YES' ? prices.YES : prices.NO) : null;
+      const currentProb = prices ? (item.outcome === 'YES' ? prices.YES : prices.NO) : probabilities[index];
+      const fallbackChange = itemChanges.get(index);
+      const snapshotComponent = snapshotComponentsByIndex.get(index);
+      const change = hasFinalResolution && snapshotComponent
+        ? {
+            currentProb: currentProb ?? 0,
+            originalProb: snapshotComponent.prob,
+            change: (currentProb ?? 0) - snapshotComponent.prob,
+            changePercent: ((currentProb ?? 0) - snapshotComponent.prob) * 100,
+            multiple: snapshotComponent.prob > 0 && snapshotComponent.prob < LOW_BASE_PROBABILITY_THRESHOLD
+              ? (currentProb ?? 0) / snapshotComponent.prob
+              : null,
+            isLowBase: snapshotComponent.prob > 0 && snapshotComponent.prob < LOW_BASE_PROBABILITY_THRESHOLD,
+          }
+        : fallbackChange;
+      const polymarketUrl = item.slug ? `https://polymarket.com/event/${item.slug}` : null;
+      const marketStatus = hasFinalResolution
+        ? {
+            closed: true,
+            active: false,
+            resolved: settlementResolution?.resolved ?? null,
+          }
+        : marketStatuses.get(item.marketId);
+      const isClosed = marketStatus?.closed ?? false;
+      const isResolved = marketStatus?.resolved !== null && marketStatus?.resolved !== undefined;
+      const resolvedOutcome = marketStatus?.resolved;
+      const weight = item.weightBps / 10000;
+      const contribution = currentProb !== null ? weight * currentProb : null;
+      const probChange = change ? change.change : 0;
+
+      return {
+        key: `${item.marketId}-${item.outcome}`,
+        item,
+        price,
+        currentProb,
+        change,
+        isPositive: change ? change.change >= 0 : false,
+        polymarketUrl,
+        marketStatus,
+        isClosed,
+        isResolved,
+        resolvedOutcome,
+        weight,
+        contribution,
+        probChange,
+      };
+    });
+  }, [basket, usesSettlementIndex, settlement?.item_resolutions, marketPrices, probabilities, itemChanges, marketStatuses, snapshotComponentsByIndex]);
+  const deferredBasketItemRows = useDeferredValue(basketItemRows);
+  const isBasketItemsRefreshing = deferredBasketItemRows !== basketItemRows;
+  const hasFinalItemResolutions = usesSettlementIndex && deferredBasketItemRows.some((row) => row.isResolved);
+  const basketStatusSummary = useMemo(() => {
+    const resolvedCount = deferredBasketItemRows.filter((row) => row.isResolved).length;
+    const closedUnresolvedCount = deferredBasketItemRows.filter((row) => row.isClosed && !row.isResolved).length;
+    const openCount = deferredBasketItemRows.length - resolvedCount - closedUnresolvedCount;
+
+    return {
+      resolvedCount,
+      closedUnresolvedCount,
+      openCount,
+    };
+  }, [deferredBasketItemRows]);
 
   const creationSnapshotIndex = getCreationSnapshotIndex(basket);
   const nativePositionEntryIndex = userPosition?.index_at_creation_bps !== undefined
@@ -1590,72 +1702,63 @@ export default function BasketPage() {
           <Card className="card-elevated">
             <CardHeader>
               <div className="flex items-center justify-between">
-                <CardTitle className="text-base">Basket Items</CardTitle>
-                {marketStatuses.size > 0 && (() => {
-                  const resolvedCount = Array.from(marketStatuses.values()).filter(s => s.resolved !== null && s.resolved !== undefined).length;
-                  const closedUnresolvedCount = Array.from(marketStatuses.values()).filter(s => s.closed && (s.resolved === null || s.resolved === undefined)).length;
-                  const openCount = basket.items.length - resolvedCount - closedUnresolvedCount;
-                  return (
-                    <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                      {resolvedCount > 0 && (
-                        <span className="flex items-center gap-1">
-                          <CheckCircle className="w-3 h-3 text-green-600 dark:text-green-400" />
-                          {resolvedCount} resolved
-                        </span>
-                      )}
-                      {closedUnresolvedCount > 0 && (
-                        <span className="flex items-center gap-1">
-                          <Clock className="w-3 h-3 text-yellow-600 dark:text-yellow-400" />
-                          {closedUnresolvedCount} closed
-                        </span>
-                      )}
-                      {openCount > 0 && (
-                        <span className="flex items-center gap-1">
-                          <Circle className="w-3 h-3 text-blue-600 dark:text-blue-400 fill-current" />
-                          {openCount} open
-                        </span>
-                      )}
-                    </div>
-                  );
-                })()}
+                <div className="flex items-center gap-3">
+                  <CardTitle className="text-base">Basket Items</CardTitle>
+                  {isBasketItemsRefreshing && !usesSettlementIndex && (
+                    <span className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                      Updating
+                    </span>
+                  )}
+                </div>
+                {deferredBasketItemRows.length > 0 && (
+                  <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                    {basketStatusSummary.resolvedCount > 0 && (
+                      <span className="flex items-center gap-1">
+                        <CheckCircle className="w-3 h-3 text-green-600 dark:text-green-400" />
+                        {basketStatusSummary.resolvedCount} resolved
+                      </span>
+                    )}
+                    {basketStatusSummary.closedUnresolvedCount > 0 && (
+                      <span className="flex items-center gap-1">
+                        <Clock className="w-3 h-3 text-yellow-600 dark:text-yellow-400" />
+                        {basketStatusSummary.closedUnresolvedCount} closed
+                      </span>
+                    )}
+                    {basketStatusSummary.openCount > 0 && (
+                      <span className="flex items-center gap-1">
+                        <Circle className="w-3 h-3 text-blue-600 dark:text-blue-400 fill-current" />
+                        {basketStatusSummary.openCount} open
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             </CardHeader>
             <CardContent>
-              <div className="border rounded-lg divide-y">
-                <div className="grid grid-cols-9 gap-2 px-4 py-2.5 text-xs font-medium text-muted-foreground bg-muted/50">
-                  <span className="col-span-2">Market</span>
-                  <span className="text-center">Position</span>
-                  <span className="text-right">Status</span>
-                  <span className="text-right">Weight</span>
-                  <span className="text-right">Price (Live)</span>
-                  <span className="text-right">Prob (Live)</span>
-                  <span className="text-right">Original</span>
-                  <span className="text-right">Change</span>
-                </div>
-                {basket.items.map((item, index) => {
-                  const prices = marketPrices.get(item.marketId);
-                  const price = prices ? (item.outcome === 'YES' ? prices.YES : prices.NO) : null;
-                  const currentProb = probabilities[index];
-                  const change = itemChanges.get(index);
-                  const isPositive = change ? change.change >= 0 : false;
-                  const polymarketUrl = item.slug ? `https://polymarket.com/event/${item.slug}` : null;
-                  const marketStatus = marketStatuses.get(item.marketId);
-                  const isClosed = marketStatus?.closed ?? false;
-                  const isResolved = marketStatus?.resolved !== null && marketStatus?.resolved !== undefined;
-                  const resolvedOutcome = marketStatus?.resolved;
-                  
+                <div className={`border rounded-lg divide-y transition-opacity ${isBasketItemsRefreshing ? 'opacity-80' : 'opacity-100'}`}>
+                  <div className="grid grid-cols-9 gap-2 px-4 py-2.5 text-xs font-medium text-muted-foreground bg-muted/50">
+                    <span className="col-span-2">Market</span>
+                    <span className="text-center">Position</span>
+                    <span className="text-right">Status</span>
+                    <span className="text-right">Weight</span>
+                    <span className="text-right">{hasFinalItemResolutions ? 'Price (Final)' : 'Price (Live)'}</span>
+                    <span className="text-right">{hasFinalItemResolutions ? 'Prob (Final)' : 'Prob (Live)'}</span>
+                    <span className="text-right">Original</span>
+                    <span className="text-right">Change</span>
+                  </div>
+                {deferredBasketItemRows.map((row) => {
                   return (
                     <div 
-                      key={`${item.marketId}-${item.outcome}`} 
+                      key={row.key}
                       className="grid grid-cols-9 gap-2 px-4 py-3 items-center hover:bg-muted/30 transition-colors group"
                     >
                       <div className="col-span-2 flex items-center gap-2 min-w-0">
-                        <span className="text-sm break-words flex-1" title={item.question}>
-                          {item.question}
+                        <span className="text-sm break-words flex-1" title={row.item.question}>
+                          {row.item.question}
                         </span>
-                        {polymarketUrl && (
+                        {row.polymarketUrl && (
                           <a
-                            href={polymarketUrl}
+                            href={row.polymarketUrl}
                             target="_blank"
                             rel="noopener noreferrer"
                             onClick={(e) => e.stopPropagation()}
@@ -1668,25 +1771,25 @@ export default function BasketPage() {
                       </div>
                       <span className="text-center">
                         <span className={`text-xs font-medium px-2 py-0.5 rounded ${
-                          item.outcome === 'YES' 
+                          row.item.outcome === 'YES' 
                             ? 'bg-accent/10 text-accent' 
                             : 'bg-muted text-muted-foreground'
                         }`}>
-                          {item.outcome}
+                          {row.item.outcome}
                         </span>
                       </span>
                       <span className="text-right">
-                        {marketStatus ? (
+                        {row.marketStatus ? (
                           <div className="flex flex-col items-end gap-0.5">
-                            {isResolved ? (
+                            {row.isResolved ? (
                               <Badge 
-                                variant={resolvedOutcome === item.outcome ? "default" : "secondary"}
+                                variant={row.resolvedOutcome === row.item.outcome ? "default" : "secondary"}
                                 className="text-[10px] px-1.5 py-0"
                               >
                                 <CheckCircle className="w-2.5 h-2.5 mr-0.5" />
-                                {resolvedOutcome}
+                                {row.resolvedOutcome}
                               </Badge>
-                            ) : isClosed ? (
+                            ) : row.isClosed ? (
                               <Badge variant="outline" className="text-[10px] px-1.5 py-0">
                                 <Clock className="w-2.5 h-2.5 mr-0.5" />
                                 Closed
@@ -1702,38 +1805,38 @@ export default function BasketPage() {
                           <span className="text-xs text-muted-foreground">-</span>
                         )}
                       </span>
-                      <span className="text-right text-sm tabular-nums" title={`Weight: ${(item.weightBps / 100).toFixed(2)}%`}>
-                        {formatWeight(item.weightBps)}
+                      <span className="text-right text-sm tabular-nums" title={`Weight: ${(row.item.weightBps / 100).toFixed(2)}%`}>
+                        {formatWeight(row.item.weightBps)}
                       </span>
                       <span 
                         className="text-right text-sm tabular-nums font-medium" 
-                        title={price !== null ? `Live price from Polymarket: $${price.toFixed(4)}` : 'Price not available'}
+                        title={row.price !== null ? `Live price from Polymarket: $${row.price.toFixed(4)}` : 'Price not available'}
                       >
-                        {price !== null ? formatPrice(price) : '-'}
+                        {row.price !== null ? formatPrice(row.price) : '-'}
                       </span>
                       <span 
                         className="text-right text-sm tabular-nums font-medium"
-                        title={currentProb !== null ? `Current probability: ${(currentProb * 100).toFixed(2)}% (from Polymarket)` : 'Live probability unavailable'}
+                        title={row.currentProb !== null ? `Current probability: ${(row.currentProb * 100).toFixed(2)}% (from Polymarket)` : 'Live probability unavailable'}
                       >
-                        {currentProb !== null ? formatProbability(currentProb) : '-'}
+                        {row.currentProb !== null ? formatProbability(row.currentProb) : '-'}
                       </span>
                       <span 
                         className="text-right text-sm tabular-nums text-muted-foreground"
-                        title={change ? `Original probability at creation: ${(change.originalProb * 100).toFixed(2)}%` : 'Original data not available'}
+                        title={row.change ? `Original probability at creation: ${(row.change.originalProb * 100).toFixed(2)}%` : 'Original data not available'}
                       >
-                        {change ? formatProbability(change.originalProb) : '-'}
+                        {row.change ? formatProbability(row.change.originalProb) : '-'}
                       </span>
                       <span className="text-right text-sm tabular-nums">
-                        {change ? (
+                        {row.change ? (
                           <div 
                             className="flex flex-col items-end cursor-help"
                           >
                             <span className={`font-medium ${
-                              isPositive 
+                              row.isPositive
                                 ? 'text-green-600 dark:text-green-400' 
                                 : 'text-red-600 dark:text-red-400'
                             }`}>
-                              {isPositive ? '+' : ''}{(change.change * 100).toFixed(1)}%
+                              {row.isPositive ? '+' : ''}{(row.change.change * 100).toFixed(1)}%
                             </span>
                           </div>
                         ) : (
@@ -1803,41 +1906,35 @@ export default function BasketPage() {
 
 
                 {/* Breakdown by Item */}
-                <div className="space-y-2">
-                  <div className="text-xs font-medium">Calculation Breakdown:</div>
+                  <div className="space-y-2">
+                    <div className="text-xs font-medium">Calculation Breakdown:</div>
                   {usesSettlementIndex && (
                     <div className="text-[10px] text-muted-foreground">
-                      Settlement is finalized. The headline index and stake return now use the on-chain settlement index; item rows below remain Polymarket market references.
+                      Settlement is finalized. Headline and item rows now use on-chain settlement data when item resolutions are available.
                     </div>
                   )}
                   <div className="space-y-1 text-xs">
-                    {basket.items.map((item, index) => {
-                      const currentProb = probabilities[index];
-                      const weight = item.weightBps / 10000;
-                      const contribution = currentProb !== null ? weight * currentProb : null;
-                      const change = itemChanges.get(index);
-                      const probChange = change ? change.change : 0;
-                      
+                    {deferredBasketItemRows.map((row) => {
                       return (
                         <div 
-                          key={`${item.marketId}-${item.outcome}`}
+                          key={row.key}
                           className="flex items-center justify-between p-2 bg-muted/20 rounded text-xs"
                         >
                           <div className="flex-1 min-w-0">
-                            <div className="truncate font-medium">{item.slug || item.question}</div>
+                            <div className="truncate font-medium">{row.item.slug || row.item.question}</div>
                             <div className="text-muted-foreground mt-0.5">
-                              {item.outcome} • {(item.weightBps / 100).toFixed(1)}% weight
+                              {row.item.outcome} • {(row.item.weightBps / 100).toFixed(1)}% weight
                             </div>
                           </div>
                           <div className="text-right tabular-nums ml-2">
                             <div className="font-medium">
-                              {currentProb !== null
-                                ? `${(item.weightBps / 100).toFixed(1)}% × ${(currentProb * 100).toFixed(1)}% = ${((contribution ?? 0) * 100).toFixed(2)}%`
+                              {row.currentProb !== null
+                                ? `${(row.item.weightBps / 100).toFixed(1)}% × ${(row.currentProb * 100).toFixed(1)}% = ${((row.contribution ?? 0) * 100).toFixed(2)}%`
                                 : 'Live probability unavailable'}
                             </div>
-                            {change && Math.abs(probChange) > 0.001 && (
-                              <div className={`text-[10px] mt-0.5 ${probChange > 0 ? 'text-green-500' : probChange < 0 ? 'text-red-500' : 'text-muted-foreground'}`}>
-                                Prob: {(change.originalProb * 100).toFixed(1)}% → {(change.currentProb * 100).toFixed(1)}% ({probChange >= 0 ? '+' : ''}{(probChange * 100).toFixed(1)}%)
+                            {row.change && Math.abs(row.probChange) > 0.001 && (
+                              <div className={`text-[10px] mt-0.5 ${row.probChange > 0 ? 'text-green-500' : row.probChange < 0 ? 'text-red-500' : 'text-muted-foreground'}`}>
+                                Prob: {(row.change.originalProb * 100).toFixed(1)}% → {(row.change.currentProb * 100).toFixed(1)}% ({row.probChange >= 0 ? '+' : ''}{(row.probChange * 100).toFixed(1)}%)
                               </div>
                             )}
                           </div>
