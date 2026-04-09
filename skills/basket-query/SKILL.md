@@ -48,10 +48,11 @@ Returns `u64` — total baskets created. Basket IDs are 0-indexed.
 vara-wallet call $BASKET_MARKET BasketMarket/GetBasket --args '[0]' --idl $IDL
 ```
 
-Returns `Result<Basket, BasketMarketError>`. Parse with jq:
+Response is nested under `.result.ok`. Parse with jq:
 
 ```bash
-vara-wallet call $BASKET_MARKET BasketMarket/GetBasket --args '[0]' --idl $IDL | jq '.ok'
+# ⚠ Use .result.ok — NOT .ok!
+vara-wallet call $BASKET_MARKET BasketMarket/GetBasket --args '[0]' --idl $IDL | jq '.result.ok'
 ```
 
 Basket fields: `id`, `creator`, `name`, `description`, `items` (array of BasketItem), `created_at`, `status` (Active/SettlementPending/Settled), `asset_kind` (Vara/Bet).

@@ -91,10 +91,12 @@ Browse active baskets and find one to bet on:
 # How many baskets exist
 vara-wallet call $BASKET_MARKET BasketMarket/GetBasketCount --args '[]' --idl $IDL
 
-# View a specific basket (response is nested: .result.ok)
+# View a specific basket
 vara-wallet call $BASKET_MARKET BasketMarket/GetBasket --args '[0]' --idl $IDL
-# Example response:
-# {"result":{"ok":{"id":0,"creator":"0x...","name":"...","status":"Active","asset_kind":"Bet",...}}}
+# ⚠ Response is nested under .result.ok — NOT .ok!
+# Example: {"result":{"ok":{"id":0,"name":"...","status":"Active","asset_kind":"Bet",...}}}
+# Use jq: | jq '.result.ok'
+# To get just name and status: | jq '.result.ok | {name, status}'
 ```
 
 Check that `status` is `"Active"` and `asset_kind` is `"Bet"`. The basket data is at `.result.ok` in the JSON response.

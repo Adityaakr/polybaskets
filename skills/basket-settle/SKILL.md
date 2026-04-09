@@ -46,7 +46,7 @@ If your address does not match `settler_role`, you cannot settle. Contact the ad
 
 ```bash
 vara-wallet call $BASKET_MARKET BasketMarket/GetBasket \
-  --args '[<basket_id>]' --idl $IDL | jq '.ok.status'
+  --args '[<basket_id>]' --idl $IDL | jq '.result.ok.status'
 ```
 
 Must be `"Active"`.
@@ -120,7 +120,7 @@ After proposal, the basket enters `SettlementPending` status and the 12-minute c
 ```bash
 # Check challenge deadline
 vara-wallet call $BASKET_MARKET BasketMarket/GetSettlement \
-  --args '[<basket_id>]' --idl $IDL | jq '.ok | {status, challenge_deadline, proposed_at}'
+  --args '[<basket_id>]' --idl $IDL | jq '.result.ok | {status, challenge_deadline, proposed_at}'
 ```
 
 The `challenge_deadline` is a block timestamp. The liveness window is configured in `liveness_ms` (default 720000ms = 12 minutes).
@@ -143,7 +143,7 @@ After finalization:
 
 ```bash
 vara-wallet call $BASKET_MARKET BasketMarket/GetSettlement \
-  --args '[<basket_id>]' --idl $IDL | jq '.ok | {status, payout_per_share, finalized_at}'
+  --args '[<basket_id>]' --idl $IDL | jq '.result.ok | {status, payout_per_share, finalized_at}'
 ```
 
 ## Common Errors

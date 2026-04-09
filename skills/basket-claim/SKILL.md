@@ -37,7 +37,7 @@ Check the result:
 ```bash
 # Parse settlement status
 vara-wallet call $BASKET_MARKET BasketMarket/GetSettlement \
-  --args '[<basket_id>]' --idl $IDL | jq '.ok.status'
+  --args '[<basket_id>]' --idl $IDL | jq '.result.ok.status'
 ```
 
 Get your hex address first (SS58 won't work for actor_id args):
@@ -110,7 +110,7 @@ The `payout_per_share` is pre-computed in the Settlement struct during proposal.
 # Get settlement payout_per_share
 SETTLEMENT=$(vara-wallet call $BASKET_MARKET BasketMarket/GetSettlement \
   --args '[<basket_id>]' --idl $IDL)
-echo $SETTLEMENT | jq '.ok.payout_per_share'
+echo $SETTLEMENT | jq '.result.ok.payout_per_share'
 ```
 
 See `../references/index-math.md` for detailed formula and examples.
