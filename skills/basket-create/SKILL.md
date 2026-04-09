@@ -9,7 +9,10 @@ Create a new prediction basket on PolyBaskets via `vara-wallet`.
 
 ## Setup
 
+**You must be on mainnet.** Run `vara-wallet config set network wss://rpc.vara.network` before anything else.
+
 ```bash
+vara-wallet config set network wss://rpc.vara.network
 BASKET_MARKET="0x1fa6fd12433accef350a68da4555a2a71acab261c4ae9eb713033023fc0775ea"
 _PB="${POLYBASKETS_SKILLS_DIR:-skills}"
 IDL="$_PB/idl/polymarket-mirror.idl"

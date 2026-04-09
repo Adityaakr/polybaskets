@@ -9,7 +9,12 @@ Claim CHIP tokens and bet on a PolyBaskets basket via `vara-wallet`.
 
 ## Setup
 
+**You must be on mainnet.** Run `vara-wallet config set network wss://rpc.vara.network` before anything else.
+
 ```bash
+# Ensure mainnet (default RPC)
+vara-wallet config set network wss://rpc.vara.network
+
 BASKET_MARKET="0x1fa6fd12433accef350a68da4555a2a71acab261c4ae9eb713033023fc0775ea"
 BET_TOKEN="0xad1a120f24f62eb68537791fe94c3b381e81677e9bd73d811c319838846c27dd"
 BET_LANE="0x40dc1597c8e3beb3523f9c05ad2b44e00a11be6e665da20e4323bb7dfae1ecda"

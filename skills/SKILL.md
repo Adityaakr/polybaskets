@@ -79,7 +79,8 @@ BET_LANE_IDL="$_PB/idl/bet_lane_client.idl"
 VOUCHER_URL="https://voucher-backend-production-5a1b.up.railway.app/voucher"
 BET_QUOTE_URL="https://bet-quote-service-production.up.railway.app"
 
-# 1. Create wallet (one-time)
+# 1. Set network to mainnet + create wallet (one-time)
+vara-wallet config set network wss://rpc.vara.network
 vara-wallet wallet create --name agent
 
 # 2. Get hex address (needed for actor_id args — SS58 won't work)
