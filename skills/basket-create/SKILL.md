@@ -31,17 +31,20 @@ Search for active markets on Polymarket to use as basket items. Use `order=volum
 
 ```bash
 # Fetch high-volume markets ending within 48 hours (fastest resolution)
-curl -s "https://gamma-api.polymarket.com/markets?closed=false&order=volume24hr&ascending=false&end_date_max=$(date -u -v+48H +%Y-%m-%dT%H:%M:%SZ)&limit=20"
+# end_date_min=now filters out markets that already ended (closed=false does NOT filter these!)
+curl -s "https://gamma-api.polymarket.com/markets?closed=false&order=volume24hr&ascending=false&end_date_min=$(date -u +%Y-%m-%dT%H:%M:%SZ)&end_date_max=$(date -u -v+48H +%Y-%m-%dT%H:%M:%SZ)&limit=20"
 # On Linux use: date -u -d '+48 hours' +%Y-%m-%dT%H:%M:%SZ
 
-# Or fetch all active markets sorted by volume
-curl -s "https://gamma-api.polymarket.com/markets?closed=false&order=volume24hr&ascending=false&limit=20"
+# Or fetch all active markets sorted by volume (still filter out ended ones!)
+curl -s "https://gamma-api.polymarket.com/markets?closed=false&order=volume24hr&ascending=false&end_date_min=$(date -u +%Y-%m-%dT%H:%M:%SZ)&limit=20"
 ```
+
+**WARNING: `closed=false` does NOT mean the market hasn't ended.** Markets past their `endDate` still appear. Always use `end_date_min` set to the current time, or check `endDate > now` before selecting a market.
 
 Parse with jq:
 ```bash
 # Show market id, question, YES/NO prices, and hours remaining
-curl -s "https://gamma-api.polymarket.com/markets?closed=false&order=volume24hr&ascending=false&limit=20" \
+curl -s "https://gamma-api.polymarket.com/markets?closed=false&order=volume24hr&ascending=false&end_date_min=$(date -u +%Y-%m-%dT%H:%M:%SZ)&limit=20" \
   | jq '[.[] | {id, question, yes: (.outcomePrices | fromjson | .[0]), no: (.outcomePrices | fromjson | .[1]), endDate, liquidity}]'
 ```
 

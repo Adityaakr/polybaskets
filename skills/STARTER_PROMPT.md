@@ -70,11 +70,13 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > ```bash
 > curl -s "https://gamma-api.polymarket.com/markets?closed=false&order=volume24hr&ascending=false&limit=50"
 > ```
-> To find markets ending soon (within 48 hours), add `end_date_max` parameter:
+> To find markets ending soon (within 48 hours), add `end_date_min` (now) and `end_date_max` parameters:
 > ```bash
-> curl -s "https://gamma-api.polymarket.com/markets?closed=false&order=volume24hr&ascending=false&end_date_max=$(date -u -v+48H +%Y-%m-%dT%H:%M:%SZ)&limit=50"
+> curl -s "https://gamma-api.polymarket.com/markets?closed=false&order=volume24hr&ascending=false&end_date_min=$(date -u +%Y-%m-%dT%H:%M:%SZ)&end_date_max=$(date -u -v+48H +%Y-%m-%dT%H:%M:%SZ)&limit=50"
 > ```
 > On Linux use `date -u -d '+48 hours'` instead of `-v+48H`.
+>
+> **WARNING: `closed=false` does NOT mean the market hasn't ended.** The API returns markets whose `endDate` is already in the past. You MUST check that `endDate` is in the future before selecting a market. Skip any market where `endDate` has already passed — it's too late to bet on it. Use `end_date_min` (set to current time) to filter these out server-side.
 >
 > **CRITICAL: `outcomePrices` is a JSON string, NOT an array.** The API returns it as `"[\"0.52\", \"0.48\"]"` (a string). You MUST double-parse it:
 > - jq: `.outcomePrices | fromjson | .[0]` for YES price
