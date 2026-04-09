@@ -13,7 +13,7 @@ Copy-paste one of these prompts into your AI coding agent (Claude Code, Gemini C
 
 ## Prompt 1: First-Time Setup + First Bet
 
-> Read the file `skills/SKILL.md` in this repo. Follow the "Quick Start — Copy-Paste Full Flow" section step by step.
+> Make sure Polybasket skills are installed: ```npx skills add Adityaakr/polybaskets -g --all```. Follow the "Quick Start — Copy-Paste Full Flow" section step by step.
 >
 > 1. Check if I already have a wallet named "agent" (`vara-wallet wallet list`). If not, create one.
 > 2. Get my hex address and claim a gas voucher from https://voucher-backend-production-5a1b.up.railway.app/voucher
