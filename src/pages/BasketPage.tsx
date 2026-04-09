@@ -654,12 +654,6 @@ export default function BasketPage() {
     const value = Number(settlement.payout_per_share) / 10000;
     return Number.isFinite(value) && value >= 0 ? value : null;
   }, [settlement, settlementStatus]);
-  const usesSettlementIndex = settlementIndex !== null;
-  const displayedIndex = settlementIndex ?? liveIndex;
-  const displayedIndexLabel = usesSettlementIndex ? 'Settlement Index (Final)' : 'Current Index (Live)';
-  const displayedIndexDescription = usesSettlementIndex
-    ? `${(displayedIndex * 100).toFixed(2)}% from on-chain settlement`
-    : `${(displayedIndex * 100).toFixed(2)}% weighted probability`;
   
   // Calculate expected payout (must be before early returns)
   // Note: expectedPayout can be "0" (string) for total losses, which is valid
@@ -794,6 +788,12 @@ export default function BasketPage() {
       hasValidData: missingMarkets.length === 0
     };
   }, [basket, itemMarketsData, liveMarketPricesById]);
+  const usesSettlementIndex = settlementIndex !== null;
+  const displayedIndex = settlementIndex ?? liveIndex;
+  const displayedIndexLabel = usesSettlementIndex ? 'Settlement Index (Final)' : 'Current Index (Live)';
+  const displayedIndexDescription = usesSettlementIndex
+    ? `${(displayedIndex * 100).toFixed(2)}% from on-chain settlement`
+    : `${(displayedIndex * 100).toFixed(2)}% weighted probability`;
 
   // Calculate per-item changes since creation
   const itemChanges = useMemo(() => {
