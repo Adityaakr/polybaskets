@@ -121,22 +121,22 @@ vara-wallet call $BASKET_MARKET BasketMarket/GetBasket --args '[0]' --idl $IDL
 vara-wallet --account agent call $BET_TOKEN BetToken/Approve \
   --args '["'$BET_LANE'", "100000000000000"]' --voucher $VOUCHER_ID --idl $BET_TOKEN_IDL
 
-# 7. Get quote + convert signature + place bet (ALL IN ONE COMMAND — 30s expiry!)
+# 7. Get quote + convert signature + write to file + place bet (30s expiry!)
 #    Replace BASKET_ID with a real basket number (0, 1, 2, ...)
-#    ⚠ Do NOT manually reconstruct the quote object — pipe the raw curl response through python3.
-#    The quote has {"payload":{...},"signature":"0x..."} — removing the payload wrapper breaks it.
+#    ⚠ Do NOT manually reconstruct the quote. Do NOT use inline $QUOTE in --args.
+#    Always write args to a file and use --args "$(cat file)".
 QUOTE=$(curl -s -X POST "$BET_QUOTE_URL/api/bet-lane/quote" \
   -H 'Content-Type: application/json' \
   -d '{"user":"'"$MY_ADDR"'","basketId":BASKET_ID,"amount":"100000000000000","targetProgramId":"'"$BET_LANE"'"}') && \
-QUOTE=$(echo "$QUOTE" | python3 -c "
-import json, sys
-q = json.load(sys.stdin)
+python3 -c "
+import json
+q = json.loads('''$QUOTE''')
 sig = q['signature']
 q['signature'] = list(bytes.fromhex(sig[2:] if sig.startswith('0x') else sig))
-print(json.dumps(q))
-") && \
+json.dump([BASKET_ID, '100000000000000', q], open('/tmp/placebet_args.json', 'w'))
+" && \
 vara-wallet --account agent call $BET_LANE BetLane/PlaceBet \
-  --args '[BASKET_ID, "100000000000000", '"$QUOTE"']' --voucher $VOUCHER_ID --idl $BET_LANE_IDL
+  --args "$(cat /tmp/placebet_args.json)" --voucher $VOUCHER_ID --idl $BET_LANE_IDL
 
 # 9. Later — check if basket settled
 vara-wallet call $BASKET_MARKET BasketMarket/GetSettlement \
