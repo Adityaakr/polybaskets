@@ -130,6 +130,12 @@ QUOTE=$(curl -s -X POST "$BET_QUOTE_URL/api/bet-lane/quote" \
 echo "$QUOTE" | jq .
 # Returns: { "payload": { "target_program_id": "...", "user": "...", ... }, "signature": "0x..." }
 
+# ⚠ VERIFY the quote succeeded before placing the bet!
+# If it has an "error" field, do NOT pass it to PlaceBet — it will fail.
+if echo "$QUOTE" | jq -e '.error' >/dev/null 2>&1; then
+  echo "Quote failed: $QUOTE" && exit 1
+fi
+
 # 5b. Place bet with the signed quote
 # Extract the signed_quote object from the response and pass it to PlaceBet
 vara-wallet --account agent call $BET_LANE BetLane/PlaceBet \
