@@ -513,7 +513,13 @@ export function useCryptoPrice(market: PolymarketMarket | undefined): CryptoPric
   const latestTimestampRef = useRef<number>(0);
   const hasPolymarketTickRef = useRef(false);
 
-  const applySnapshot = useCallback((snapshot: LivePriceSnapshot) => {
+  const pendingSnapshotRef = useRef<LivePriceSnapshot | null>(null);
+  const throttleTimerRef = useRef<number | null>(null);
+
+  const flushSnapshot = useCallback(() => {
+    const snapshot = pendingSnapshotRef.current;
+    if (!snapshot) return;
+    pendingSnapshotRef.current = null;
     setPrice((prev) => {
       if (prev !== null && prev !== snapshot.price) {
         prevRef.current = prev;
@@ -526,6 +532,15 @@ export function useCryptoPrice(market: PolymarketMarket | undefined): CryptoPric
     setSymbol(snapshot.symbol);
     setIsLive(true);
   }, []);
+
+  const applySnapshot = useCallback((snapshot: LivePriceSnapshot) => {
+    pendingSnapshotRef.current = snapshot;
+    if (throttleTimerRef.current !== null) return;
+    throttleTimerRef.current = window.setTimeout(() => {
+      throttleTimerRef.current = null;
+      flushSnapshot();
+    }, 500);
+  }, [flushSnapshot]);
 
   useEffect(() => {
     setPrice(null);
@@ -594,6 +609,16 @@ export function useCryptoPrice(market: PolymarketMarket | undefined): CryptoPric
       unsubscribe?.();
     };
   }, [asset, coingeckoCoinId, applySnapshot]);
+
+  // Cleanup throttle timer on unmount
+  useEffect(() => {
+    return () => {
+      if (throttleTimerRef.current !== null) {
+        window.clearTimeout(throttleTimerRef.current);
+        throttleTimerRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!direction) return;

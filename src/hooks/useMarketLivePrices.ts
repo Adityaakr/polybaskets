@@ -183,13 +183,25 @@ export function useMarketLivePrices(market: PolymarketMarket | undefined): LiveP
 
   const [version, setVersion] = useState(0);
   const lastValueRef = useRef<LivePriceMap | null>(null);
+  const throttleRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (assetIds.length < 2) return;
-    const rerender = () => setVersion((v) => v + 1);
+    const rerender = () => {
+      // Throttle WS-driven re-renders to at most once per 500ms
+      if (throttleRef.current !== null) return;
+      throttleRef.current = window.setTimeout(() => {
+        throttleRef.current = null;
+        setVersion((v) => v + 1);
+      }, 500);
+    };
     const unsubs = assetIds.map((assetId) => subscribeAsset(assetId, rerender));
     return () => {
       unsubs.forEach((unsubscribe) => unsubscribe());
+      if (throttleRef.current !== null) {
+        window.clearTimeout(throttleRef.current);
+        throttleRef.current = null;
+      }
     };
   }, [assetIds]);
 
