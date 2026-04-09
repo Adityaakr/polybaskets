@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useMemo, ReactNode } from 'react';
 import { BasketItem, BasketDraft, Outcome } from '@/types/basket.ts';
 import { PolymarketMarket, OutcomeProbabilities } from '@/types/polymarket.ts';
 import { getDraft, saveDraft, clearDraft } from '@/lib/basket-storage.ts';
@@ -126,8 +126,8 @@ export function BasketProvider({ children }: { children: ReactNode }) {
     );
   }, []);
 
-  return (
-    <BasketContext.Provider value={{
+  const value = useMemo(
+    () => ({
       items,
       name,
       description,
@@ -144,7 +144,14 @@ export function BasketProvider({ children }: { children: ReactNode }) {
       hasItem,
       getDraftData,
       updateProbabilities,
-    }}>
+    }),
+    [items, name, description, tags, addItem, removeItem, updateWeight,
+     setName, setDescription, setTags, normalizeAllWeights, clearBasket,
+     loadDraft, hasItem, getDraftData, updateProbabilities]
+  );
+
+  return (
+    <BasketContext.Provider value={value}>
       {children}
     </BasketContext.Provider>
   );

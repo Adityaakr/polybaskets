@@ -115,12 +115,12 @@ export function MarketSearch() {
     // Continuously refetch to catch new markets
     // When searching, only refetch on manual refresh or window focus
     // When browsing categories, refetch every 2 seconds to catch new markets
-    refetchInterval: isSearchActive ? false : 2000, // Refetch every 2 seconds to catch new markets
-    refetchIntervalInBackground: !isSearchActive, // Continue refetching in background to catch new markets
-    refetchOnWindowFocus: true, // Refetch when user returns to tab
-    refetchOnMount: true, // Always refetch on mount to get latest markets
-    retry: 3, // Retry failed requests
-    retryDelay: (attemptIndex) => Math.min(500 * 2 ** attemptIndex, 3000), // Faster exponential backoff
+    refetchInterval: isSearchActive ? false : 10000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
+    refetchOnMount: true,
+    retry: 3,
+    retryDelay: (attemptIndex) => Math.min(500 * 2 ** attemptIndex, 3000),
   }) as { data?: PolymarketMarket[]; isLoading: boolean; isFetching: boolean; isError: boolean; error: unknown };
 
   return (

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useMemo, ReactNode } from 'react';
 import { NetworkType, NetworkConfig } from '@/types/basket.ts';
 import { getNetworkConfig, NETWORKS } from '@/lib/network.ts';
 
@@ -19,8 +19,13 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
 
   const config = getNetworkConfig(network);
 
+  const value = useMemo(
+    () => ({ network, config, setNetwork }),
+    [network, config, setNetwork]
+  );
+
   return (
-    <NetworkContext.Provider value={{ network, config, setNetwork }}>
+    <NetworkContext.Provider value={value}>
       {children}
     </NetworkContext.Provider>
   );

@@ -21,9 +21,9 @@ export default function BuilderPage() {
   const { data: marketsData } = useQuery({
     queryKey: ['markets', ''],
     queryFn: () => searchMarkets(''),
-    staleTime: 0, // Always fetch fresh data
-    refetchInterval: 1000, // Refetch every 5 seconds for live updates
-    refetchIntervalInBackground: true, // Continue refetching in background
+    staleTime: 3000,
+    refetchInterval: 5000,
+    refetchIntervalInBackground: false,
   });
 
   // Fetch individual market details for basket items not in search results
@@ -46,9 +46,9 @@ export default function BuilderPage() {
       return markets;
     },
     enabled: itemMarketIds.length > 0,
-    staleTime: 0, // Always fetch fresh data
-    refetchInterval: 1000, // Refetch every 5 seconds for live updates
-    refetchIntervalInBackground: true, // Continue refetching in background
+    staleTime: 3000,
+    refetchInterval: 5000,
+    refetchIntervalInBackground: false,
   });
 
   // Build probability and price maps

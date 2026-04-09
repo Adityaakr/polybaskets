@@ -660,14 +660,14 @@ export default function BasketPage() {
       return markets;
     },
     enabled: basketMarketIds.length > 0 && !!basket && !loadingOnChain,
-    staleTime: 0, // Always consider data stale - fetch fresh data immediately
-    refetchInterval: 2000, // Refetch every 2 seconds for real-time live updates (optimized for rate limits)
-    refetchIntervalInBackground: true, // Continue refetching even when tab is in background
-    refetchOnWindowFocus: true, // Refetch when user returns to tab
-    refetchOnMount: true, // Always refetch on mount
-    gcTime: 5000, // Keep in cache for only 5 seconds
-    retry: 2, // Retry failed requests
-    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 5000), // Exponential backoff
+    staleTime: 3000,
+    refetchInterval: 5000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
+    refetchOnMount: true,
+    gcTime: 10000,
+    retry: 2,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 5000),
   });
 
   const { liveIndex, probabilities, marketPrices, marketStatuses, hasValidData } = useMemo(() => {
