@@ -23,6 +23,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Input } from '@/components/ui/input';
 import { Link } from 'react-router-dom';
 import {
@@ -38,6 +39,7 @@ import {
   ChevronRight,
   Coins,
   Search,
+  ChevronsUpDown,
 } from 'lucide-react';
 import type { Basket } from '@/types/basket.ts';
 
@@ -128,6 +130,7 @@ function TodayContestTab() {
   const [page, setPage] = useState(1);
   const [rankedSearchQuery, setRankedSearchQuery] = useState('');
   const [awaitingSearchQuery, setAwaitingSearchQuery] = useState('');
+  const [awaitingOpen, setAwaitingOpen] = useState(false);
   const leaderboardQuery = useTodayContestLeaderboard();
   const { address } = useWallet();
   const { resolveAgentName } = useAgentNames();
@@ -143,6 +146,12 @@ function TodayContestTab() {
     const interval = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (currentUserEntry?.status === 'pending') {
+      setAwaitingOpen(true);
+    }
+  }, [currentUserEntry?.status]);
 
   const scoredEntries = contest?.entries ?? [];
   const awaitingEntries = contest?.awaitingEntries ?? [];
@@ -322,6 +331,81 @@ function TodayContestTab() {
                   ? `Settled on-chain at ${formatUtcDateTime(contest.projection.settledAt)} UTC`
                   : 'Live projection from the indexer read model.'}
             </p>
+            {(awaitingEntries.length > 0 || normalizedAwaitingSearchQuery) ? (
+              <Collapsible open={awaitingOpen} onOpenChange={setAwaitingOpen} className="mt-3">
+                <CollapsibleTrigger asChild>
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-2 text-sm font-medium text-primary transition-colors hover:text-primary/80"
+                  >
+                    <span>View all awaiting agents</span>
+                    <Badge variant="outline" className="border-primary/20 bg-primary/10 text-primary">
+                      {awaitingEntries.length}
+                    </Badge>
+                    <ChevronsUpDown className="h-4 w-4" />
+                  </button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="mt-3 space-y-3">
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={awaitingSearchQuery}
+                      onChange={(event) => setAwaitingSearchQuery(event.target.value)}
+                      placeholder="Search awaiting agents"
+                      className="pl-9"
+                    />
+                  </div>
+
+                  {filteredAwaitingEntries.length > 0 ? (
+                    <div className="space-y-2">
+                      {filteredAwaitingEntries.map((entry) => {
+                        const isCurrentUser =
+                          currentUserActorId !== null && entry.user.toLowerCase() === currentUserActorId;
+
+                        return (
+                          <div
+                            key={`awaiting-inline-${entry.user}`}
+                            className={[
+                              'flex items-center justify-between gap-3 rounded-md border border-primary/10 bg-background/50 px-3 py-3',
+                              isCurrentUser ? 'border-primary/30 bg-primary/5' : '',
+                            ].join(' ')}
+                          >
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="truncate text-sm font-semibold">
+                                  {getLeaderboardDisplayName(isCurrentUser, entry.user, resolveAgentName)}
+                                </span>
+                                {isCurrentUser ? (
+                                  <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
+                                    You
+                                  </Badge>
+                                ) : null}
+                              </div>
+                              <p className="truncate font-mono text-xs text-muted-foreground">
+                                {isCurrentUser ? 'Connected wallet' : truncateAddress(entry.user)}
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-sm font-medium text-muted-foreground">Awaiting results</div>
+                              <div className="font-mono text-xs text-muted-foreground">
+                                {entry.pendingBasketCount} basket{entry.pendingBasketCount === 1 ? '' : 's'}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="rounded-md border border-primary/10 bg-background/40 px-4 py-6 text-center">
+                      <p className="text-sm font-medium">No awaiting agents match this search</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Try a full public agent address or a registered agent name.
+                      </p>
+                    </div>
+                  )}
+                </CollapsibleContent>
+              </Collapsible>
+            ) : null}
           </div>
         </CardContent>
       </Card>
@@ -510,103 +594,6 @@ function TodayContestTab() {
         </Card>
       )}
 
-      {(filteredAwaitingEntries.length > 0 || normalizedAwaitingSearchQuery) ? (
-        <Card className="card-elevated">
-          <CardHeader className="border-b">
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <div>
-                <CardTitle className="text-lg">Awaiting Results</CardTitle>
-                <CardDescription>
-                  Agents with unresolved baskets stay here until settlement, even after a new UTC day starts.
-                </CardDescription>
-              </div>
-              <div className="relative min-w-[280px]">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  value={awaitingSearchQuery}
-                  onChange={(event) => setAwaitingSearchQuery(event.target.value)}
-                  placeholder="Search awaiting agents"
-                  className="pl-9"
-                />
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_160px] gap-4 border-b border-primary/10 bg-muted/30 px-6 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-              <span>Agent</span>
-              <span className="text-right">Status</span>
-              <span className="text-right">Pending Baskets</span>
-            </div>
-
-            {filteredAwaitingEntries.length > 0 ? (
-              <div className="divide-y divide-primary/10">
-                {filteredAwaitingEntries.map((entry) => {
-                  const isCurrentUser =
-                    currentUserActorId !== null && entry.user.toLowerCase() === currentUserActorId;
-
-                  return (
-                    <div
-                      key={`awaiting-${entry.user}`}
-                      className={[
-                        'grid grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_160px] gap-4 px-6 py-4 transition-colors',
-                        isCurrentUser ? 'bg-primary/10' : 'hover:bg-muted/20',
-                      ].join(' ')}
-                    >
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-3">
-                          <div
-                            className={[
-                              'flex h-9 w-9 items-center justify-center rounded-full border text-sm font-semibold',
-                              isCurrentUser
-                                ? 'border-primary/40 bg-primary/10 text-primary'
-                                : 'border-border bg-muted/50 text-muted-foreground',
-                            ].join(' ')}
-                          >
-                            {isCurrentUser ? 'Y' : 'A'}
-                          </div>
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="truncate text-sm font-semibold">
-                                {getLeaderboardDisplayName(isCurrentUser, entry.user, resolveAgentName)}
-                              </span>
-                              {isCurrentUser ? (
-                                <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
-                                  You
-                                </Badge>
-                              ) : null}
-                            </div>
-                            <p className="truncate font-mono text-xs text-muted-foreground">
-                              {isCurrentUser ? 'Connected wallet' : truncateAddress(entry.user)}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="text-right">
-                        <div className="text-sm font-medium text-muted-foreground">
-                          Awaiting results
-                        </div>
-                      </div>
-
-                      <div className="text-right font-mono text-sm tabular-nums text-muted-foreground">
-                        {entry.pendingBasketCount}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="px-6 py-12 text-center">
-                <Search className="mx-auto mb-4 h-10 w-10 text-muted-foreground" />
-                <p className="text-lg font-medium">No awaiting agents match this search</p>
-                <p className="mt-2 text-sm text-muted-foreground">
-                  Try a full public agent address or a registered agent name.
-                </p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      ) : null}
     </div>
   );
 }
