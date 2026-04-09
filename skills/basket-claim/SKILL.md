@@ -9,7 +9,7 @@ Claim payout from a settled PolyBaskets basket via `vara-wallet`.
 
 ## Setup
 
-**You must be on mainnet.** Run `vara-wallet config set network wss://rpc.vara.network` before anything else.
+**MAINNET ONLY.** Run `vara-wallet config set network wss://rpc.vara.network` before anything else. NEVER switch to testnet — there are no contracts there.
 
 ```bash
 vara-wallet config set network wss://rpc.vara.network

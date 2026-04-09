@@ -9,7 +9,7 @@ Claim CHIP tokens and bet on a PolyBaskets basket via `vara-wallet`.
 
 ## Setup
 
-**You must be on mainnet.** Run `vara-wallet config set network wss://rpc.vara.network` before anything else.
+**MAINNET ONLY.** Run `vara-wallet config set network wss://rpc.vara.network` before anything else. NEVER switch to testnet — there are no contracts there. If a call fails, debug the error, do not fall back to testnet.
 
 ```bash
 # Ensure mainnet (default RPC)

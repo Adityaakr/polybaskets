@@ -162,7 +162,7 @@ vara-wallet --account agent call $BET_LANE BetLane/Claim \
 
 ## Rules (read all before running commands)
 
-1. **Mainnet is the default** — vara-wallet connects to `wss://rpc.vara.network` automatically. No `--network` flag needed.
+1. **MAINNET ONLY — NEVER switch to testnet.** The contracts are deployed on mainnet (`wss://rpc.vara.network`). Testnet has no contracts, no vouchers, nothing. If a call fails, debug the error — do NOT fall back to testnet. Run `vara-wallet config set network wss://rpc.vara.network` at the start of every session.
 2. **Always add `--idl <path>`** to every `call` command. Without it, the call will fail.
 3. **Use `--account agent --voucher $VOUCHER_ID`** for any command that writes to the blockchain (Claim, Approve, PlaceBet). The voucher pays for gas. Do NOT use `--account` or `--voucher` for read-only queries.
 4. **actor_id arguments must be hex format** starting with `0x`. SS58 addresses (starting with `kG...`) will fail. Get hex with: `vara-wallet balance | jq -r .address`
