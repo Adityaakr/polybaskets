@@ -330,7 +330,6 @@ export const fetchTodayContestLeaderboard = async (
     data.allContestDayWinners.nodes.map((winner) => [winner.user, winner.reward ?? null]),
   );
   const winners = new Set(data.allContestDayWinners.nodes.map((winner) => winner.user));
-  const scoredUsers = new Set(data.allDailyUserAggregates.nodes.map((entry) => entry.user.toLowerCase()));
   const todayBetBasketIds = new Set(data.allBaskets.nodes.map((basket) => basket.id));
   const settledBasketIds = new Set(
     data.allBasketSettlements.nodes
@@ -349,10 +348,6 @@ export const fetchTodayContestLeaderboard = async (
     }
 
     const userKey = position.user.toLowerCase();
-    if (scoredUsers.has(userKey)) {
-      continue;
-    }
-
     pendingBasketCounts.set(userKey, (pendingBasketCounts.get(userKey) ?? 0) + 1);
   }
 
