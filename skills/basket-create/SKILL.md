@@ -56,6 +56,11 @@ curl -s "https://gamma-api.polymarket.com/markets?closed=false&order=volume24hr&
 
 **Important:** `poly_market_id` is the **numeric Polymarket ID** (e.g. `"540816"`), not the hex `conditionId`. Use the `id` field from the API response.
 
+**The `slug` field is already included in every market response.** Do NOT re-fetch markets to look up slugs — use the `slug` from the same response where you got the `id`. If you need details for a specific market ID, fetch it directly:
+```bash
+curl -s "https://gamma-api.polymarket.com/markets/540816"
+```
+
 ## Pre-Check
 
 Most deployments run in CHIP-only mode. Check VARA status:
