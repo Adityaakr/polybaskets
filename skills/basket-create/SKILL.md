@@ -30,18 +30,28 @@ vara-wallet balance
 Search for active markets on Polymarket to use as basket items:
 
 ```bash
-# Search by keyword
-curl -s "https://gamma-api.polymarket.com/markets?closed=false&limit=5" \
-  | python3 -c "
-import sys, json
-for m in json.load(sys.stdin):
-    prices = m.get('outcomePrices', ['?','?'])
+# Fetch markets and save to file (piping curl to python may fail in some shells)
+curl -s "https://gamma-api.polymarket.com/markets?closed=false&limit=20" -o /tmp/polymarkets.json
+
+# Parse and display — NOTE: outcomePrices is a JSON STRING, not an array!
+# You MUST parse it with json.loads() before accessing prices.
+python3 -c "
+import json
+with open('/tmp/polymarkets.json') as f:
+    markets = json.load(f)
+for m in markets:
+    prices = json.loads(m.get('outcomePrices', '[]'))
+    if len(prices) < 2: continue
+    yes_pct = float(prices[0]) * 100
+    no_pct = float(prices[1]) * 100
     print(f\"id={m['id']}  slug={m['slug']}\")
     print(f\"  {m['question'][:80]}\")
-    print(f\"  YES={prices[0]}  NO={prices[1]}\")
+    print(f\"  YES={yes_pct:.0f}%  NO={no_pct:.0f}%  liquidity=\${float(m.get('liquidity','0')):,.0f}\")
     print()
 "
 ```
+
+**IMPORTANT: `outcomePrices` is a JSON-encoded string**, not an array. The API returns `"[\"0.52\", \"0.48\"]"` (a string), not `["0.52", "0.48"]` (an array). You must call `json.loads(m['outcomePrices'])` (Python) or `JSON.parse(m.outcomePrices)` (Node.js) to get the actual price array. Accessing `m['outcomePrices'][0]` directly will give you `[` (the first character of the string), not the price.
 
 **Important:** `poly_market_id` is the **numeric Polymarket ID** (e.g. `"540816"`), not the hex `conditionId`. Use the `id` field from the API response.
 

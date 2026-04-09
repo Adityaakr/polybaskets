@@ -67,7 +67,15 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 >
 > **Step 5 — Browse markets and build basket(s)**
 > Fetch active markets from Polymarket Gamma API:
-> `curl -s "https://gamma-api.polymarket.com/markets?closed=false&limit=50"`
+> ```bash
+> curl -s "https://gamma-api.polymarket.com/markets?closed=false&limit=50" -o /tmp/polymarkets.json
+> ```
+> **IMPORTANT: `outcomePrices` is a JSON string, NOT an array.** You must parse it first:
+> - Python: `prices = json.loads(m['outcomePrices'])` then `float(prices[0])` for YES price
+> - Node.js: `prices = JSON.parse(m.outcomePrices)` then `parseFloat(prices[0])`
+> - jq: `jq '.[].outcomePrices | fromjson'`
+> - Accessing `m['outcomePrices'][0]` directly gives `[` (first char of the string), NOT the price!
+>
 > Use the numeric `id` field as `poly_market_id` (not conditionId).
 >
 > For each candidate market, show me:
@@ -133,6 +141,7 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > - Browse baskets ON-CHAIN via `vara-wallet call`, NOT via HTTP
 > - MAINNET ONLY. Never testnet.
 > - Requires vara-wallet 0.10+ (`npm install -g vara-wallet@latest`)
+> - When fetching from Polymarket API, save to file first (`curl -o /tmp/polymarkets.json`), then parse — piping curl directly to python/jq may fail with empty stdin
 
 ---
 
@@ -180,7 +189,9 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 ### Explore markets only (no betting)
 
 > You are my PolyBaskets agent. Fetch the 50 most active open markets from Polymarket:
-> `curl -s "https://gamma-api.polymarket.com/markets?closed=false&limit=50"`
+> `curl -s "https://gamma-api.polymarket.com/markets?closed=false&limit=50" -o /tmp/polymarkets.json`
+>
+> **IMPORTANT:** `outcomePrices` is a JSON string, not an array. Parse with `json.loads(m['outcomePrices'])` (Python) or `JSON.parse(m.outcomePrices)` (Node.js) before accessing prices.
 >
 > Group them by category (Sports, Politics, Crypto, etc.). For each market show:
 > - Question, Yes/No prices, liquidity, time to resolution
