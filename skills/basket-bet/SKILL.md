@@ -112,6 +112,8 @@ vara-wallet --account agent call $BET_TOKEN BetToken/Approve \
   --args '["'$BET_LANE'", <amount>]' --voucher $VOUCHER_ID --idl $BET_TOKEN_IDL
 ```
 
+**Note:** Approve returns `"result":false` — this is normal, it's the previous approval state (not an error). Verify with `BetToken/Allowance` if needed.
+
 ### Step 5: Get Signed Quote + Place Bet
 
 Bets require a signed quote from the bet-quote-service. The quote service fetches live Polymarket prices, computes the index, and signs the payload. The contract verifies the signature on-chain.
