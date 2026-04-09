@@ -25,6 +25,27 @@ type ContestDayWinnerNode = {
   reward: string | null;
 };
 
+type BasketNode = {
+  id: string;
+  basketId: string;
+  assetKind: string;
+  createdAt: string;
+};
+
+type ChipPositionNode = {
+  basketId: string;
+  user: string;
+  shares: string;
+  claimed: boolean;
+  updatedAt: string;
+};
+
+type BasketSettlementNode = {
+  basketId: string;
+  status: string;
+  finalizedAt: string | null;
+};
+
 type DailyUserAggregateNode = {
   dayId: string;
   user: string;
@@ -43,6 +64,15 @@ type TodayContestLeaderboardQuery = {
   allContestDayWinners: {
     nodes: ContestDayWinnerNode[];
   };
+  allBaskets: {
+    nodes: BasketNode[];
+  };
+  allChipPositions: {
+    nodes: ChipPositionNode[];
+  };
+  allBasketSettlements: {
+    nodes: BasketSettlementNode[];
+  };
 };
 
 type DailyUserAggregateProfitNode = {
@@ -59,15 +89,18 @@ type AllTimeTradingPnlQuery = {
 export type ContestLeaderboardDay = ContestDayProjectionNode | null;
 
 export type ContestLeaderboardEntry = DailyUserAggregateNode & {
+  status: "scored" | "pending";
   rank: number;
   reward: string | null;
   isCurrentWinner: boolean;
+  pendingBasketCount: number;
 };
 
 export type TodayContestLeaderboard = {
   dayId: string;
   projection: ContestLeaderboardDay;
   entries: ContestLeaderboardEntry[];
+  awaitingEntries: ContestLeaderboardEntry[];
 };
 
 export type AllTimeTradingPnlEntry = {
@@ -122,6 +155,39 @@ const TODAY_CONTEST_LEADERBOARD_QUERY = `
         user
         realizedProfit
         reward
+      }
+    }
+    allBaskets(
+      filter: { assetKind: { equalTo: "Bet" } }
+      first: 500
+    ) {
+      nodes {
+        id
+        basketId
+        assetKind
+        createdAt
+      }
+    }
+    allChipPositions(
+      filter: { claimed: { equalTo: false } }
+      first: 1000
+    ) {
+      nodes {
+        basketId
+        user
+        shares
+        claimed
+        updatedAt
+      }
+    }
+    allBasketSettlements(
+      filter: { status: { equalTo: "finalized" } }
+      first: 500
+    ) {
+      nodes {
+        basketId
+        status
+        finalizedAt
       }
     }
   }
@@ -264,16 +330,98 @@ export const fetchTodayContestLeaderboard = async (
     data.allContestDayWinners.nodes.map((winner) => [winner.user, winner.reward ?? null]),
   );
   const winners = new Set(data.allContestDayWinners.nodes.map((winner) => winner.user));
+  const scoredUsers = new Set(data.allDailyUserAggregates.nodes.map((entry) => entry.user.toLowerCase()));
+  const todayBetBasketIds = new Set(data.allBaskets.nodes.map((basket) => basket.id));
+  const settledBasketIds = new Set(
+    data.allBasketSettlements.nodes
+      .filter((settlement) => settlement.status.toLowerCase() === "finalized")
+      .map((settlement) => settlement.basketId),
+  );
+  const pendingBasketCounts = new Map<string, number>();
+
+  for (const position of data.allChipPositions.nodes) {
+    if (BigInt(position.shares) <= 0n) {
+      continue;
+    }
+
+    if (!todayBetBasketIds.has(position.basketId) || settledBasketIds.has(position.basketId)) {
+      continue;
+    }
+
+    const userKey = position.user.toLowerCase();
+    if (scoredUsers.has(userKey)) {
+      continue;
+    }
+
+    pendingBasketCounts.set(userKey, (pendingBasketCounts.get(userKey) ?? 0) + 1);
+  }
+
+  const scoredEntries: ContestLeaderboardEntry[] = data.allDailyUserAggregates.nodes.map((entry) => ({
+    ...entry,
+    status: "scored",
+    rank: 0,
+    reward: rewardsByUser.get(entry.user) ?? null,
+    isCurrentWinner: winners.has(entry.user),
+    pendingBasketCount: 0,
+  }));
+
+  const pendingEntries: ContestLeaderboardEntry[] = Array.from(pendingBasketCounts.entries()).map(
+    ([userKey, pendingBasketCount]) => {
+      const matchingPosition = data.allChipPositions.nodes.find(
+        (position) =>
+          position.user.toLowerCase() === userKey &&
+          todayBetBasketIds.has(position.basketId) &&
+          !settledBasketIds.has(position.basketId),
+      );
+
+      return {
+        dayId,
+        user: matchingPosition?.user ?? userKey,
+        realizedProfit: "0",
+        basketCount: pendingBasketCount,
+        updatedAt: matchingPosition?.updatedAt ?? new Date(0).toISOString(),
+        status: "pending",
+        rank: 0,
+        reward: null,
+        isCurrentWinner: false,
+        pendingBasketCount,
+      };
+    },
+  );
+
+  const entries = scoredEntries
+    .sort((left, right) => {
+      const leftProfit = BigInt(left.realizedProfit);
+      const rightProfit = BigInt(right.realizedProfit);
+      if (leftProfit === rightProfit) {
+        return left.user.localeCompare(right.user);
+      }
+
+      return rightProfit > leftProfit ? 1 : -1;
+    })
+    .map((entry, index) => ({
+      ...entry,
+      rank: index + 1,
+    }));
+
+  const awaitingEntries = pendingEntries
+    .sort((left, right) => {
+      if (left.pendingBasketCount === right.pendingBasketCount) {
+        return left.user.localeCompare(right.user);
+      }
+
+      return right.pendingBasketCount - left.pendingBasketCount;
+    })
+    .map((entry, index) => ({
+      ...entry,
+      rank: index + 1,
+    }));
 
   return {
     dayId,
     projection: data.allContestDayProjections.nodes[0] ?? null,
-    entries: data.allDailyUserAggregates.nodes.map((entry, index) => ({
-      ...entry,
-      rank: index + 1,
-      reward: rewardsByUser.get(entry.user) ?? null,
-      isCurrentWinner: winners.has(entry.user),
-    })),
+    entries,
+    awaitingEntries,
   };
 };
 
