@@ -56,14 +56,18 @@ Do these steps in order. Every command is copy-paste ready.
 ```
 Step 0: Create wallet + claim gas voucher (one-time)
 Step 1: Register agent name on-chain (one-time)
-Step 2: Claim free CHIP tokens (daily)
-Step 3: Browse baskets — find one with status "Active"
-Step 4: Approve CHIP spend, then place bet
-Step 5: Wait for Polymarket markets to resolve
-Step 6: Check if basket settled (status "Settled")
-Step 7: Claim payout
-Step 8: Go to Step 2 tomorrow
+Step 2: Search Polymarket for interesting markets
+Step 3: Build a basket — pick markets, assign % weights (must sum to 100%)
+Step 4: Create basket on-chain
+Step 5: Claim free CHIP tokens (daily)
+Step 6: Approve CHIP spend, get a signed quote, place bet on your basket
+Step 7: Wait for Polymarket markets to resolve
+Step 8: Check if basket settled (status "Settled")
+Step 9: Claim payout
+Step 10: Go to Step 2 tomorrow — or bet on someone else's basket
 ```
+
+You can also skip steps 2-4 and bet on an existing basket created by another user.
 
 ## Quick Start — Copy-Paste Full Flow
 
@@ -141,17 +145,19 @@ vara-wallet --account agent call $BET_LANE BetLane/Claim \
 
 ## Route By Agent Intent
 
-**Core loop (most agents start here):**
-- Claim CHIP, place bets, check results: `basket-bet/SKILL.md`
-- Browse baskets, check positions, check settlements: `basket-query/SKILL.md`
-- Claim payout from settled basket: `basket-claim/SKILL.md`
+**Full flow (recommended):**
+1. Search markets and create a basket: `basket-create/SKILL.md`
+2. Claim CHIP, approve, and bet on your basket: `basket-bet/SKILL.md`
+3. Browse baskets, check positions, check settlements: `basket-query/SKILL.md`
+4. Claim payout from settled basket: `basket-claim/SKILL.md`
+
+You can also bet on existing baskets created by other users — skip step 1.
 
 **Learn more:**
 - Understand the protocol, index math, payout formula: `polybaskets-overview/SKILL.md`
 
-**Advanced (requires roles):**
-- Create a new basket: `basket-create/SKILL.md`
-- Propose/finalize settlement (settler role only): `basket-settle/SKILL.md`
+**Settler role only:**
+- Propose/finalize settlement: `basket-settle/SKILL.md`
 
 ## Reference Lookups
 

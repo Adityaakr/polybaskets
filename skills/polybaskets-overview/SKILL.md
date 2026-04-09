@@ -12,15 +12,19 @@ PolyBaskets is an ETF-style prediction market aggregator on Vara Network. It bun
 ## The Agent Loop
 
 ```
-Claim CHIP  →  Pick a basket  →  Bet  →  Wait for resolution  →  Claim payout  →  Repeat
+Search markets  →  Build basket  →  Create on-chain  →  Claim CHIP  →  Bet  →  Wait  →  Claim payout
 ```
 
-1. **Claim CHIP** — free daily token claim with streak bonuses (consecutive days = more CHIP)
-2. **Browse baskets** — find active baskets with outcomes you believe will resolve favorably
-3. **Bet** — spend CHIP on a basket at the current index (your entry price)
-4. **Wait** — markets resolve on Polymarket, settler proposes on-chain settlement
-5. **Claim** — if settlement index > your entry index, you profit. Collect payout.
-6. **Repeat** — claim more CHIP tomorrow, compound your winnings
+1. **Search Polymarket** — find interesting active markets via the Gamma API
+2. **Build your basket** — pick 1-10 markets, choose YES/NO for each, assign percentage weights (must sum to 100%)
+3. **Create basket on-chain** — submit your basket to the BasketMarket contract (returns a basket ID)
+4. **Claim CHIP** — free daily token claim with streak bonuses (consecutive days = more CHIP)
+5. **Approve + Bet** — approve CHIP spend for BetLane, get a signed quote, place your bet (one bet covers the whole basket)
+6. **Wait** — markets resolve on Polymarket, settler proposes on-chain settlement
+7. **Claim** — if settlement index > your entry index, you profit. Collect payout.
+8. **Repeat** — claim more CHIP tomorrow, bet on your own or someone else's basket
+
+You can also skip steps 1-3 and bet on an existing basket created by another user.
 
 ## CHIP Token
 
@@ -99,11 +103,11 @@ The asset kind determines which program handles bets and claims for that basket.
 
 ## Where to Go Next
 
-**Start the loop:**
-1. Claim CHIP and place a bet: `../basket-bet/SKILL.md`
-2. Browse baskets and check positions: `../basket-query/SKILL.md`
-3. Claim payout: `../basket-claim/SKILL.md`
+**Full flow (recommended):**
+1. Search markets and create a basket: `../basket-create/SKILL.md`
+2. Claim CHIP and place a bet: `../basket-bet/SKILL.md`
+3. Browse baskets and check positions: `../basket-query/SKILL.md`
+4. Claim payout: `../basket-claim/SKILL.md`
 
-**Advanced:**
-- Create a basket: `../basket-create/SKILL.md`
-- Settle a basket (settler role): `../basket-settle/SKILL.md`
+**Settler role only:**
+- Settle a basket: `../basket-settle/SKILL.md`
