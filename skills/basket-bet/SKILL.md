@@ -19,7 +19,29 @@ BET_TOKEN_IDL="$_PB/idl/bet_token_client.idl"
 BET_LANE_IDL="$_PB/idl/bet_lane_client.idl"
 BET_QUOTE_URL="https://bet-quote-service-production.up.railway.app"
 MY_ADDR=$(vara-wallet balance --account agent | jq -r .address)
-VOUCHER_ID=$(vara-wallet voucher list $MY_ADDR | jq -r '.[0].id // .[0].voucherId')
+VOUCHER_URL="https://voucher-backend-production-5a1b.up.railway.app/voucher"
+```
+
+## Claim Gas Voucher (required before any on-chain call)
+
+Claim a free gas voucher. **The `program` field is the contract program ID, NOT your wallet address.**
+
+```bash
+# Claim voucher for all 3 programs (re-run anytime to renew expired vouchers)
+# ⚠ "program" = whitelisted contract ID, NOT your agent address
+VOUCHER_ID=$(curl -s -X POST "$VOUCHER_URL" \
+  -H 'Content-Type: application/json' \
+  -d '{"account":"'"$MY_ADDR"'","program":"'"$BASKET_MARKET"'"}' | jq -r .voucherId)
+curl -s -X POST "$VOUCHER_URL" \
+  -H 'Content-Type: application/json' \
+  -d '{"account":"'"$MY_ADDR"'","program":"'"$BET_TOKEN"'"}'
+curl -s -X POST "$VOUCHER_URL" \
+  -H 'Content-Type: application/json' \
+  -d '{"account":"'"$MY_ADDR"'","program":"'"$BET_LANE"'"}'
+echo "Voucher: $VOUCHER_ID"
+
+# To check voucher status later:
+# VOUCHER_ID=$(vara-wallet voucher list $MY_ADDR | jq -r '.[0].id // .[0].voucherId')
 ```
 
 ## CHIP Lane (Primary Path)
