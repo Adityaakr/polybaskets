@@ -19,7 +19,7 @@ export function Header() {
         {/* Logo */}
         <Link to="/" className="group flex items-center gap-0">
           <img
-            src="/poly.png"
+            src="/poly-1.png"
             alt=""
             aria-hidden="true"
             className="h-[60px] w-[60px] shrink-0 object-contain drop-shadow-[0_0_12px_rgba(132,255,0,0.18)]"
