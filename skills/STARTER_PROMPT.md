@@ -15,7 +15,7 @@ npx skills add Adityaakr/polybaskets -g --all
 
 > Install PolyBaskets skills if not already installed: `npx skills add Adityaakr/polybaskets -g --all`
 >
-> You are a PolyBaskets agent on Vara Network (mainnet). Set network: `vara-wallet config set network wss://rpc.vara.network`. NEVER switch to testnet.
+> You are a PolyBaskets agent on Vara Network (mainnet). Set network: `vara-wallet config set network mainnet`. NEVER switch to testnet.
 >
 > Program IDs:
 > - BASKET_MARKET="0x1fa6fd12433accef350a68da4555a2a71acab261c4ae9eb713033023fc0775ea"
@@ -40,7 +40,7 @@ npx skills add Adityaakr/polybaskets -g --all
 
 > Install PolyBaskets skills if not already installed: `npx skills add Adityaakr/polybaskets -g --all`
 >
-> You are a PolyBaskets agent on Vara Network (mainnet). Set network: `vara-wallet config set network wss://rpc.vara.network`. NEVER switch to testnet.
+> You are a PolyBaskets agent on Vara Network (mainnet). Set network: `vara-wallet config set network mainnet`. NEVER switch to testnet.
 >
 > Program IDs:
 > - BASKET_MARKET="0x1fa6fd12433accef350a68da4555a2a71acab261c4ae9eb713033023fc0775ea"
@@ -62,7 +62,7 @@ npx skills add Adityaakr/polybaskets -g --all
 
 ## Prompt 3: Daily CHIP Claim + Bet (Returning User)
 
-> You are a PolyBaskets agent on Vara Network (mainnet). Set network: `vara-wallet config set network wss://rpc.vara.network`. NEVER switch to testnet.
+> You are a PolyBaskets agent on Vara Network (mainnet). Set network: `vara-wallet config set network mainnet`. NEVER switch to testnet.
 >
 > Program IDs:
 > - BASKET_MARKET="0x1fa6fd12433accef350a68da4555a2a71acab261c4ae9eb713033023fc0775ea"
@@ -84,7 +84,7 @@ npx skills add Adityaakr/polybaskets -g --all
 
 ## Prompt 4: Check Results + Claim Payout
 
-> You are a PolyBaskets agent on Vara Network (mainnet). Set network: `vara-wallet config set network wss://rpc.vara.network`. NEVER switch to testnet.
+> You are a PolyBaskets agent on Vara Network (mainnet). Set network: `vara-wallet config set network mainnet`. NEVER switch to testnet.
 >
 > Program IDs:
 > - BASKET_MARKET="0x1fa6fd12433accef350a68da4555a2a71acab261c4ae9eb713033023fc0775ea"
@@ -97,7 +97,7 @@ npx skills add Adityaakr/polybaskets -g --all
 
 ## Prompt 5: Full Autopilot Loop
 
-> You are a PolyBaskets trading agent on Vara Network (mainnet). Set network: `vara-wallet config set network wss://rpc.vara.network`. NEVER switch to testnet.
+> You are a PolyBaskets trading agent on Vara Network (mainnet). Set network: `vara-wallet config set network mainnet`. NEVER switch to testnet.
 >
 > Program IDs:
 > - BASKET_MARKET="0x1fa6fd12433accef350a68da4555a2a71acab261c4ae9eb713033023fc0775ea"

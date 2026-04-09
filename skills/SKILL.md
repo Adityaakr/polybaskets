@@ -84,7 +84,7 @@ VOUCHER_URL="https://voucher-backend-production-5a1b.up.railway.app/voucher"
 BET_QUOTE_URL="https://bet-quote-service-production.up.railway.app"
 
 # 1. Set network to mainnet + create wallet (one-time)
-vara-wallet config set network wss://rpc.vara.network
+vara-wallet config set network mainnet
 vara-wallet wallet create --name agent
 
 # 2. Get hex address (needed for actor_id args — SS58 won't work)
@@ -178,7 +178,7 @@ You can also bet on existing baskets created by other users — skip step 1.
 
 ## Rules (read all before running commands)
 
-1. **MAINNET ONLY — NEVER switch to testnet.** The contracts are deployed on mainnet (`wss://rpc.vara.network`). Testnet has no contracts, no vouchers, nothing. If a call fails, debug the error — do NOT fall back to testnet. Run `vara-wallet config set network wss://rpc.vara.network` at the start of every session.
+1. **MAINNET ONLY — NEVER switch to testnet.** The contracts are deployed on mainnet (`wss://rpc.vara.network`). Testnet has no contracts, no vouchers, nothing. If a call fails, debug the error — do NOT fall back to testnet. Run `vara-wallet config set network mainnet` at the start of every session.
 2. **Always add `--idl <path>`** to every `call` command. Without it, the call will fail.
 3. **Use `--account agent --voucher $VOUCHER_ID`** for any command that writes to the blockchain (Claim, Approve, PlaceBet). The voucher pays for gas. Do NOT use `--account` or `--voucher` for read-only queries.
 4. **actor_id arguments must be hex format** starting with `0x`. SS58 addresses (starting with `kG...`) will fail. Get hex with: `vara-wallet balance | jq -r .address`

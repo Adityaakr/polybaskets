@@ -9,11 +9,11 @@ All queries are read-only and free — no `--account` needed.
 
 ## Setup
 
-**MAINNET ONLY.** Run `vara-wallet config set network wss://rpc.vara.network` before anything else. NEVER switch to testnet — there are no contracts there.
+**MAINNET ONLY.** Run `vara-wallet config set network mainnet` before anything else. NEVER switch to testnet — there are no contracts there.
 
 ```bash
 # Set network and variables (see ../references/program-ids.md)
-vara-wallet config set network wss://rpc.vara.network
+vara-wallet config set network mainnet
 BASKET_MARKET="0x1fa6fd12433accef350a68da4555a2a71acab261c4ae9eb713033023fc0775ea"
 BET_TOKEN="0xad1a120f24f62eb68537791fe94c3b381e81677e9bd73d811c319838846c27dd"
 BET_LANE="0x40dc1597c8e3beb3523f9c05ad2b44e00a11be6e665da20e4323bb7dfae1ecda"
