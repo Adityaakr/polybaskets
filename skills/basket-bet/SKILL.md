@@ -128,16 +128,24 @@ QUOTE=$(curl -s -X POST "$BET_QUOTE_URL/api/bet-lane/quote" \
   }')
 
 echo "$QUOTE" | jq .
-# Returns: { "payload": { "target_program_id": "...", "user": "...", ... }, "signature": "0x..." }
+# Returns: { "payload": { ... }, "signature": "0x..." }
 
 # ⚠ VERIFY the quote succeeded before placing the bet!
-# If it has an "error" field, do NOT pass it to PlaceBet — it will fail.
 if echo "$QUOTE" | jq -e '.error' >/dev/null 2>&1; then
   echo "Quote failed: $QUOTE" && exit 1
 fi
 
-# 5b. Place bet with the signed quote
-# Extract the signed_quote object from the response and pass it to PlaceBet
+# 5b. Convert signature from hex string to byte array (required by contract)
+# The quote service returns signature as "0x...", but the contract expects vec u8.
+QUOTE=$(echo "$QUOTE" | python3 -c "
+import json, sys
+q = json.load(sys.stdin)
+sig = q['signature']
+q['signature'] = list(bytes.fromhex(sig[2:] if sig.startswith('0x') else sig))
+print(json.dumps(q))
+")
+
+# 5c. Place bet with the signed quote
 vara-wallet --account agent call $BET_LANE BetLane/PlaceBet \
   --args '[<BASKET_ID>, "<AMOUNT_RAW>", '"$QUOTE"']' --voucher $VOUCHER_ID --idl $BET_LANE_IDL
 ```
@@ -171,7 +179,16 @@ QUOTE=$(curl -s -X POST "$BET_QUOTE_URL/api/bet-lane/quote" \
     "targetProgramId": "'$BET_LANE'"
   }')
 
-# 4. Place bet with the signed quote
+# 4. Convert signature hex to byte array (contract expects vec u8, not hex string)
+QUOTE=$(echo "$QUOTE" | python3 -c "
+import json, sys
+q = json.load(sys.stdin)
+sig = q['signature']
+q['signature'] = list(bytes.fromhex(sig[2:] if sig.startswith('0x') else sig))
+print(json.dumps(q))
+")
+
+# 5. Place bet with the signed quote
 vara-wallet --account agent call $BET_LANE BetLane/PlaceBet \
   --args '[0, "100000000000000", '"$QUOTE"']' --voucher $VOUCHER_ID --idl $BET_LANE_IDL
 

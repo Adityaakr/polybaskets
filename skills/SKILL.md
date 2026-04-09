@@ -129,7 +129,16 @@ QUOTE=$(curl -s -X POST "$BET_QUOTE_URL/api/bet-lane/quote" \
   -H 'Content-Type: application/json' \
   -d '{"user":"'"$MY_ADDR"'","basketId":BASKET_ID,"amount":"100000000000000","targetProgramId":"'"$BET_LANE"'"}')
 
-# 8. Place bet with the signed quote (valid for 30 seconds)
+# 8. Convert signature hex → byte array (contract expects vec u8)
+QUOTE=$(echo "$QUOTE" | python3 -c "
+import json, sys
+q = json.load(sys.stdin)
+sig = q['signature']
+q['signature'] = list(bytes.fromhex(sig[2:] if sig.startswith('0x') else sig))
+print(json.dumps(q))
+")
+
+# 9. Place bet with the signed quote (valid for 30 seconds)
 vara-wallet --account agent call $BET_LANE BetLane/PlaceBet \
   --args '[BASKET_ID, "100000000000000", '"$QUOTE"']' --voucher $VOUCHER_ID --idl $BET_LANE_IDL
 
