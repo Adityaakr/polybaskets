@@ -116,41 +116,26 @@ vara-wallet --account agent call $BET_TOKEN BetToken/Approve \
 
 Bets require a signed quote from the bet-quote-service. The quote service fetches live Polymarket prices, computes the index, and signs the payload. The contract verifies the signature on-chain.
 
-```bash
-# Quote service URL (set in Setup block above)
+**All-in-one command** (get quote + convert signature + place bet — must run in one shell command to avoid the 30-second quote expiry):
 
-# 5a. Request a signed quote
+```bash
+# Replace <BASKET_ID> and <AMOUNT_RAW> with real values
 QUOTE=$(curl -s -X POST "$BET_QUOTE_URL/api/bet-lane/quote" \
   -H 'Content-Type: application/json' \
-  -d '{
-    "user": "'$MY_ADDR'",
-    "basketId": <BASKET_ID>,
-    "amount": "<AMOUNT_RAW>",
-    "targetProgramId": "'$BET_LANE'"
-  }')
-
-echo "$QUOTE" | jq .
-# Returns: { "payload": { ... }, "signature": "0x..." }
-
-# ⚠ VERIFY the quote succeeded before placing the bet!
-if echo "$QUOTE" | jq -e '.error' >/dev/null 2>&1; then
-  echo "Quote failed: $QUOTE" && exit 1
-fi
-
-# 5b. Convert signature from hex string to byte array (required by contract)
-# The quote service returns signature as "0x...", but the contract expects vec u8.
+  -d '{"user":"'"$MY_ADDR"'","basketId":<BASKET_ID>,"amount":"<AMOUNT_RAW>","targetProgramId":"'"$BET_LANE"'"}') && \
+echo "$QUOTE" | jq -e '.payload' >/dev/null 2>&1 || { echo "Quote failed: $QUOTE"; exit 1; } && \
 QUOTE=$(echo "$QUOTE" | python3 -c "
 import json, sys
 q = json.load(sys.stdin)
 sig = q['signature']
 q['signature'] = list(bytes.fromhex(sig[2:] if sig.startswith('0x') else sig))
 print(json.dumps(q))
-")
-
-# 5c. Place bet with the signed quote
+") && \
 vara-wallet --account agent call $BET_LANE BetLane/PlaceBet \
   --args '[<BASKET_ID>, "<AMOUNT_RAW>", '"$QUOTE"']' --voucher $VOUCHER_ID --idl $BET_LANE_IDL
 ```
+
+**CRITICAL: Do NOT manually reconstruct the quote object.** Pipe the raw JSON response from curl through python3 to convert the signature. The quote has a `{"payload": {...}, "signature": "0x..."}` structure — if you rebuild it without the `payload` wrapper, the contract will reject it with `InvalidIndexAtCreation`.
 
 The quote is valid for 30 seconds. If it expires, request a new one. Each quote has a unique nonce and can only be used once.
 
@@ -171,26 +156,18 @@ vara-wallet --account agent call $BET_TOKEN BetToken/Claim \
 vara-wallet --account agent call $BET_TOKEN BetToken/Approve \
   --args '["'$BET_LANE'", "100000000000000"]' --voucher $VOUCHER_ID --idl $BET_TOKEN_IDL
 
-# 3. Get a signed quote for basket 0, 100 CHIP
+# 3. Get quote + convert signature + place bet (all in one command — 30s expiry!)
+# ⚠ Do NOT manually reconstruct the quote. Pipe the raw curl response through python3.
 QUOTE=$(curl -s -X POST "$BET_QUOTE_URL/api/bet-lane/quote" \
   -H 'Content-Type: application/json' \
-  -d '{
-    "user": "'$MY_ADDR'",
-    "basketId": 0,
-    "amount": "100000000000000",
-    "targetProgramId": "'$BET_LANE'"
-  }')
-
-# 4. Convert signature hex to byte array (contract expects vec u8, not hex string)
+  -d '{"user":"'"$MY_ADDR"'","basketId":0,"amount":"100000000000000","targetProgramId":"'"$BET_LANE"'"}') && \
 QUOTE=$(echo "$QUOTE" | python3 -c "
 import json, sys
 q = json.load(sys.stdin)
 sig = q['signature']
 q['signature'] = list(bytes.fromhex(sig[2:] if sig.startswith('0x') else sig))
 print(json.dumps(q))
-")
-
-# 5. Place bet with the signed quote
+") && \
 vara-wallet --account agent call $BET_LANE BetLane/PlaceBet \
   --args '[0, "100000000000000", '"$QUOTE"']' --voucher $VOUCHER_ID --idl $BET_LANE_IDL
 
@@ -240,7 +217,13 @@ vara-wallet call $BASKET_MARKET BasketMarket/IsVaraEnabled --args '[]' --idl $ID
 
 ## After Betting
 
-- Check your position: `../basket-query/SKILL.md`
+Check your position (use `BetLane/GetPosition`, NOT `GetUserPositions` which doesn't exist):
+
+```bash
+vara-wallet call $BET_LANE BetLane/GetPosition \
+  --args '["'$MY_ADDR'", <BASKET_ID>]' --idl $BET_LANE_IDL
+```
+
 - Wait for settlement, then claim payout: `../basket-claim/SKILL.md`
 - Come back tomorrow for more CHIP: repeat Step 1
 
@@ -248,6 +231,7 @@ vara-wallet call $BASKET_MARKET BasketMarket/IsVaraEnabled --args '[]' --idl $ID
 
 | Error | Cause | Fix |
 |-------|-------|-----|
+| `InvalidIndexAtCreation` | Malformed quote struct (missing `payload` wrapper) | Do NOT manually reconstruct the quote — pipe the raw curl response through python3 |
 | `InvalidQuoteSignature` | Quote not signed by configured signer | Check bet-quote-service config |
 | `QuoteExpired` | Quote older than 30 seconds | Request a fresh quote |
 | `QuoteNonceAlreadyUsed` | Same quote submitted twice | Request a new quote for each bet |
