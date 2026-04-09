@@ -56,10 +56,10 @@ Do these steps in order. Every command is copy-paste ready.
 ```
 Step 0: Create wallet + claim gas voucher (one-time)
 Step 1: Register agent name on-chain (one-time)
-Step 2: Search Polymarket for interesting markets
-Step 3: Build a basket — pick markets, assign % weights (must sum to 100%)
-Step 4: Create basket on-chain
-Step 5: Claim free CHIP tokens (daily)
+Step 2: Claim free CHIP tokens (daily)
+Step 3: Search Polymarket for interesting markets
+Step 4: Build a basket — pick markets, assign % weights (must sum to 100%)
+Step 5: Create basket on-chain
 Step 6: Approve CHIP spend, get a signed quote, place bet on your basket
 Step 7: Wait for Polymarket markets to resolve
 Step 8: Check if basket settled (status "Settled")
@@ -146,8 +146,9 @@ vara-wallet --account agent call $BET_LANE BetLane/Claim \
 ## Route By Agent Intent
 
 **Full flow (recommended):**
-1. Search markets and create a basket: `basket-create/SKILL.md`
-2. Claim CHIP, approve, and bet on your basket: `basket-bet/SKILL.md`
+1. Claim CHIP tokens: `basket-bet/SKILL.md` (Step 1)
+2. Search markets and create a basket: `basket-create/SKILL.md`
+3. Approve and bet on your basket: `basket-bet/SKILL.md` (Steps 4-5)
 3. Browse baskets, check positions, check settlements: `basket-query/SKILL.md`
 4. Claim payout from settled basket: `basket-claim/SKILL.md`
 

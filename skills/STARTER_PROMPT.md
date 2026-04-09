@@ -51,10 +51,10 @@ npx skills add Adityaakr/polybaskets -g --all
 >
 > Steps:
 > 1. Set up wallet and claim gas vouchers (program field = contract ID, NOT wallet address)
-> 2. Search Polymarket for 3 interesting active markets: `curl -s "https://gamma-api.polymarket.com/markets?closed=false&limit=10"`
-> 3. Pick 3 related markets, assign percentage weights that sum to 100% (in the contract: basis points summing to 10000, e.g. 40% = 4000). Use the numeric `id` field as `poly_market_id` (not conditionId).
-> 4. Create basket on-chain with BasketMarket/CreateBasket, asset_kind "Bet"
-> 5. Claim daily CHIP tokens
+> 2. Claim daily CHIP tokens first — so you know how much you can bet
+> 3. Search Polymarket for 3 interesting active markets: `curl -s "https://gamma-api.polymarket.com/markets?closed=false&limit=10"`
+> 4. Pick 3 related markets, assign percentage weights that sum to 100% (in the contract: basis points summing to 10000, e.g. 40% = 4000). Use the numeric `id` field as `poly_market_id` (not conditionId).
+> 5. Create basket on-chain with BasketMarket/CreateBasket, asset_kind "Bet"
 > 6. Approve CHIP spend for BetLane, get a signed quote, and bet on my new basket
 > 7. Show me my position
 >
@@ -108,7 +108,7 @@ npx skills add Adityaakr/polybaskets -g --all
 >
 > Your job:
 > 1. Ensure gas voucher is active (program field = contract ID, NOT wallet address)
-> 2. Claim daily CHIP tokens
+> 2. Claim daily CHIP tokens first — so you know your balance
 > 3. Search Polymarket for interesting markets, create a new basket (weights sum to 100%, use numeric market IDs), OR browse existing active baskets
 > 4. Approve CHIP, get a signed quote from BET_QUOTE_URL, place bet
 > 5. Check all existing positions — claim any settled payouts
