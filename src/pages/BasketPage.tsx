@@ -32,6 +32,19 @@ import { PayoutCelebration } from '@/components/PayoutCelebration';
 import { BetLanePanel } from '@/components/BetLanePanel';
 
 const LOW_BASE_PROBABILITY_THRESHOLD = 0.05;
+const DEBUG_BASKET_PAGE = false;
+
+const debugBasketLog = (...args: unknown[]) => {
+  if (DEBUG_BASKET_PAGE) {
+    console.log(...args);
+  }
+};
+
+const debugBasketWarn = (...args: unknown[]) => {
+  if (DEBUG_BASKET_PAGE) {
+    console.warn(...args);
+  }
+};
 
 function getReadyOutcomeProbabilities(market: { outcomePrices?: string[] | null }): OutcomeProbabilities | null {
   const prices = market.outcomePrices;
@@ -617,125 +630,25 @@ export default function BasketPage() {
   // Note: expectedPayout can be "0" (string) for total losses, which is valid
   const expectedPayout = settlement && userPosition ? calculatePayout(settlement, userPosition) : null;
   const expectedPayoutNum = expectedPayout !== null ? parseFloat(expectedPayout) : 0;
-  
-  // Debug payout calculation (must be before early returns)
-  useEffect(() => {
-    if (settlement && userPosition && isOnChain) {
-      const shares = BigInt(String(userPosition.shares));
-      const settlementIndexBps = BigInt(String(settlement.payout_per_share));
-      const indexAtCreationBps = userPosition.index_at_creation_bps !== undefined
-        ? BigInt(String(userPosition.index_at_creation_bps))
-        : BigInt(10000); // Fallback for old positions
-      
-      // New index-based payout: shares × (settlement_index / index_at_creation)
-      const payout = indexAtCreationBps > 0n
-        ? (shares * settlementIndexBps) / indexAtCreationBps
-        : (shares * settlementIndexBps) / BigInt(10000); // Fallback
-      
-      // Calculate indices as percentages
-      const settlementIndex = Number(settlementIndexBps) / 10000;
-      const indexAtCreation = Number(indexAtCreationBps) / 10000;
-      const payoutRatio = settlementIndex / indexAtCreation;
-      
-      // Calculate what user bet (in VARA)
-      const userBetAmount = fromVara(shares);
-      
-      console.log(`[BasketPage] Index-Based Payout Calculation:`, {
-        userBetAmount: `${userBetAmount} VARA`,
-        userShares: shares.toString(),
-        indexAtCreation: `${indexAtCreation.toFixed(4)} (${(indexAtCreation * 100).toFixed(2)}%)`,
-        indexAtCreationBps: indexAtCreationBps.toString(),
-        settlementIndex: `${settlementIndex.toFixed(4)} (${(settlementIndex * 100).toFixed(2)}%)`,
-        settlementIndexBps: settlementIndexBps.toString(),
-        payoutRatio: `${payoutRatio.toFixed(4)}x`,
-        calculatedPayout: expectedPayout,
-        expectedReturn: expectedPayoutNum >= parseFloat(userBetAmount) ? 'PROFIT' : 'LOSS',
-        profitOrLoss: expectedPayoutNum >= parseFloat(userBetAmount) 
-          ? `+${(expectedPayoutNum - parseFloat(userBetAmount)).toFixed(4)} VARA`
-          : `${(expectedPayoutNum - parseFloat(userBetAmount)).toFixed(4)} VARA`,
-        formula: `Payout = ${fromVara(shares)} × (${settlementIndexBps} / ${indexAtCreationBps}) = ${expectedPayout}`
-      });
-      
-      // Edge case testing and verification
-      const profitLoss = expectedPayoutNum - parseFloat(userBetAmount);
-      const profitLossPercent = parseFloat(userBetAmount) > 0 ? ((profitLoss / parseFloat(userBetAmount)) * 100) : 0;
-      
-      // Test all edge cases
-      if (settlementIndexBps === BigInt(0)) {
-        console.log(`[BasketPage] ⚠️ EDGE CASE: Settlement index = 0 (all items NO) - User loses everything`);
-        console.log(`[BasketPage] Expected: Payout = 0, Loss = -${userBetAmount} VARA (-100%)`);
-        if (expectedPayoutNum !== 0) {
-          console.error(`[BasketPage] ❌ ERROR: Expected payout 0 but got ${expectedPayoutNum}`);
-        }
-      } else if (settlementIndex < indexAtCreation) {
-        console.log(`[BasketPage] ⚠️ EDGE CASE: Settlement index (${(settlementIndex * 100).toFixed(2)}%) < Index at creation (${(indexAtCreation * 100).toFixed(2)}%) - User loses money`);
-        console.log(`[BasketPage] Expected: Payout < Stake, Loss = ${profitLoss.toFixed(4)} VARA (${profitLossPercent.toFixed(2)}%)`);
-      } else if (settlementIndex === indexAtCreation) {
-        console.log(`[BasketPage] ✓ EDGE CASE: Settlement index = Index at creation - Break even`);
-        console.log(`[BasketPage] Expected: Payout = Stake, Profit/Loss = 0`);
-        if (Math.abs(profitLoss) > 0.0001) {
-          console.error(`[BasketPage] ❌ ERROR: Expected break even but got ${profitLoss > 0 ? 'profit' : 'loss'} of ${profitLoss.toFixed(4)}`);
-        }
-      } else if (settlementIndex > indexAtCreation) {
-        console.log(`[BasketPage] ✓ EDGE CASE: Settlement index (${(settlementIndex * 100).toFixed(2)}%) > Index at creation (${(indexAtCreation * 100).toFixed(2)}%) - User profits`);
-        console.log(`[BasketPage] Expected: Payout > Stake, Profit = +${profitLoss.toFixed(4)} VARA (+${profitLossPercent.toFixed(2)}%)`);
-      }
-      
-      // Verify calculation matches contract
-      if (expectedPayoutNum >= 0 && parseFloat(userBetAmount) > 0) {
-        const actualRatio = expectedPayoutNum / parseFloat(userBetAmount);
-        if (payoutRatio > 0 && Math.abs(actualRatio - payoutRatio) > 0.01) {
-          console.error(`[BasketPage] ⚠️ PAYOUT CALCULATION MISMATCH!`, {
-            expectedRatio: payoutRatio,
-            actualRatio: actualRatio,
-            difference: Math.abs(actualRatio - payoutRatio)
-          });
-        } else if (payoutRatio > 0) {
-          console.log(`[BasketPage] ✓ Payout calculation verified: ${(actualRatio * 100).toFixed(2)}% matches expected ratio ${(payoutRatio * 100).toFixed(2)}%`);
-        }
-      }
-      
-      // Final summary
-      console.log(`[BasketPage] 📊 Final Payout Summary:`, {
-        betAmount: `${userBetAmount} VARA`,
-        payoutAmount: `${expectedPayout} VARA`,
-        profitLoss: `${profitLoss >= 0 ? '+' : ''}${profitLoss.toFixed(4)} VARA`,
-        profitLossPercent: `${profitLoss >= 0 ? '+' : ''}${profitLossPercent.toFixed(2)}%`,
-        outcome: expectedPayoutNum === 0 ? 'TOTAL LOSS' : profitLoss > 0 ? 'PROFIT' : profitLoss < 0 ? 'LOSS' : 'BREAK EVEN',
-        canClaim: settlementStatus === 'Finalized' && !userPosition.claimed
-      });
-    }
-  }, [settlement, userPosition, expectedPayout, expectedPayoutNum, isOnChain]);
-
-  // Debug logging (must be before early returns)
-  useEffect(() => {
-    if (isOnChain) {
-      const canClaimDebug = isOnChain && settlementStatus === 'Finalized' && userPosition && !userPosition.claimed;
-      console.log('[BasketPage] Claim button conditions:', {
-        isOnChain,
-        settlementStatus,
-        hasUserPosition: !!userPosition,
-        userPositionClaimed: userPosition?.claimed,
-        canClaim: canClaimDebug,
-        basketId: onChainId
-      });
-    }
-  }, [isOnChain, settlementStatus, userPosition, onChainId]);
 
   // Fetch individual market details for basket items (same strategy as BasketCard)
   // IMPORTANT: Use basket.items directly (not basket?.items) to match BasketCard exactly
   const basketMarketIds = useMemo(() => {
     if (!basket || !basket.items || basket.items.length === 0) {
-      console.warn(`[BasketPage] No basket or items available. Basket:`, basket);
+      debugBasketWarn(`[BasketPage] No basket or items available. Basket:`, basket);
       return [];
     }
     const ids = basket.items.map(item => item.marketId).filter((id, idx, arr) => arr.indexOf(id) === idx);
-    console.log(`[BasketPage] Basket ${basket.id} has ${basket.items.length} items, ${ids.length} unique market IDs:`, ids);
     return ids;
   }, [basket?.items, basket?.id]);
 
+  const basketMarketIdsKey = useMemo(
+    () => [...basketMarketIds].sort().join(','),
+    [basketMarketIds],
+  );
+
   const { data: itemMarketsData } = useQuery({
-    queryKey: ['market-details', basketMarketIds.sort().join(',')],
+    queryKey: ['market-details', basketMarketIdsKey],
     queryFn: async () => {
       const markets = new Map<string, any>();
       await Promise.all(
@@ -759,28 +672,21 @@ export default function BasketPage() {
 
   const { liveIndex, probabilities, marketPrices, marketStatuses, hasValidData } = useMemo(() => {
     if (!basket) {
-      console.warn(`[BasketPage] No basket available - basket is null`);
+      debugBasketWarn(`[BasketPage] No basket available - basket is null`);
       return { liveIndex: 0, probabilities: [] as Array<number | null>, marketPrices: new Map(), marketStatuses: new Map(), hasValidData: false };
     }
 
     const snapshotIndex = getCreationSnapshotIndex(basket);
     
     if (!basket.items || basket.items.length === 0) {
-      console.warn(`[BasketPage] Basket ${basket.id} has no items`);
+      debugBasketWarn(`[BasketPage] Basket ${basket.id} has no items`);
       return { liveIndex: 0, probabilities: [] as Array<number | null>, marketPrices: new Map(), marketStatuses: new Map(), hasValidData: false };
     }
-
-    console.log(`[BasketPage] Calculating live index for basket ${basket.id}:`, {
-      itemsCount: basket.items.length,
-      snapshotIndex,
-      marketsDataSize: itemMarketsData?.size || 0,
-      basketItems: basket.items.map(item => ({ marketId: item.marketId, outcome: item.outcome, weightBps: item.weightBps }))
-    });
 
     // CRITICAL: Only calculate if we have REAL live data for ALL markets
     // Never use snapshot as "live" index - that causes wrong percentage calculations
     if (!itemMarketsData || itemMarketsData.size === 0 || basket.items.length === 0) {
-      console.warn(`[BasketPage] No live data for basket ${basket.id} - cannot calculate accurate live index`);
+      debugBasketWarn(`[BasketPage] No live data for basket ${basket.id} - cannot calculate accurate live index`);
       return { 
         liveIndex: snapshotIndex ?? 0, // Only for display, NOT for percentage calculation
         probabilities: basket.items.map(() => null),
@@ -793,7 +699,7 @@ export default function BasketPage() {
     // Check if we have data for all markets - if not, calculation will be inaccurate
     const missingMarkets = basket.items.filter(item => !itemMarketsData.has(item.marketId));
     if (missingMarkets.length > 0) {
-      console.warn(`[BasketPage] Missing live data for ${missingMarkets.length} markets in basket ${basket.id}:`, missingMarkets.map(m => m.marketId));
+      debugBasketWarn(`[BasketPage] Missing live data for ${missingMarkets.length} markets in basket ${basket.id}:`, missingMarkets.map(m => m.marketId));
       // Still calculate but mark as potentially inaccurate
     }
 
@@ -804,7 +710,7 @@ export default function BasketPage() {
     // Use ONLY live data from Polymarket API - NO static/mock data
     itemMarketsData.forEach((market, id) => {
       if (!market) {
-        console.warn(`[BasketPage] Null market data for ${id}`);
+        debugBasketWarn(`[BasketPage] Null market data for ${id}`);
         return;
       }
       
@@ -823,8 +729,6 @@ export default function BasketPage() {
           resolved = 'NO';
         }
       }
-      
-      console.log(`[BasketPage] Market ${id} - YES: ${probs.YES.toFixed(3)}, NO: ${probs.NO.toFixed(3)}, Closed: ${market.closed}, Resolved: ${resolved}`);
       
       probMap.set(id, probs);
       if (prices) {
@@ -848,8 +752,6 @@ export default function BasketPage() {
         ? (item.outcome === 'YES' ? marketProbs.YES : marketProbs.NO)
         : null;
     });
-
-    console.log(`[BasketPage] FINAL Calculated live index for ${basket.id}: ${calculatedIndex.toFixed(3)} (from ${itemMarketsData.size} live markets, snapshot: ${snapshotIndex ?? 'n/a'})`);
 
     // Only mark as valid if we have data for all or most markets
     return { 
@@ -932,15 +834,15 @@ export default function BasketPage() {
   const entryIndexBps = isFtAssetBasket ? lanePosition?.index_at_creation_bps : userPosition?.index_at_creation_bps;
 
   if (positionEntryIndex !== null) {
-    console.log(
+    debugBasketLog(
       `[BasketPage] Position entry index from ${entryIndexSource}: ${entryIndexBps} bps = ${positionEntryIndex.toFixed(4)}`,
     );
   }
 
   if (creationSnapshotIndex !== null) {
-    console.log(`[BasketPage] Basket creation snapshot index from local metadata: ${creationSnapshotIndex.toFixed(4)}`);
+    debugBasketLog(`[BasketPage] Basket creation snapshot index from local metadata: ${creationSnapshotIndex.toFixed(4)}`);
   } else if (basket) {
-    console.warn(`[BasketPage] No basket creation snapshot available for ${basket.id}. Hiding "since creation" calculations.`);
+    debugBasketWarn(`[BasketPage] No basket creation snapshot available for ${basket.id}. Hiding "since creation" calculations.`);
   }
 
   // Only calculate displayed change if we have complete live data and a real basket creation snapshot.
@@ -969,10 +871,10 @@ export default function BasketPage() {
     }
   } else {
     if (!hasValidData) {
-      console.warn(`[BasketPage] Cannot calculate accurate index delta for ${basket?.id} - incomplete live market data`);
+      debugBasketWarn(`[BasketPage] Cannot calculate accurate index delta for ${basket?.id} - incomplete live market data`);
     }
     if (creationSnapshotIndex === null) {
-      console.warn(`[BasketPage] Cannot calculate accurate index delta for ${basket?.id} - missing basket creation snapshot`);
+      debugBasketWarn(`[BasketPage] Cannot calculate accurate index delta for ${basket?.id} - missing basket creation snapshot`);
     }
   }
 
@@ -993,19 +895,6 @@ export default function BasketPage() {
   const showStakeReturn = hasValidData && positionEntryIndex !== null && positionEntryIndex > 0;
   const headlineChange = showStakeReturn ? stakeReturnPercent : indexChangePercent;
   const headlineChangeBase = showStakeReturn ? liveIndex - positionEntryIndex : indexChange;
-  
-  console.log(`[BasketPage] Index change for ${basket?.id}:`, {
-    creationSnapshotIndex: creationSnapshotIndex?.toFixed(3) ?? null,
-    positionEntryIndex: positionEntryIndex?.toFixed(3) ?? null,
-    liveIndex: liveIndex.toFixed(3),
-    absoluteChange: indexChange.toFixed(3),
-    percentChange: indexChangePercent.toFixed(2) + '%',
-    stakeReturnPercent: `${stakeReturnPercent.toFixed(2)}%`,
-    growthMultiple: indexGrowthMultiple ? `${indexGrowthMultiple.toFixed(2)}x` : null,
-    isLowBaseIndex,
-    hasValidData,
-    canCalculate: hasValidData && creationSnapshotIndex !== null
-  });
 
   // Handle betting
   const handleBet = async () => {
