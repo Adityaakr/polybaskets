@@ -681,8 +681,8 @@ export default function BasketPage() {
     queryFn: async () => getMarketDetailsBatch(basketMarketIds),
     enabled: basketMarketIds.length > 0 && !!basket && !loadingOnChain,
     staleTime: 0, // Always consider data stale - fetch fresh data immediately
-    refetchInterval: 2000, // Refetch every 2 seconds for real-time live updates (optimized for rate limits)
-    refetchIntervalInBackground: true, // Continue refetching even when tab is in background
+    refetchInterval: settlementStatus === 'Finalized' ? false : 2000, // Freeze market polling once settlement is final
+    refetchIntervalInBackground: settlementStatus !== 'Finalized', // No need to keep polling finalized baskets
     refetchOnWindowFocus: true, // Refetch when user returns to tab
     refetchOnMount: true, // Always refetch on mount
     gcTime: 5000, // Keep in cache for only 5 seconds
@@ -691,7 +691,7 @@ export default function BasketPage() {
   });
 
   const itemMarkets = useMemo(() => Array.from(itemMarketsData?.values() ?? []), [itemMarketsData]);
-  const liveMarketPricesById = useMarketsLivePrices(itemMarkets);
+  const liveMarketPricesById = useMarketsLivePrices(settlementStatus === 'Finalized' ? [] : itemMarkets);
   const snapshotComponentsByIndex = useMemo(
     () => new Map((basket?.createdSnapshot?.components ?? []).map((component) => [component.itemIndex, component])),
     [basket?.createdSnapshot?.components],
@@ -741,7 +741,10 @@ export default function BasketPage() {
         return;
       }
       
-      const effectivePrices = liveMarketPricesById.get(id) ?? getOutcomePrices(market);
+      const apiPrices = getOutcomePrices(market);
+      const effectivePrices = market.closed
+        ? apiPrices
+        : liveMarketPricesById.get(id) ?? apiPrices;
       const probs = getProbabilitiesFromPriceMap(effectivePrices) ?? getOutcomeProbabilities(market);
       
       // Determine if market is resolved
@@ -823,8 +826,10 @@ export default function BasketPage() {
         return;
       }
 
-      const marketProbs = getProbabilitiesFromPriceMap(liveMarketPricesById.get(item.marketId))
-        ?? getReadyOutcomeProbabilities(market);
+      const apiPrices = getOutcomePrices(market);
+      const marketProbs = getProbabilitiesFromPriceMap(
+        market.closed ? apiPrices : liveMarketPricesById.get(item.marketId) ?? apiPrices,
+      ) ?? getReadyOutcomeProbabilities(market);
       if (!marketProbs) {
         return;
       }
