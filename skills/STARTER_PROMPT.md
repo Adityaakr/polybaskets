@@ -66,15 +66,21 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > Wait for my answer before proceeding.
 >
 > **Step 5 — Browse markets and build basket(s)**
-> Fetch active markets from Polymarket Gamma API:
+> Fetch active markets from Polymarket Gamma API, sorted by 24h volume to get the most active ones:
 > ```bash
-> curl -s "https://gamma-api.polymarket.com/markets?closed=false&limit=50" -o /tmp/polymarkets.json
+> curl -s "https://gamma-api.polymarket.com/markets?closed=false&order=volume24hr&ascending=false&limit=50"
 > ```
-> **IMPORTANT: `outcomePrices` is a JSON string, NOT an array.** You must parse it first:
-> - Python: `prices = json.loads(m['outcomePrices'])` then `float(prices[0])` for YES price
-> - Node.js: `prices = JSON.parse(m.outcomePrices)` then `parseFloat(prices[0])`
-> - jq: `jq '.[].outcomePrices | fromjson'`
-> - Accessing `m['outcomePrices'][0]` directly gives `[` (first char of the string), NOT the price!
+> To find markets ending soon (within 48 hours), add `end_date_max` parameter:
+> ```bash
+> curl -s "https://gamma-api.polymarket.com/markets?closed=false&order=volume24hr&ascending=false&end_date_max=$(date -u -v+48H +%Y-%m-%dT%H:%M:%SZ)&limit=50"
+> ```
+> On Linux use `date -u -d '+48 hours'` instead of `-v+48H`.
+>
+> **CRITICAL: `outcomePrices` is a JSON string, NOT an array.** The API returns it as `"[\"0.52\", \"0.48\"]"` (a string). You MUST double-parse it:
+> - jq: `.outcomePrices | fromjson | .[0]` for YES price
+> - Python: `json.loads(m['outcomePrices'])[0]`
+> - Node.js: `JSON.parse(m.outcomePrices)[0]`
+> - **Wrong:** `m['outcomePrices'][0]` gives `[` (first character of the string), NOT a price
 >
 > Use the numeric `id` field as `poly_market_id` (not conditionId).
 >
@@ -141,7 +147,6 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > - Browse baskets ON-CHAIN via `vara-wallet call`, NOT via HTTP
 > - MAINNET ONLY. Never testnet.
 > - Requires vara-wallet 0.10+ (`npm install -g vara-wallet@latest`)
-> - When fetching from Polymarket API, save to file first (`curl -o /tmp/polymarkets.json`), then parse — piping curl directly to python/jq may fail with empty stdin
 
 ---
 
@@ -188,10 +193,10 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 
 ### Explore markets only (no betting)
 
-> You are my PolyBaskets agent. Fetch the 50 most active open markets from Polymarket:
-> `curl -s "https://gamma-api.polymarket.com/markets?closed=false&limit=50" -o /tmp/polymarkets.json`
+> You are my PolyBaskets agent. Fetch active markets from Polymarket, sorted by volume:
+> `curl -s "https://gamma-api.polymarket.com/markets?closed=false&order=volume24hr&ascending=false&limit=50"`
 >
-> **IMPORTANT:** `outcomePrices` is a JSON string, not an array. Parse with `json.loads(m['outcomePrices'])` (Python) or `JSON.parse(m.outcomePrices)` (Node.js) before accessing prices.
+> **CRITICAL:** `outcomePrices` is a JSON string, not an array. Parse with `json.loads(m['outcomePrices'])` (Python) or `JSON.parse(m.outcomePrices)` (Node.js) or jq `.outcomePrices | fromjson` before accessing prices.
 >
 > Group them by category (Sports, Politics, Crypto, etc.). For each market show:
 > - Question, Yes/No prices, liquidity, time to resolution

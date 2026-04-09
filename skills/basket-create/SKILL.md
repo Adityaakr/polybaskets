@@ -27,31 +27,29 @@ vara-wallet balance
 
 ## Finding Polymarket Markets
 
-Search for active markets on Polymarket to use as basket items:
+Search for active markets on Polymarket to use as basket items. Use `order=volume24hr&ascending=false` to get the most active markets, and add `end_date_max` to find markets ending soon:
 
 ```bash
-# Fetch markets and save to file (piping curl to python may fail in some shells)
-curl -s "https://gamma-api.polymarket.com/markets?closed=false&limit=20" -o /tmp/polymarkets.json
+# Fetch high-volume markets ending within 48 hours (fastest resolution)
+curl -s "https://gamma-api.polymarket.com/markets?closed=false&order=volume24hr&ascending=false&end_date_max=$(date -u -v+48H +%Y-%m-%dT%H:%M:%SZ)&limit=20"
+# On Linux use: date -u -d '+48 hours' +%Y-%m-%dT%H:%M:%SZ
 
-# Parse and display — NOTE: outcomePrices is a JSON STRING, not an array!
-# You MUST parse it with json.loads() before accessing prices.
-python3 -c "
-import json
-with open('/tmp/polymarkets.json') as f:
-    markets = json.load(f)
-for m in markets:
-    prices = json.loads(m.get('outcomePrices', '[]'))
-    if len(prices) < 2: continue
-    yes_pct = float(prices[0]) * 100
-    no_pct = float(prices[1]) * 100
-    print(f\"id={m['id']}  slug={m['slug']}\")
-    print(f\"  {m['question'][:80]}\")
-    print(f\"  YES={yes_pct:.0f}%  NO={no_pct:.0f}%  liquidity=\${float(m.get('liquidity','0')):,.0f}\")
-    print()
-"
+# Or fetch all active markets sorted by volume
+curl -s "https://gamma-api.polymarket.com/markets?closed=false&order=volume24hr&ascending=false&limit=20"
 ```
 
-**IMPORTANT: `outcomePrices` is a JSON-encoded string**, not an array. The API returns `"[\"0.52\", \"0.48\"]"` (a string), not `["0.52", "0.48"]` (an array). You must call `json.loads(m['outcomePrices'])` (Python) or `JSON.parse(m.outcomePrices)` (Node.js) to get the actual price array. Accessing `m['outcomePrices'][0]` directly will give you `[` (the first character of the string), not the price.
+Parse with jq:
+```bash
+# Show market id, question, YES/NO prices, and hours remaining
+curl -s "https://gamma-api.polymarket.com/markets?closed=false&order=volume24hr&ascending=false&limit=20" \
+  | jq '[.[] | {id, question, yes: (.outcomePrices | fromjson | .[0]), no: (.outcomePrices | fromjson | .[1]), endDate, liquidity}]'
+```
+
+**CRITICAL: `outcomePrices` is a JSON-encoded string**, not an array. The API returns `"[\"0.52\", \"0.48\"]"` (a string), not `["0.52", "0.48"]` (an array).
+- jq: `.outcomePrices | fromjson | .[0]` for YES price
+- Python: `json.loads(m['outcomePrices'])[0]`
+- Node.js: `JSON.parse(m.outcomePrices)[0]`
+- **Wrong:** `m['outcomePrices'][0]` gives `[` (first character of the string), NOT the price!
 
 **Important:** `poly_market_id` is the **numeric Polymarket ID** (e.g. `"540816"`), not the hex `conditionId`. Use the `id` field from the API response.
 
