@@ -23,7 +23,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Input } from '@/components/ui/input';
 import { Link } from 'react-router-dom';
 import {
@@ -39,7 +38,6 @@ import {
   ChevronRight,
   Coins,
   Search,
-  ChevronsUpDown,
 } from 'lucide-react';
 import type { Basket } from '@/types/basket.ts';
 
@@ -130,7 +128,6 @@ function TodayContestTab() {
   const [page, setPage] = useState(1);
   const [rankedSearchQuery, setRankedSearchQuery] = useState('');
   const [awaitingSearchQuery, setAwaitingSearchQuery] = useState('');
-  const [awaitingOpen, setAwaitingOpen] = useState(false);
   const leaderboardQuery = useTodayContestLeaderboard();
   const { address } = useWallet();
   const { resolveAgentName } = useAgentNames();
@@ -204,12 +201,6 @@ function TodayContestTab() {
     currentUserEntry === null || currentUserEntry.status !== 'scored'
       ? null
       : Math.ceil(currentUserEntry.rank / LEADERBOARD_PAGE_SIZE);
-
-  useEffect(() => {
-    if (currentUserEntry?.status === 'pending') {
-      setAwaitingOpen(true);
-    }
-  }, [currentUserEntry?.status]);
 
   if (leaderboardQuery.isLoading) {
     return (
@@ -331,84 +322,99 @@ function TodayContestTab() {
                   ? `Settled on-chain at ${formatUtcDateTime(contest.projection.settledAt)} UTC`
                   : 'Live projection from the indexer read model.'}
             </p>
-            {(awaitingEntries.length > 0 || normalizedAwaitingSearchQuery) ? (
-              <Collapsible open={awaitingOpen} onOpenChange={setAwaitingOpen} className="mt-3">
-                <CollapsibleTrigger asChild>
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-2 text-sm font-medium text-primary transition-colors hover:text-primary/80"
-                  >
-                    <span>View all awaiting agents</span>
-                    <Badge variant="outline" className="border-primary/20 bg-primary/10 text-primary">
-                      {awaitingEntries.length}
-                    </Badge>
-                    <ChevronsUpDown className="h-4 w-4" />
-                  </button>
-                </CollapsibleTrigger>
-                <CollapsibleContent className="mt-3 space-y-3">
-                  <div className="relative">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      value={awaitingSearchQuery}
-                      onChange={(event) => setAwaitingSearchQuery(event.target.value)}
-                      placeholder="Search awaiting agents"
-                      className="pl-9"
-                    />
-                  </div>
-
-                  {filteredAwaitingEntries.length > 0 ? (
-                    <div className="space-y-2">
-                      {filteredAwaitingEntries.map((entry) => {
-                        const isCurrentUser =
-                          currentUserActorId !== null && entry.user.toLowerCase() === currentUserActorId;
-
-                        return (
-                          <div
-                            key={`awaiting-inline-${entry.user}`}
-                            className={[
-                              'flex items-center justify-between gap-3 rounded-md border border-primary/10 bg-background/50 px-3 py-3',
-                              isCurrentUser ? 'border-primary/30 bg-primary/5' : '',
-                            ].join(' ')}
-                          >
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2">
-                                <span className="truncate text-sm font-semibold">
-                                  {getLeaderboardDisplayName(isCurrentUser, entry.user, resolveAgentName)}
-                                </span>
-                                {isCurrentUser ? (
-                                  <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
-                                    You
-                                  </Badge>
-                                ) : null}
-                              </div>
-                              <p className="truncate font-mono text-xs text-muted-foreground">
-                                {isCurrentUser ? 'Connected wallet' : truncateAddress(entry.user)}
-                              </p>
-                            </div>
-                            <div className="text-right">
-                              <div className="text-sm font-medium text-muted-foreground">Awaiting results</div>
-                              <div className="font-mono text-xs text-muted-foreground">
-                                {entry.pendingBasketCount} basket{entry.pendingBasketCount === 1 ? '' : 's'}
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="rounded-md border border-primary/10 bg-background/40 px-4 py-6 text-center">
-                      <p className="text-sm font-medium">No awaiting agents match this search</p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        Try a full public agent address or a registered agent name.
-                      </p>
-                    </div>
-                  )}
-                </CollapsibleContent>
-              </Collapsible>
-            ) : null}
           </div>
         </CardContent>
       </Card>
+
+      {(awaitingEntries.length > 0 || normalizedAwaitingSearchQuery) ? (
+        <Card className="card-elevated overflow-hidden">
+          <CardHeader className="gap-3 border-b bg-muted/10 md:flex-row md:items-start md:justify-between">
+            <div className="space-y-2">
+              <CardTitle className="text-lg">Awaiting Results</CardTitle>
+              <CardDescription>
+                Unresolved baskets stay here until settlement. This is a waiting state, not part of today&apos;s PnL ranking.
+              </CardDescription>
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="border-primary/20 bg-primary/10 text-primary">
+                {awaitingEntries.length} agent{awaitingEntries.length === 1 ? '' : 's'}
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4 p-4 md:p-6">
+            <div className="relative max-w-md">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={awaitingSearchQuery}
+                onChange={(event) => setAwaitingSearchQuery(event.target.value)}
+                placeholder="Search awaiting agents"
+                className="pl-9"
+              />
+            </div>
+
+            {filteredAwaitingEntries.length > 0 ? (
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {filteredAwaitingEntries.map((entry) => {
+                  const isCurrentUser =
+                    currentUserActorId !== null && entry.user.toLowerCase() === currentUserActorId;
+
+                  return (
+                    <div
+                      key={`awaiting-panel-${entry.user}`}
+                      className={[
+                        'rounded-lg border border-primary/10 bg-background/60 p-4',
+                        isCurrentUser ? 'border-primary/30 bg-primary/5' : '',
+                      ].join(' ')}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="truncate text-sm font-semibold">
+                              {getLeaderboardDisplayName(isCurrentUser, entry.user, resolveAgentName)}
+                            </span>
+                            {isCurrentUser ? (
+                              <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
+                                You
+                              </Badge>
+                            ) : null}
+                          </div>
+                          <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
+                            {isCurrentUser ? 'Connected wallet' : truncateAddress(entry.user)}
+                          </p>
+                        </div>
+                        <Badge variant="outline" className="border-border bg-background/80 text-muted-foreground">
+                          Awaiting
+                        </Badge>
+                      </div>
+                      <div className="mt-4 flex items-end justify-between gap-3">
+                        <div>
+                          <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                            Pending baskets
+                          </div>
+                          <div className="mt-1 font-mono text-lg font-semibold tabular-nums">
+                            {entry.pendingBasketCount}
+                          </div>
+                        </div>
+                        <div className="text-right text-xs text-muted-foreground">
+                          Waiting for settlement
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="rounded-md border border-primary/10 bg-background/40 px-4 py-10 text-center">
+                <Search className="mx-auto mb-4 h-10 w-10 text-muted-foreground" />
+                <p className="text-sm font-medium">No awaiting agents match this search</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Try a full public agent address or a registered agent name.
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
 
       {isEmpty ? (
         <Card className="card-elevated">
