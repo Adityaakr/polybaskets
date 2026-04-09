@@ -4,63 +4,114 @@ Copy-paste one of these prompts into your AI coding agent (Claude Code, Gemini C
 
 ## Prerequisites
 
-1. Install vara-wallet: `npm install -g vara-wallet`
-2. Install vara-skills: `npx skills add gear-foundation/vara-skills`
-3. Install polybaskets skills: `npx skills add Adityaakr/polybaskets`
-4. Create a wallet: `vara-wallet wallet create --name agent`
+```bash
+npm install -g vara-wallet
+npx skills add Adityaakr/polybaskets -g --all
+```
 
 ---
 
 ## Prompt 1: First-Time Setup + First Bet
 
-> Make sure Polybasket skills are installed: ```npx skills add Adityaakr/polybaskets -g --all```. Follow the "Quick Start — Copy-Paste Full Flow" section step by step.
+> Install PolyBaskets skills if not already installed: `npx skills add Adityaakr/polybaskets -g --all`
 >
-> 1. Check if I already have a wallet named "agent" (`vara-wallet wallet list`). If not, create one.
-> 2. Get my hex address and claim a gas voucher from https://voucher-backend-production-5a1b.up.railway.app/voucher
-> 3. Register my agent name on-chain with BasketMarket/RegisterAgent — pick a cool name for me
-> 4. Claim my daily CHIP tokens
-> 5. Browse the available baskets, pick any Active basket
-> 6. Calculate the index from live Polymarket prices, approve CHIP spend, and place a bet
-> 7. Show me my position when done
-
-## Prompt 2: Daily CHIP Claim + Bet (Returning User)
-
-> I'm using PolyBaskets on Vara Network. Read `skills/SKILL.md` for instructions. Do these steps:
-> 1. Set up the variables from the Setup section
-> 2. Get my hex address
-> 3. Renew my gas voucher if needed (curl POST to https://voucher-backend-production-5a1b.up.railway.app/voucher)
-> 4. Claim my daily CHIP tokens
-> 5. Check my CHIP balance
-> 6. Browse all baskets and find one with status "Active"
-> 7. Calculate the basket index by fetching live prices from the Polymarket API for each item
-> 8. Approve and bet all my CHIP on that basket
-> 9. Verify my position
+> You are a PolyBaskets agent on Vara Network (mainnet). Set network: `vara-wallet config set network wss://rpc.vara.network`. NEVER switch to testnet.
 >
-> CHIP amounts must be in raw units (12 decimals, so 100 CHIP = "100000000000000"). actor_id args must be hex format, not SS58. Mainnet is the default.
-
-## Prompt 3: Check Results + Claim Payout
-
-> Read `skills/SKILL.md` rules section. Check all my positions across all baskets. For each position, check if the basket is settled. If any basket has a finalized settlement and I haven't claimed yet, claim the payout. Report my total CHIP balance at the end.
+> Program IDs:
+> - BASKET_MARKET="0x1fa6fd12433accef350a68da4555a2a71acab261c4ae9eb713033023fc0775ea"
+> - BET_TOKEN="0xad1a120f24f62eb68537791fe94c3b381e81677e9bd73d811c319838846c27dd"
+> - BET_LANE="0x40dc1597c8e3beb3523f9c05ad2b44e00a11be6e665da20e4323bb7dfae1ecda"
+> - VOUCHER_URL="https://voucher-backend-production-5a1b.up.railway.app/voucher"
+> - BET_QUOTE_URL="https://bet-quote-service-production.up.railway.app"
 >
-> Use hex address format for actor_id args (get from `vara-wallet balance | jq -r .address`). Mainnet is the default.
+> Steps:
+> 1. Check if I have a wallet named "agent" (`vara-wallet wallet list`). If not, create one.
+> 2. Get my hex address: `vara-wallet balance --account agent | jq -r .address`
+> 3. Claim gas vouchers (the `program` field is the CONTRACT program ID, NOT your wallet address):
+>    `curl -s -X POST "$VOUCHER_URL" -H 'Content-Type: application/json' -d '{"account":"MY_HEX_ADDR","program":"BASKET_MARKET_ID"}'`
+>    Do this for all 3 program IDs.
+> 4. Claim my daily CHIP tokens via BetToken/Claim (use --voucher and --idl on all write calls)
+> 5. Browse active baskets, pick one, approve CHIP spend for BetLane, get a signed quote from BET_QUOTE_URL, and place a bet
+> 6. Show me my position when done
+>
+> Rules: always use `--idl` on every call. Hex addresses only (not SS58). CHIP has 12 decimals (100 CHIP = "100000000000000"). Approve BetLane before betting.
 
-## Prompt 4: Create a New Basket
+## Prompt 2: Create Basket + Bet
 
-> Read `skills/SKILL.md`. Search Polymarket for 3 interesting active markets using the Gamma API (`curl -s "https://gamma-api.polymarket.com/markets?closed=false&limit=10"`). Pick 3 markets that seem related, assign percentage weights that sum to 100% (in the contract: basis points summing to 10000, e.g. 40% = 4000), and create a new basket with asset_kind "Bet". Use the numeric `id` field as `poly_market_id` (not conditionId). Then claim my CHIP and place a bet on the basket I just created.
+> Install PolyBaskets skills if not already installed: `npx skills add Adityaakr/polybaskets -g --all`
+>
+> You are a PolyBaskets agent on Vara Network (mainnet). Set network: `vara-wallet config set network wss://rpc.vara.network`. NEVER switch to testnet.
+>
+> Program IDs:
+> - BASKET_MARKET="0x1fa6fd12433accef350a68da4555a2a71acab261c4ae9eb713033023fc0775ea"
+> - BET_TOKEN="0xad1a120f24f62eb68537791fe94c3b381e81677e9bd73d811c319838846c27dd"
+> - BET_LANE="0x40dc1597c8e3beb3523f9c05ad2b44e00a11be6e665da20e4323bb7dfae1ecda"
+> - VOUCHER_URL="https://voucher-backend-production-5a1b.up.railway.app/voucher"
+> - BET_QUOTE_URL="https://bet-quote-service-production.up.railway.app"
+>
+> Steps:
+> 1. Set up wallet and claim gas vouchers (program field = contract ID, NOT wallet address)
+> 2. Search Polymarket for 3 interesting active markets: `curl -s "https://gamma-api.polymarket.com/markets?closed=false&limit=10"`
+> 3. Pick 3 related markets, assign percentage weights that sum to 100% (in the contract: basis points summing to 10000, e.g. 40% = 4000). Use the numeric `id` field as `poly_market_id` (not conditionId).
+> 4. Create basket on-chain with BasketMarket/CreateBasket, asset_kind "Bet"
+> 5. Claim daily CHIP tokens
+> 6. Approve CHIP spend for BetLane, get a signed quote, and bet on my new basket
+> 7. Show me my position
+>
+> Rules: always use `--idl` on every call. Hex addresses only. CHIP has 12 decimals. Approve before betting. MAINNET ONLY.
+
+## Prompt 3: Daily CHIP Claim + Bet (Returning User)
+
+> You are a PolyBaskets agent on Vara Network (mainnet). Set network: `vara-wallet config set network wss://rpc.vara.network`. NEVER switch to testnet.
+>
+> Program IDs:
+> - BASKET_MARKET="0x1fa6fd12433accef350a68da4555a2a71acab261c4ae9eb713033023fc0775ea"
+> - BET_TOKEN="0xad1a120f24f62eb68537791fe94c3b381e81677e9bd73d811c319838846c27dd"
+> - BET_LANE="0x40dc1597c8e3beb3523f9c05ad2b44e00a11be6e665da20e4323bb7dfae1ecda"
+> - VOUCHER_URL="https://voucher-backend-production-5a1b.up.railway.app/voucher"
+> - BET_QUOTE_URL="https://bet-quote-service-production.up.railway.app"
+>
+> Steps:
+> 1. Get my hex address: `vara-wallet balance --account agent | jq -r .address`
+> 2. Renew gas voucher if needed (program field = contract ID, NOT wallet address)
+> 3. Claim daily CHIP tokens
+> 4. Check my CHIP balance
+> 5. Browse all baskets, find one with status "Active"
+> 6. Approve CHIP, get a signed quote from BET_QUOTE_URL, and bet all my CHIP
+> 7. Verify my position
+>
+> Rules: always use `--idl` on every call. Hex addresses only (not SS58). CHIP has 12 decimals (100 CHIP = "100000000000000"). Approve BetLane before betting. MAINNET ONLY.
+
+## Prompt 4: Check Results + Claim Payout
+
+> You are a PolyBaskets agent on Vara Network (mainnet). Set network: `vara-wallet config set network wss://rpc.vara.network`. NEVER switch to testnet.
+>
+> Program IDs:
+> - BASKET_MARKET="0x1fa6fd12433accef350a68da4555a2a71acab261c4ae9eb713033023fc0775ea"
+> - BET_LANE="0x40dc1597c8e3beb3523f9c05ad2b44e00a11be6e665da20e4323bb7dfae1ecda"
+> - BET_TOKEN="0xad1a120f24f62eb68537791fe94c3b381e81677e9bd73d811c319838846c27dd"
+>
+> Check all my positions across all baskets. For each position, check if the basket is settled (status "Finalized"). If any basket has a finalized settlement and I haven't claimed yet, claim the payout via BetLane/Claim. Report my total CHIP balance at the end.
+>
+> Rules: hex address format for actor_id args (get from `vara-wallet balance --account agent | jq -r .address`). Always use `--idl`. MAINNET ONLY.
 
 ## Prompt 5: Full Autopilot Loop
 
-> You are a PolyBaskets trading agent on Vara Network. Read `skills/SKILL.md` for the full rules and flow.
+> You are a PolyBaskets trading agent on Vara Network (mainnet). Set network: `vara-wallet config set network wss://rpc.vara.network`. NEVER switch to testnet.
+>
+> Program IDs:
+> - BASKET_MARKET="0x1fa6fd12433accef350a68da4555a2a71acab261c4ae9eb713033023fc0775ea"
+> - BET_TOKEN="0xad1a120f24f62eb68537791fe94c3b381e81677e9bd73d811c319838846c27dd"
+> - BET_LANE="0x40dc1597c8e3beb3523f9c05ad2b44e00a11be6e665da20e4323bb7dfae1ecda"
+> - VOUCHER_URL="https://voucher-backend-production-5a1b.up.railway.app/voucher"
+> - BET_QUOTE_URL="https://bet-quote-service-production.up.railway.app"
 >
 > Your job:
-> 1. Check if I have a gas voucher, renew if expired (curl POST to https://voucher-backend-production-5a1b.up.railway.app/voucher)
-> 2. Check if I'm registered as an agent. If not, register with BasketMarket/RegisterAgent using a creative name
-> 3. Claim daily CHIP tokens
-> 4. Check all baskets — find Active ones
-> 5. For each Active basket, fetch live prices from Polymarket API for each item, calculate the index
-> 6. Pick the basket with the best risk/reward (highest potential payout = lowest current index)
-> 7. Bet all available CHIP on it
-> 8. Check all my existing positions — claim any settled payouts
-> 9. Report: what I bet on, why, my positions, total CHIP balance, and my agent name on the leaderboard
+> 1. Ensure gas voucher is active (program field = contract ID, NOT wallet address)
+> 2. Claim daily CHIP tokens
+> 3. Search Polymarket for interesting markets, create a new basket (weights sum to 100%, use numeric market IDs), OR browse existing active baskets
+> 4. Approve CHIP, get a signed quote from BET_QUOTE_URL, place bet
+> 5. Check all existing positions — claim any settled payouts
+> 6. Report: what I bet on, why, my positions, total CHIP balance
 >
-> Rules: always use --idl on every command. Hex addresses only. CHIP in raw units (12 decimals). Approve before betting. Claim voucher before any on-chain call.
+> Rules: always use `--idl` on every call. Hex addresses only. CHIP has 12 decimals (100 CHIP = "100000000000000"). Approve BetLane before betting. MAINNET ONLY — never switch to testnet, there are no contracts there.
