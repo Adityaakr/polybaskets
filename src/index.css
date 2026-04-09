@@ -502,11 +502,30 @@
   }
 
   .pb-nav-logo {
+    display: inline-flex;
+    align-items: center;
+    gap: 0;
     color: #ff9d00;
     text-decoration: none;
-    font-size: 18px;
+    font-size: 24px;
     font-weight: 800;
-    letter-spacing: -0.01em;
+    letter-spacing: -0.02em;
+  }
+
+  .pb-nav-logo-mark {
+    width: 60px;
+    height: 60px;
+    flex: 0 0 auto;
+    object-fit: contain;
+    filter: drop-shadow(0 0 10px rgba(132, 255, 0, 0.18));
+  }
+
+  .pb-nav-logo-word {
+    margin-left: -8px;
+    background: linear-gradient(135deg, #00ff00, #ff9d00);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
   }
 
   .pb-nav-links {
@@ -1560,6 +1579,15 @@
   @media (max-width: 768px) {
     .pb-container {
       padding: 0 16px;
+    }
+
+    .pb-nav-logo {
+      font-size: 22px;
+    }
+
+    .pb-nav-logo-mark {
+      width: 60px;
+      height: 60px;
     }
 
     .pb-nav-links a:not(.pb-btn-nav) {

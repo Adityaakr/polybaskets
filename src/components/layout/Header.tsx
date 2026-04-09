@@ -17,8 +17,14 @@ export function Header() {
     <header className="sticky top-0 z-50 w-full bg-card/90 backdrop-blur-xl border-b border-primary/30 shadow-[0_0_20px_hsl(120_100%_50%_/_0.1)]">
       <div className="content-grid flex items-center justify-between h-16">
         {/* Logo */}
-        <Link to="/" className="flex items-center group">
-          <span className="font-display font-bold text-2xl gradient-text tracking-tight transition-transform duration-300 group-hover:scale-105">PolyBaskets</span>
+        <Link to="/" className="group flex items-center gap-0">
+          <img
+            src="/poly.png"
+            alt=""
+            aria-hidden="true"
+            className="h-[60px] w-[60px] shrink-0 object-contain drop-shadow-[0_0_12px_rgba(132,255,0,0.18)]"
+          />
+          <span className="-ml-2 font-display font-bold text-2xl gradient-text tracking-tight transition-transform duration-300 group-hover:scale-105">PolyBaskets</span>
         </Link>
 
         {/* Navigation */}

@@ -183,7 +183,8 @@ export default function LandingPage() {
         <nav className="pb-nav">
           <div className="pb-container pb-nav-inner">
             <a href="https://polybaskets.xyz" className="pb-nav-logo">
-              PolyBaskets
+              <img src="/poly-1.png" alt="" aria-hidden="true" className="pb-nav-logo-mark" />
+              <span className="pb-nav-logo-word">PolyBaskets</span>
             </a>
             <div className="pb-nav-links">
               <a href="#how-it-works">How it Works</a>
