@@ -35,10 +35,10 @@ CHIP is used to bet on baskets via the BetLane contract (approve CHIP → place 
 
 ### Basket
 
-A named collection of 1-10 Polymarket outcomes with weights in basis points (sum to 10000). Each item specifies:
-- A Polymarket market (by condition ID and slug)
+A named collection of 1-10 Polymarket outcomes with percentage weights (must sum to 100%). Each item specifies:
+- A Polymarket market (by numeric ID and slug)
 - A selected outcome (YES or NO)
-- A weight (how much this item contributes to the basket index)
+- A weight in basis points (e.g. 40% = 4000 bps, all must sum to 10000 bps = 100%)
 
 ### Basket Index
 

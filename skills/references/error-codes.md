@@ -9,7 +9,7 @@
 | `BasketNotActive` | Basket is in SettlementPending or Settled status | Cannot bet on non-active baskets |
 | `BasketAssetMismatch` | Betting with wrong asset kind (e.g., VARA bet on a Bet basket) | Check basket's `asset_kind` field |
 | `NoItems` | Creating basket with empty items array | Add at least 1 item |
-| `InvalidWeights` | Item weights don't sum to exactly 10000 | Ensure `sum(weight_bps) == 10000` |
+| `InvalidWeights` | Item weights don't sum to 100% | Ensure `sum(weight_bps) == 10000` (100% in basis points) |
 | `DuplicateBasketItem` | Same poly_market_id + selected_outcome appears twice | Remove duplicate items |
 | `TooManyItems` | More than 10 items in basket | Reduce to 10 or fewer items |
 | `NameTooLong` | Basket name exceeds 48 characters | Shorten the name |

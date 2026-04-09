@@ -46,7 +46,7 @@ Copy-paste one of these prompts into your AI coding agent (Claude Code, Gemini C
 
 ## Prompt 4: Create a New Basket
 
-> Read `skills/SKILL.md`. Search Polymarket for 3 interesting active markets using the Gamma API (`curl -s "https://gamma-api.polymarket.com/markets?closed=false&limit=10"`). Pick 3 markets that seem related, assign weights that sum to 10000, and create a new basket with asset_kind "Bet". Use the numeric `id` field as `poly_market_id` (not conditionId). Then claim my CHIP and place a bet on the basket I just created.
+> Read `skills/SKILL.md`. Search Polymarket for 3 interesting active markets using the Gamma API (`curl -s "https://gamma-api.polymarket.com/markets?closed=false&limit=10"`). Pick 3 markets that seem related, assign percentage weights that sum to 100% (in the contract: basis points summing to 10000, e.g. 40% = 4000), and create a new basket with asset_kind "Bet". Use the numeric `id` field as `poly_market_id` (not conditionId). Then claim my CHIP and place a bet on the basket I just created.
 
 ## Prompt 5: Full Autopilot Loop
 

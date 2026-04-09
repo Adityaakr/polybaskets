@@ -64,7 +64,7 @@ Before sending the transaction, validate locally:
 | Name | Non-empty, max 48 characters |
 | Description | Max 256 characters |
 | Items | 1 to 10 items |
-| Weights | All `weight_bps` must sum to exactly 10000 |
+| Weights | All `weight_bps` must sum to exactly 10000 (= 100%). Each weight is in basis points: 50% = 5000, 30% = 3000, etc. |
 | No duplicates | Same `poly_market_id` + `selected_outcome` cannot appear twice |
 | poly_market_id | Max 128 characters |
 | poly_slug | Max 128 characters |
@@ -81,40 +81,17 @@ CreateBasket(name: str, description: str, items: vec BasketItem, asset_kind: Bas
 Each `BasketItem`:
 ```json
 {
-  "poly_market_id": "<polymarket condition_id>",
-  "poly_slug": "<polymarket slug>",
+  "poly_market_id": "540816",
+  "poly_slug": "will-btc-hit-100k",
   "weight_bps": 5000,
   "selected_outcome": "YES"
 }
 ```
 
-### Example: 2-item VARA basket
+- `poly_market_id` — the **numeric** Polymarket ID from the API `id` field (e.g. `"540816"`), NOT the hex conditionId
+- `weight_bps` — weight in basis points. 50% = 5000, 30% = 3000, etc. All weights must sum to 10000 (= 100%)
 
-```bash
-vara-wallet --account agent call $BASKET_MARKET BasketMarket/CreateBasket --voucher $VOUCHER_ID \
-  --args '[
-    "Tech Rally Basket",
-    "Betting on major tech milestones",
-    [
-      {
-        "poly_market_id": "0x1234abcd",
-        "poly_slug": "will-btc-hit-100k",
-        "weight_bps": 6000,
-        "selected_outcome": "YES"
-      },
-      {
-        "poly_market_id": "0x5678efgh",
-        "poly_slug": "will-eth-hit-5k",
-        "weight_bps": 4000,
-        "selected_outcome": "YES"
-      }
-    ],
-    "Vara"
-  ]' \
-  --idl $IDL
-```
-
-### Example: 3-item BET basket
+### Example: 3-item basket
 
 ```bash
 vara-wallet --account agent call $BASKET_MARKET BasketMarket/CreateBasket --voucher $VOUCHER_ID \
@@ -123,19 +100,19 @@ vara-wallet --account agent call $BASKET_MARKET BasketMarket/CreateBasket --vouc
     "Outcomes related to AI policy",
     [
       {
-        "poly_market_id": "condition_id_1",
+        "poly_market_id": "540816",
         "poly_slug": "ai-regulation-2025",
         "weight_bps": 4000,
         "selected_outcome": "YES"
       },
       {
-        "poly_market_id": "condition_id_2",
+        "poly_market_id": "540817",
         "poly_slug": "openai-ipo-2025",
         "weight_bps": 3500,
         "selected_outcome": "YES"
       },
       {
-        "poly_market_id": "condition_id_3",
+        "poly_market_id": "540818",
         "poly_slug": "eu-ai-act-enforcement",
         "weight_bps": 2500,
         "selected_outcome": "NO"
@@ -145,6 +122,8 @@ vara-wallet --account agent call $BASKET_MARKET BasketMarket/CreateBasket --vouc
   ]' \
   --idl $IDL
 ```
+
+Weights: 40% + 35% + 25% = 100% (4000 + 3500 + 2500 = 10000 bps).
 
 ## Parse Result
 
@@ -167,7 +146,7 @@ echo "Created basket: $BASKET_ID"
 
 | Error | Cause | Fix |
 |-------|-------|-----|
-| `InvalidWeights` | Weights don't sum to 10000 | Adjust weight_bps values |
+| `InvalidWeights` | Weights don't sum to 100% | Adjust weight_bps so they sum to 10000 (= 100%) |
 | `NoItems` | Empty items array | Add at least 1 item |
 | `TooManyItems` | More than 10 items | Remove items |
 | `DuplicateBasketItem` | Same market+outcome twice | Remove duplicate |
