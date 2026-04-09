@@ -126,7 +126,8 @@ const getLeaderboardDisplayName = (
 function TodayContestTab() {
   const [now, setNow] = useState(Date.now());
   const [page, setPage] = useState(1);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [rankedSearchQuery, setRankedSearchQuery] = useState('');
+  const [awaitingSearchQuery, setAwaitingSearchQuery] = useState('');
   const leaderboardQuery = useTodayContestLeaderboard();
   const { address } = useWallet();
   const { resolveAgentName } = useAgentNames();
@@ -154,57 +155,38 @@ function TodayContestTab() {
     [allEntries, currentUserActorId],
   );
 
-  const normalizedSearchQuery = searchQuery.trim().toLowerCase();
-
-  const matchesEntry = (entry: (typeof allEntries)[number]) => {
-    if (!normalizedSearchQuery) {
+  const matchesEntry = (entry: (typeof allEntries)[number], query: string) => {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) {
       return true;
     }
 
     const user = entry.user.toLowerCase();
     const agentName = resolveAgentName(entry.user)?.trim().toLowerCase() ?? '';
-    return user.includes(normalizedSearchQuery) || agentName.includes(normalizedSearchQuery);
+    return user.includes(normalizedQuery) || agentName.includes(normalizedQuery);
   };
 
+  const normalizedRankedSearchQuery = rankedSearchQuery.trim().toLowerCase();
+  const normalizedAwaitingSearchQuery = awaitingSearchQuery.trim().toLowerCase();
+
   const filteredScoredEntries = useMemo(() => {
-    return scoredEntries.filter(matchesEntry);
-  }, [scoredEntries, normalizedSearchQuery, resolveAgentName]);
+    return scoredEntries.filter((entry) => matchesEntry(entry, rankedSearchQuery));
+  }, [scoredEntries, rankedSearchQuery, resolveAgentName]);
 
   const filteredAwaitingEntries = useMemo(() => {
-    return awaitingEntries.filter(matchesEntry);
-  }, [awaitingEntries, normalizedSearchQuery, resolveAgentName]);
-
-  const filteredEntries = useMemo(() => {
-    const normalizedQuery = searchQuery.trim().toLowerCase();
-    if (!normalizedQuery) {
-      return allEntries;
-    }
-
-    return allEntries.filter((entry) => {
-      const user = entry.user.toLowerCase();
-      const agentName = resolveAgentName(entry.user)?.trim().toLowerCase() ?? '';
-      return user.includes(normalizedQuery) || agentName.includes(normalizedQuery);
-    });
-  }, [allEntries, resolveAgentName, searchQuery]);
+    return awaitingEntries.filter((entry) => matchesEntry(entry, awaitingSearchQuery));
+  }, [awaitingEntries, awaitingSearchQuery, resolveAgentName]);
 
   const totalEntries = filteredScoredEntries.length;
   const totalPages = Math.max(1, Math.ceil(totalEntries / LEADERBOARD_PAGE_SIZE));
 
   useEffect(() => {
     setPage(1);
-  }, [searchQuery]);
+  }, [rankedSearchQuery]);
 
   useEffect(() => {
     setPage((currentPage) => Math.min(currentPage, totalPages));
   }, [totalPages]);
-
-  const currentUserFilteredEntry = useMemo(
-    () =>
-      filteredEntries.find(
-        (entry) => currentUserActorId && entry.user.toLowerCase() === currentUserActorId,
-      ) ?? null,
-    [filteredEntries, currentUserActorId],
-  );
 
   const pagedEntries = useMemo(() => {
     if (!filteredScoredEntries.length) {
@@ -378,16 +360,16 @@ function TodayContestTab() {
                   <div className="relative min-w-[280px]">
                     <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
-                      value={searchQuery}
-                      onChange={(event) => setSearchQuery(event.target.value)}
-                      placeholder="Search by public agent address or name"
+                      value={rankedSearchQuery}
+                      onChange={(event) => setRankedSearchQuery(event.target.value)}
+                      placeholder="Search ranked agents"
                       className="pl-9"
                     />
                   </div>
                   <div className="text-sm text-muted-foreground">
                     {totalEntries > 0
                       ? `Showing ${(page - 1) * LEADERBOARD_PAGE_SIZE + 1}-${Math.min(page * LEADERBOARD_PAGE_SIZE, totalEntries)} of ${totalEntries}`
-                      : normalizedSearchQuery
+                      : normalizedRankedSearchQuery
                         ? 'No matching ranked agents'
                         : 'No ranked agents yet'}
                   </div>
@@ -482,10 +464,10 @@ function TodayContestTab() {
               <div className="px-6 py-12 text-center">
                 <Search className="mx-auto mb-4 h-10 w-10 text-muted-foreground" />
                 <p className="text-lg font-medium">
-                  {normalizedSearchQuery ? 'No ranked agents match this search' : 'No ranked agents yet'}
+                  {normalizedRankedSearchQuery ? 'No ranked agents match this search' : 'No ranked agents yet'}
                 </p>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  {normalizedSearchQuery
+                  {normalizedRankedSearchQuery
                     ? 'Try a full public agent address or a registered agent name.'
                     : 'The ranking appears after the first realized PnL for the current UTC day.'}
                 </p>
@@ -498,7 +480,7 @@ function TodayContestTab() {
                   Page {page} of {totalPages}
                 </div>
                 <div className="flex items-center gap-2">
-                  {currentUserFilteredEntry === null && !searchQuery && currentUserEntry && userPage && userPage !== page ? (
+                  {!rankedSearchQuery && currentUserEntry && userPage && userPage !== page ? (
                     <Button variant="outline" size="sm" onClick={() => setPage(userPage)}>
                       Jump to you
                     </Button>
@@ -528,13 +510,26 @@ function TodayContestTab() {
         </Card>
       )}
 
-      {(filteredAwaitingEntries.length > 0 || normalizedSearchQuery) ? (
+      {(filteredAwaitingEntries.length > 0 || normalizedAwaitingSearchQuery) ? (
         <Card className="card-elevated">
           <CardHeader className="border-b">
-            <CardTitle className="text-lg">Awaiting Results</CardTitle>
-            <CardDescription>
-              Agents with unresolved baskets stay here until settlement, even after a new UTC day starts.
-            </CardDescription>
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <CardTitle className="text-lg">Awaiting Results</CardTitle>
+                <CardDescription>
+                  Agents with unresolved baskets stay here until settlement, even after a new UTC day starts.
+                </CardDescription>
+              </div>
+              <div className="relative min-w-[280px]">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={awaitingSearchQuery}
+                  onChange={(event) => setAwaitingSearchQuery(event.target.value)}
+                  placeholder="Search awaiting agents"
+                  className="pl-9"
+                />
+              </div>
+            </div>
           </CardHeader>
           <CardContent className="p-0">
             <div className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_160px] gap-4 border-b border-primary/10 bg-muted/30 px-6 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
