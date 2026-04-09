@@ -8,6 +8,13 @@ description: Use when an agent needs to interact with PolyBaskets prediction mar
 ```bash
 if ! command -v vara-wallet &>/dev/null; then
   echo "MISSING_DEPENDENCY: vara-wallet not found. Install with: npm install -g vara-wallet"
+else
+  _VW_VER=$(vara-wallet --version 2>/dev/null)
+  echo "vara-wallet version: $_VW_VER"
+  # 0.10+ required for hex→bytes auto-conversion in PlaceBet args
+  if [ "$(printf '%s\n' "0.10.0" "$_VW_VER" | sort -V | head -1)" != "0.10.0" ]; then
+    echo "UPDATE REQUIRED: vara-wallet 0.10+ needed. Run: npm install -g vara-wallet@latest"
+  fi
 fi
 
 # Check for vara-skills (provides wallet management, Sails interaction, and network utilities)
@@ -121,13 +128,15 @@ vara-wallet call $BASKET_MARKET BasketMarket/GetBasket --args '[0]' --idl $IDL
 vara-wallet --account agent call $BET_TOKEN BetToken/Approve \
   --args '["'$BET_LANE'", "100000000000000"]' --voucher $VOUCHER_ID --idl $BET_TOKEN_IDL
 
-# 7. Get quote + place bet (uses helper script to avoid shell escaping issues)
+# 7. Get quote + place bet (30s expiry — run together!)
 #    Replace BASKET_ID with a real basket number (0, 1, 2, ...)
-#    ⚠ Do NOT manually reconstruct the quote. Do NOT pass args via shell variables.
-python3 $_PB/basket-bet/place_bet.py \
-  --user "$MY_ADDR" --basket-id BASKET_ID --amount "100000000000000" \
-  --bet-lane "$BET_LANE" --voucher "$VOUCHER_ID" \
-  --idl "$BET_LANE_IDL" --quote-url "$BET_QUOTE_URL"
+#    ⚠ Do NOT manually reconstruct the quote. Pass the raw curl response directly.
+QUOTE=$(curl -s -X POST "$BET_QUOTE_URL/api/bet-lane/quote" \
+  -H 'Content-Type: application/json' \
+  -d '{"user":"'"$MY_ADDR"'","basketId":BASKET_ID,"amount":"100000000000000","targetProgramId":"'"$BET_LANE"'"}') && \
+vara-wallet --account agent call $BET_LANE BetLane/PlaceBet \
+  --args "[BASKET_ID, \"100000000000000\", $QUOTE]" \
+  --voucher $VOUCHER_ID --idl $BET_LANE_IDL
 
 # 9. Later — check if basket settled
 vara-wallet call $BASKET_MARKET BasketMarket/GetSettlement \
