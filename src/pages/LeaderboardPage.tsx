@@ -147,12 +147,6 @@ function TodayContestTab() {
     return () => window.clearInterval(interval);
   }, []);
 
-  useEffect(() => {
-    if (currentUserEntry?.status === 'pending') {
-      setAwaitingOpen(true);
-    }
-  }, [currentUserEntry?.status]);
-
   const scoredEntries = contest?.entries ?? [];
   const awaitingEntries = contest?.awaitingEntries ?? [];
   const allEntries = [...scoredEntries, ...awaitingEntries];
@@ -210,6 +204,12 @@ function TodayContestTab() {
     currentUserEntry === null || currentUserEntry.status !== 'scored'
       ? null
       : Math.ceil(currentUserEntry.rank / LEADERBOARD_PAGE_SIZE);
+
+  useEffect(() => {
+    if (currentUserEntry?.status === 'pending') {
+      setAwaitingOpen(true);
+    }
+  }, [currentUserEntry?.status]);
 
   if (leaderboardQuery.isLoading) {
     return (
