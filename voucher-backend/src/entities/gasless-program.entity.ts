@@ -19,6 +19,10 @@ export class GaslessProgram {
   @Column({ nullable: false, name: 'vara_to_issue' })
   varaToIssue!: number;
 
+  /** Relative gas weight for proportional cap allocation (e.g. 1 = light, 10 = heavy). */
+  @Column({ nullable: false, default: 1 })
+  weight!: number;
+
   @Column({ nullable: false })
   duration!: number;
 
