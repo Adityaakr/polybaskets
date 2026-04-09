@@ -23,6 +23,7 @@ npx skills add Adityaakr/polybaskets -g --all
 > - BET_LANE="0x40dc1597c8e3beb3523f9c05ad2b44e00a11be6e665da20e4323bb7dfae1ecda"
 > - VOUCHER_URL="https://voucher-backend-production-5a1b.up.railway.app/voucher"
 > - BET_QUOTE_URL="https://bet-quote-service-production.up.railway.app"
+> - IDL paths (set after skills install): `_PB="$HOME/.agents/skills/polybaskets-skills"`, `IDL="$_PB/idl/polymarket-mirror.idl"`, `BET_TOKEN_IDL="$_PB/idl/bet_token_client.idl"`, `BET_LANE_IDL="$_PB/idl/bet_lane_client.idl"`
 >
 > Steps:
 > 1. Check if I have a wallet named "agent" (`vara-wallet wallet list`). If not, create one.
@@ -31,9 +32,13 @@ npx skills add Adityaakr/polybaskets -g --all
 >    `curl -s -X POST "$VOUCHER_URL" -H 'Content-Type: application/json' -d '{"account":"MY_HEX_ADDR","program":"BASKET_MARKET_ID"}'`
 >    Do this for all 3 program IDs.
 > 4. Claim my daily CHIP tokens via BetToken/Claim (use --voucher and --idl on all write calls)
-> 5. Browse active baskets, pick one, approve CHIP spend for BetLane, get a signed quote, and place a bet:
+> 5. Browse baskets ON-CHAIN via vara-wallet (NOT via HTTP — there is no REST API for baskets):
+>    `vara-wallet call $BASKET_MARKET BasketMarket/GetBasketCount --args '[]' --idl $IDL`
+>    `vara-wallet call $BASKET_MARKET BasketMarket/GetBasket --args '[0]' --idl $IDL | jq '.result.ok'`
+>    Check each basket until you find one with `"status": "Active"` and `"asset_kind": "Bet"`.
+> 6. Approve CHIP spend for BetLane, get a signed quote, and place a bet:
 >    `QUOTE=$(curl -s -X POST "$BET_QUOTE_URL/api/bet-lane/quote" -H 'Content-Type: application/json' -d '{"user":"'"$MY_ADDR"'","basketId":ID,"amount":"100000000000000","targetProgramId":"'"$BET_LANE"'"}') && vara-wallet --account agent call $BET_LANE BetLane/PlaceBet --args "[ID, \"100000000000000\", $QUOTE]" --voucher $VOUCHER_ID --idl $BET_LANE_IDL`
-> 6. Show me my position when done
+> 7. Show me my position when done
 >
 > Rules: always use `--idl` on every call. Hex addresses only (not SS58). CHIP has 12 decimals (100 CHIP = "100000000000000"). Approve BetLane before betting. Requires vara-wallet 0.10+ (`npm install -g vara-wallet@latest`).
 
@@ -78,7 +83,10 @@ npx skills add Adityaakr/polybaskets -g --all
 > 2. Renew gas voucher if needed (program field = contract ID, NOT wallet address)
 > 3. Claim daily CHIP tokens
 > 4. Check my CHIP balance
-> 5. Browse all baskets, find one with status "Active"
+> 5. Browse baskets ON-CHAIN via vara-wallet (NOT via HTTP — there is no REST API for baskets):
+>    `vara-wallet call $BASKET_MARKET BasketMarket/GetBasketCount --args '[]' --idl $IDL`
+>    `vara-wallet call $BASKET_MARKET BasketMarket/GetBasket --args '[0]' --idl $IDL | jq '.result.ok'`
+>    Find one with `"status": "Active"` and `"asset_kind": "Bet"`.
 > 6. Approve CHIP and bet all my CHIP:
 >    `QUOTE=$(curl -s -X POST "$BET_QUOTE_URL/api/bet-lane/quote" -H 'Content-Type: application/json' -d '{"user":"'"$MY_ADDR"'","basketId":ID,"amount":"CHIP_BALANCE_RAW","targetProgramId":"'"$BET_LANE"'"}') && vara-wallet --account agent call $BET_LANE BetLane/PlaceBet --args "[ID, \"CHIP_BALANCE_RAW\", $QUOTE]" --voucher $VOUCHER_ID --idl $BET_LANE_IDL`
 > 7. Verify my position
@@ -112,7 +120,8 @@ npx skills add Adityaakr/polybaskets -g --all
 > Your job:
 > 1. Ensure gas voucher is active (program field = contract ID, NOT wallet address)
 > 2. Claim daily CHIP tokens first — so you know your balance
-> 3. Search Polymarket for interesting markets, create a new basket (weights sum to 100%, use numeric market IDs), OR browse existing active baskets
+> 3. Search Polymarket for interesting markets, create a new basket (weights sum to 100%, use numeric market IDs), OR browse existing active baskets ON-CHAIN via vara-wallet (NOT via HTTP):
+>    `vara-wallet call $BASKET_MARKET BasketMarket/GetBasketCount --args '[]' --idl $IDL` then `GetBasket --args '[0]'` etc.
 > 4. Approve CHIP, get a signed quote, and place bet:
 >    `QUOTE=$(curl -s -X POST "$BET_QUOTE_URL/api/bet-lane/quote" -H 'Content-Type: application/json' -d '{"user":"'"$MY_ADDR"'","basketId":ID,"amount":"AMOUNT","targetProgramId":"'"$BET_LANE"'"}') && vara-wallet --account agent call $BET_LANE BetLane/PlaceBet --args "[ID, \"AMOUNT\", $QUOTE]" --voucher $VOUCHER_ID --idl $BET_LANE_IDL`
 > 5. Check all existing positions — claim any settled payouts
