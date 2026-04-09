@@ -54,18 +54,18 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > Daily streak bonus: 100 CHIP base, +8.33 per consecutive day (max 150 at day 7). Do not skip days.
 >
 > **Step 4 — Strategy interview (STOP and ask me)**
-> Before touching markets, ask me exactly this:
+> Before touching markets, ask me:
 >
 > > "What's your strategy today?
 > > A) All-in — pick 1-2 high-conviction markets, bet everything
 > > B) Diversify — spread across 4-6 markets from different categories
 > > C) Cautious — small positions, focus on near-certain outcomes only
 > >
-> > Note: right now PnL matters most for the leaderboard. Activity scoring comes later."
+> > Any topics you feel strongly about right now? (sports, politics, crypto, geopolitics — or say 'surprise me')"
 >
 > Wait for my answer before proceeding.
 >
-> **Step 5 — Browse markets and build basket(s)**
+> **Step 5 — Research markets and build conviction**
 > Fetch active markets from Polymarket Gamma API. **Always use `end_date_min` to exclude ended markets:**
 > ```bash
 > # Markets ending in the next 48 hours (best for fast resolution)
@@ -85,23 +85,34 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 >
 > Use the numeric `id` field as `poly_market_id` (not conditionId). The `slug` field is already in the response — do NOT re-fetch markets to look up slugs. To look up one market by ID: `curl -s "https://gamma-api.polymarket.com/markets/MARKET_ID"`
 >
-> For each candidate market, show me:
-> - Question, current Yes/No prices, liquidity, time remaining
-> - Your brief analysis (1-2 sentences on which side looks stronger and why)
+> **For each candidate market, DO YOUR HOMEWORK before recommending it:**
+> 1. Read the market's `description` field — it contains resolution criteria and edge cases
+> 2. Search the web for recent news on the topic (last 24-48 hours)
+> 3. Form your own YES/NO thesis with reasoning — don't just parrot the current price
+> 4. Identify where the market might be wrong (what does the crowd miss?)
 >
-> **Prioritize markets resolving within 24h** — faster resolution means faster results and faster CHIP payouts. Only consider longer markets if they're clearly exceptional.
+> Then present each market to me as a pitch:
+> > **[Market question]** — [X]% Yes / [Y]% No | [time remaining] | $[liquidity]
+> >
+> > **My research:** [2-3 sentences: what you found from the description and web search]
+> >
+> > **My take:** I'd bet [YES/NO] because [thesis]. The market is at [X]% but I think fair value is closer to [Y]% because [reason].
+> >
+> > **What could go wrong:** [1 sentence: the main risk to this thesis]
+> >
+> > **Add to basket? (YES/NO/skip)**
 >
-> **For obvious markets** (clear favorite): recommend Yes or No and add automatically based on my strategy.
+> If I pick a side, challenge me:
+> > "Interesting — but have you considered [counter-argument]? Still want [YES/NO]?"
 >
-> **For close/uncertain markets** (45-65% range): show me the analysis and ask:
-> > "This market is [X]% Yes / [Y]% No — relatively close. I lean [direction] because [reason]. Add to basket as Yes/No, or skip?"
+> Only bet on markets where we have genuine conviction, not just "the price looks right." The goal is to be smarter than the crowd, not to follow it.
 >
-> Wait for my answer on each uncertain market before adding.
+> **Prioritize markets resolving within 24h** — faster resolution means faster results. Only consider longer markets if the edge is clearly exceptional.
 >
-> Once I have 3-5 markets selected, create the basket on-chain:
+> Once we have 3-5 markets with conviction, create the basket on-chain:
 > - Use `BasketMarket/CreateBasket` with `asset_kind: "Bet"`
-> - Assign weights as basis points summing to 10000 (e.g. 40% = 4000). Distribute based on my strategy: equal weights for diversify, conviction-weighted for all-in
-> - Pick a creative basket name
+> - Assign weights as basis points summing to 10000 (e.g. 40% = 4000). Higher weight = higher conviction. Don't equal-weight unless conviction is truly equal.
+> - Pick a creative basket name that reflects the thesis (not generic like "my-basket")
 >
 > **Step 6 — Browse existing baskets and consider betting on them**
 > After creating my own basket, check what other users have built ON-CHAIN via vara-wallet (NOT via HTTP — there is no REST API for baskets):
