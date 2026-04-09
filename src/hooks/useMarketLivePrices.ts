@@ -13,6 +13,7 @@ interface AssetState {
 type Listener = () => void;
 
 const MARKET_WS_URL = 'wss://ws-subscriptions-clob.polymarket.com/ws/market';
+const HEARTBEAT_INTERVAL_MS = 10_000;
 
 const assetState = new Map<string, AssetState>();
 const assetListeners = new Map<string, Set<Listener>>();
@@ -20,6 +21,7 @@ const assetRefCounts = new Map<string, number>();
 
 let ws: WebSocket | null = null;
 let reconnectTimer: number | null = null;
+let heartbeatTimer: number | null = null;
 let reconnectAttempt = 0;
 
 function clearReconnectTimer() {
@@ -27,6 +29,28 @@ function clearReconnectTimer() {
     window.clearTimeout(reconnectTimer);
     reconnectTimer = null;
   }
+}
+
+function clearHeartbeatTimer() {
+  if (heartbeatTimer !== null) {
+    window.clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
+}
+
+function startHeartbeat() {
+  if (typeof window === 'undefined') return;
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  if (heartbeatTimer !== null) return;
+
+  heartbeatTimer = window.setInterval(() => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      clearHeartbeatTimer();
+      return;
+    }
+
+    ws.send('PING');
+  }, HEARTBEAT_INTERVAL_MS);
 }
 
 function ensureSocket() {
@@ -38,6 +62,8 @@ function ensureSocket() {
 
   ws.addEventListener('open', () => {
     reconnectAttempt = 0;
+    clearHeartbeatTimer();
+    startHeartbeat();
     const assetIds = [...assetRefCounts.keys()];
     if (assetIds.length > 0) {
       ws?.send(JSON.stringify({
@@ -102,6 +128,7 @@ function ensureSocket() {
   });
 
   ws.addEventListener('close', () => {
+    clearHeartbeatTimer();
     ws = null;
     if (assetRefCounts.size === 0) return;
     const delay = Math.min(1000 * 2 ** reconnectAttempt, 10000);
@@ -121,6 +148,7 @@ function ensureSocket() {
 function releaseSocketIfUnused() {
   if (assetRefCounts.size > 0) return;
   clearReconnectTimer();
+  clearHeartbeatTimer();
   if (ws) {
     ws.close();
     ws = null;
@@ -204,4 +232,73 @@ export function useMarketLivePrices(market: PolymarketMarket | undefined): LiveP
     lastValueRef.current = next;
     return next;
   }, [assetIds, version]);
+}
+
+export function useMarketsLivePrices(markets: Array<PolymarketMarket | null | undefined>): Map<string, LivePriceMap> {
+  const marketAssets = useMemo(() => {
+    return markets
+      .map((market) => {
+        const assetIds = market?.clobTokenIds?.filter(Boolean).map(String).slice(0, 2) ?? [];
+        if (!market?.id || assetIds.length < 2) {
+          return null;
+        }
+
+        return {
+          marketId: market.id,
+          assetIds,
+        };
+      })
+      .filter((entry): entry is { marketId: string; assetIds: string[] } => entry !== null);
+  }, [markets]);
+
+  const subscriptionAssetIds = useMemo(
+    () => Array.from(new Set(marketAssets.flatMap((entry) => entry.assetIds))),
+    [marketAssets],
+  );
+  const subscriptionKey = useMemo(() => subscriptionAssetIds.join(','), [subscriptionAssetIds]);
+
+  const [version, setVersion] = useState(0);
+  const lastValuesRef = useRef(new Map<string, LivePriceMap>());
+
+  useEffect(() => {
+    if (subscriptionAssetIds.length === 0) return;
+
+    const rerender = () => setVersion((v) => v + 1);
+    const unsubs = subscriptionAssetIds.map((assetId) => subscribeAsset(assetId, rerender));
+
+    return () => {
+      unsubs.forEach((unsubscribe) => unsubscribe());
+    };
+  }, [subscriptionAssetIds, subscriptionKey]);
+
+  return useMemo(() => {
+    const next = new Map<string, LivePriceMap>();
+    const activeMarketIds = new Set<string>();
+
+    for (const { marketId, assetIds } of marketAssets) {
+      activeMarketIds.add(marketId);
+      const yes = deriveTokenPrice(assetState.get(assetIds[0]));
+      const no = deriveTokenPrice(assetState.get(assetIds[1]));
+
+      if (yes == null || no == null) {
+        const lastValue = lastValuesRef.current.get(marketId);
+        if (lastValue) {
+          next.set(marketId, lastValue);
+        }
+        continue;
+      }
+
+      const current = { YES: yes, NO: no };
+      lastValuesRef.current.set(marketId, current);
+      next.set(marketId, current);
+    }
+
+    for (const marketId of [...lastValuesRef.current.keys()]) {
+      if (!activeMarketIds.has(marketId)) {
+        lastValuesRef.current.delete(marketId);
+      }
+    }
+
+    return next;
+  }, [marketAssets, version]);
 }

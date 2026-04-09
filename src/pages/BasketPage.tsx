@@ -2,7 +2,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useMemo, useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { getBasketById, isFollowing, followBasket, unfollowBasket, getFollowerCount, deleteBasket } from '@/lib/basket-storage.ts';
-import { searchMarkets, getOutcomeProbabilities, getOutcomePrices, getMarketDetails, formatProbability, formatPrice } from '@/lib/polymarket.ts';
+import { searchMarkets, getOutcomeProbabilities, getOutcomePrices, getMarketDetailsBatch, formatProbability, formatPrice } from '@/lib/polymarket.ts';
 import { OutcomeProbabilities } from '@/types/polymarket.ts';
 import { calculateBasketIndex, truncateAddress, formatWeight, getChangeClass, getCreationSnapshotIndex } from '@/lib/basket-utils.ts';
 import { useWallet } from '@/contexts/WalletContext';
@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { PayoutCelebration } from '@/components/PayoutCelebration';
 import { BetLanePanel } from '@/components/BetLanePanel';
+import { useMarketsLivePrices } from '@/hooks/useMarketLivePrices';
 
 const LOW_BASE_PROBABILITY_THRESHOLD = 0.05;
 const DEBUG_BASKET_PAGE = false;
@@ -66,6 +67,26 @@ function getReadyOutcomeProbabilities(market: { outcomePrices?: string[] | null 
   return {
     YES: yesProb / sum,
     NO: noProb / sum,
+  };
+}
+
+function getProbabilitiesFromPriceMap(prices: { YES: number; NO: number } | null | undefined): OutcomeProbabilities | null {
+  if (!prices) {
+    return null;
+  }
+
+  if (!Number.isFinite(prices.YES) || !Number.isFinite(prices.NO) || prices.YES < 0 || prices.NO < 0) {
+    return null;
+  }
+
+  const sum = prices.YES + prices.NO;
+  if (sum <= 0) {
+    return null;
+  }
+
+  return {
+    YES: prices.YES / sum,
+    NO: prices.NO / sum,
   };
 }
 
@@ -625,6 +646,20 @@ export default function BasketPage() {
 
     return formatDurationFromSeconds(challengeDeadline - proposedAt);
   }, [settlement]);
+  const settlementIndex = useMemo(() => {
+    if (!settlement || settlementStatus !== 'Finalized') {
+      return null;
+    }
+
+    const value = Number(settlement.payout_per_share) / 10000;
+    return Number.isFinite(value) && value >= 0 ? value : null;
+  }, [settlement, settlementStatus]);
+  const usesSettlementIndex = settlementIndex !== null;
+  const displayedIndex = settlementIndex ?? liveIndex;
+  const displayedIndexLabel = usesSettlementIndex ? 'Settlement Index (Final)' : 'Current Index (Live)';
+  const displayedIndexDescription = usesSettlementIndex
+    ? `${(displayedIndex * 100).toFixed(2)}% from on-chain settlement`
+    : `${(displayedIndex * 100).toFixed(2)}% weighted probability`;
   
   // Calculate expected payout (must be before early returns)
   // Note: expectedPayout can be "0" (string) for total losses, which is valid
@@ -649,16 +684,7 @@ export default function BasketPage() {
 
   const { data: itemMarketsData } = useQuery({
     queryKey: ['market-details', basketMarketIdsKey],
-    queryFn: async () => {
-      const markets = new Map<string, any>();
-      await Promise.all(
-        basketMarketIds.map(async (id) => {
-          const market = await getMarketDetails(id);
-          if (market) markets.set(id, market);
-        })
-      );
-      return markets;
-    },
+    queryFn: async () => getMarketDetailsBatch(basketMarketIds),
     enabled: basketMarketIds.length > 0 && !!basket && !loadingOnChain,
     staleTime: 0, // Always consider data stale - fetch fresh data immediately
     refetchInterval: 2000, // Refetch every 2 seconds for real-time live updates (optimized for rate limits)
@@ -669,6 +695,13 @@ export default function BasketPage() {
     retry: 2, // Retry failed requests
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 5000), // Exponential backoff
   });
+
+  const itemMarkets = useMemo(() => Array.from(itemMarketsData?.values() ?? []), [itemMarketsData]);
+  const liveMarketPricesById = useMarketsLivePrices(itemMarkets);
+  const snapshotComponentsByIndex = useMemo(
+    () => new Map((basket?.createdSnapshot?.components ?? []).map((component) => [component.itemIndex, component])),
+    [basket?.createdSnapshot?.components],
+  );
 
   const { liveIndex, probabilities, marketPrices, marketStatuses, hasValidData } = useMemo(() => {
     if (!basket) {
@@ -714,15 +747,14 @@ export default function BasketPage() {
         return;
       }
       
-      // Get live probabilities and prices from Polymarket
-      const probs = getOutcomeProbabilities(market);
-      const prices = getOutcomePrices(market);
+      const effectivePrices = liveMarketPricesById.get(id) ?? getOutcomePrices(market);
+      const probs = getProbabilitiesFromPriceMap(effectivePrices) ?? getOutcomeProbabilities(market);
       
       // Determine if market is resolved
       let resolved: 'YES' | 'NO' | null = null;
-      if (market.closed && prices) {
-        const yesPrice = prices.YES;
-        const noPrice = prices.NO;
+      if (market.closed && effectivePrices) {
+        const yesPrice = effectivePrices.YES;
+        const noPrice = effectivePrices.NO;
         if (yesPrice >= 0.99 && noPrice <= 0.01) {
           resolved = 'YES';
         } else if (noPrice >= 0.99 && yesPrice <= 0.01) {
@@ -731,8 +763,8 @@ export default function BasketPage() {
       }
       
       probMap.set(id, probs);
-      if (prices) {
-        priceMap.set(id, prices);
+      if (effectivePrices) {
+        priceMap.set(id, effectivePrices);
       }
       statusMap.set(id, {
         closed: market.closed,
@@ -761,7 +793,7 @@ export default function BasketPage() {
       marketStatuses: statusMap,
       hasValidData: missingMarkets.length === 0
     };
-  }, [basket, itemMarketsData]);
+  }, [basket, itemMarketsData, liveMarketPricesById]);
 
   // Calculate per-item changes since creation
   const itemChanges = useMemo(() => {
@@ -791,12 +823,13 @@ export default function BasketPage() {
         return;
       }
 
-      const marketProbs = getReadyOutcomeProbabilities(market);
+      const marketProbs = getProbabilitiesFromPriceMap(liveMarketPricesById.get(item.marketId))
+        ?? getReadyOutcomeProbabilities(market);
       if (!marketProbs) {
         return;
       }
 
-      const snapshotComponent = basket.createdSnapshot.components.find(c => c.itemIndex === itemIndex);
+      const snapshotComponent = snapshotComponentsByIndex.get(itemIndex);
       if (!snapshotComponent) {
         return;
       }
@@ -822,7 +855,7 @@ export default function BasketPage() {
     });
 
     return changes;
-  }, [basket, itemMarketsData]);
+  }, [basket, itemMarketsData, liveMarketPricesById, snapshotComponentsByIndex]);
 
   const creationSnapshotIndex = getCreationSnapshotIndex(basket);
   const nativePositionEntryIndex = userPosition?.index_at_creation_bps !== undefined
@@ -853,16 +886,16 @@ export default function BasketPage() {
     && creationSnapshotIndex > 0
     && creationSnapshotIndex < LOW_BASE_PROBABILITY_THRESHOLD;
   const indexGrowthMultiple = isLowBaseIndex && creationSnapshotIndex
-    ? liveIndex / creationSnapshotIndex
+    ? displayedIndex / creationSnapshotIndex
     : null;
   
-  if (hasValidData && creationSnapshotIndex !== null && basket) {
-    indexChange = liveIndex - creationSnapshotIndex;
+  if ((usesSettlementIndex || hasValidData) && creationSnapshotIndex !== null && basket) {
+    indexChange = displayedIndex - creationSnapshotIndex;
     indexChangePercent = indexChange * 100;
     
     if (isNaN(indexChangePercent) || !isFinite(indexChangePercent)) {
       console.error(`[BasketPage] Invalid index delta calculation for ${basket.id}:`, {
-        liveIndex,
+        displayedIndex,
         creationSnapshotIndex,
         indexChange,
         indexChangePercent
@@ -878,13 +911,13 @@ export default function BasketPage() {
     }
   }
 
-  if (hasValidData && positionEntryIndex !== null && positionEntryIndex > 0 && basket) {
-    const stakeReturnRatio = liveIndex / positionEntryIndex;
+  if ((usesSettlementIndex || hasValidData) && positionEntryIndex !== null && positionEntryIndex > 0 && basket) {
+    const stakeReturnRatio = displayedIndex / positionEntryIndex;
     stakeReturnPercent = (stakeReturnRatio - 1) * 100;
 
     if (isNaN(stakeReturnPercent) || !isFinite(stakeReturnPercent)) {
       console.error(`[BasketPage] Invalid stake return calculation for ${basket.id}:`, {
-        liveIndex,
+        displayedIndex,
         positionEntryIndex,
         stakeReturnPercent,
       });
@@ -892,9 +925,9 @@ export default function BasketPage() {
     }
   }
 
-  const showStakeReturn = hasValidData && positionEntryIndex !== null && positionEntryIndex > 0;
+  const showStakeReturn = (usesSettlementIndex || hasValidData) && positionEntryIndex !== null && positionEntryIndex > 0;
   const headlineChange = showStakeReturn ? stakeReturnPercent : indexChangePercent;
-  const headlineChangeBase = showStakeReturn ? liveIndex - positionEntryIndex : indexChange;
+  const headlineChangeBase = showStakeReturn ? displayedIndex - positionEntryIndex : indexChange;
 
   // Handle betting
   const handleBet = async () => {
@@ -1453,9 +1486,9 @@ export default function BasketPage() {
             <CardContent className="py-6">
               <div className="flex items-baseline gap-4 mb-4">
                 <span className="index-display">
-                  {liveIndex.toFixed(3)}
+                  {displayedIndex.toFixed(3)}
                 </span>
-                {hasValidData && (showStakeReturn || creationSnapshotIndex !== null) ? (
+                {(usesSettlementIndex || hasValidData) && (showStakeReturn || creationSnapshotIndex !== null) ? (
                   <span className={`stat-chip ${getChangeClass(headlineChangeBase)}`}>
                     {showStakeReturn
                       ? `${headlineChange >= 0 ? '+' : ''}${headlineChange.toFixed(2)}% stake return`
@@ -1726,12 +1759,12 @@ export default function BasketPage() {
                 {/* Current Index */}
                 <div className="grid grid-cols-2 gap-4 p-3 bg-muted/30 rounded-lg">
                   <div>
-                    <span className="text-xs text-muted-foreground">Current Index (Live)</span>
+                    <span className="text-xs text-muted-foreground">{displayedIndexLabel}</span>
                     <p className="text-2xl font-semibold tabular-nums mt-1">
-                      {liveIndex.toFixed(3)}
+                      {displayedIndex.toFixed(3)}
                     </p>
                     <p className="text-[10px] text-muted-foreground mt-1">
-                      {(liveIndex * 100).toFixed(2)}% weighted probability
+                      {displayedIndexDescription}
                     </p>
                   </div>
                   <div>
@@ -1767,6 +1800,11 @@ export default function BasketPage() {
                 {/* Breakdown by Item */}
                 <div className="space-y-2">
                   <div className="text-xs font-medium">Calculation Breakdown:</div>
+                  {usesSettlementIndex && (
+                    <div className="text-[10px] text-muted-foreground">
+                      Settlement is finalized. The headline index and stake return now use the on-chain settlement index; item rows below remain Polymarket market references.
+                    </div>
+                  )}
                   <div className="space-y-1 text-xs">
                     {basket.items.map((item, index) => {
                       const currentProb = probabilities[index];
@@ -1804,8 +1842,8 @@ export default function BasketPage() {
                   </div>
                   <div className="pt-2 mt-2 border-t font-mono text-xs">
                     <div className="flex justify-between">
-                      <span>Total:</span>
-                      <span className="font-semibold">{liveIndex.toFixed(3)}</span>
+                      <span>{usesSettlementIndex ? 'Final settlement total:' : 'Total:'}</span>
+                      <span className="font-semibold">{displayedIndex.toFixed(3)}</span>
                     </div>
                   </div>
                 </div>
