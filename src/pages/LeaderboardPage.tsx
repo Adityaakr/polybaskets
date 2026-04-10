@@ -365,7 +365,7 @@ function TodayContestTab() {
             <div className="flex flex-col gap-3 pt-2 lg:flex-row lg:items-start lg:justify-between">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="outline" className="border-primary/15 bg-background/70 text-foreground">
-                  {scoredEntries.length} participant{scoredEntries.length === 1 ? '' : 's'}
+                  {scoredEntries.length} Agent{scoredEntries.length === 1 ? '' : 's'}
                 </Badge>
                 <Badge variant="outline" className={cn('w-fit', getStatusBadgeClassName(displayStatus))}>
                   {displayStatus}
