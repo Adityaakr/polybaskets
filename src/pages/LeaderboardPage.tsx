@@ -3,7 +3,7 @@ import { useApi } from '@gear-js/react-hooks';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { useWallet } from '@/contexts/WalletContext';
 import { getFollowerCount, getBasketById } from '@/lib/basket-storage';
-import { fetchAllOnChainBaskets } from '@/lib/basket-onchain';
+import { extractOnChainBasketId, fetchAllOnChainBaskets } from '@/lib/basket-onchain';
 import { basketMarketProgramFromApi } from '@/lib/varaClient';
 import {
   formatChipAmount,
@@ -15,9 +15,10 @@ import {
 } from '@/lib/contestLeaderboard.ts';
 import { useAgentNames } from '@/hooks/useAgentNames';
 import { ENV, isBasketAssetKindEnabled } from '@/env';
-import { getCreationSnapshotIndex, truncateAddress } from '@/lib/basket-utils.ts';
+import { truncateAddress } from '@/lib/basket-utils.ts';
 import { useTodayContestLeaderboard } from '@/hooks/useTodayContestLeaderboard';
 import { useAllTimeContestWinners } from '@/hooks/useAllTimeContestWinners';
+import { useAllTimeBasketWinnings } from '@/hooks/useAllTimeBasketWinnings';
 import { actorIdFromAddress } from '@/lib/varaClient';
 import { cn } from '@/lib/utils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -789,6 +790,7 @@ function CommunityVaraLeaderboard() {
   const [onChainBaskets, setOnChainBaskets] = useState<Basket[]>([]);
   const [loading, setLoading] = useState(false);
   const allTimeWinnersQuery = useAllTimeContestWinners();
+  const allTimeBasketWinningsQuery = useAllTimeBasketWinnings();
 
   useEffect(() => {
     if (network !== 'vara' || !isApiReady || !api) {
@@ -837,48 +839,93 @@ function CommunityVaraLeaderboard() {
   }, [api, isApiReady, network]);
 
   const topBaskets = useMemo(() => {
+    const basketsByEntityId = new Map<string, Basket>();
+    const winningsByEntityId = new Map(
+      (allTimeBasketWinningsQuery.data ?? []).map((entry) => [
+        entry.basketId.toLowerCase(),
+        entry,
+      ]),
+    );
+
+    onChainBaskets.forEach((basket) => {
+      const basketChainId = extractOnChainBasketId(basket.id);
+      if (basketChainId === null) {
+        return;
+      }
+
+      basketsByEntityId.set(`${ENV.PROGRAM_ID}:${basketChainId}`.toLowerCase(), basket);
+    });
+
     return onChainBaskets
-      .map((basket) => ({
-        basket,
-        followerCount: (() => {
-          try {
-            return getFollowerCount(basket.id);
-          } catch {
-            return 0;
-          }
-        })(),
-        maxWinPercent: (() => {
-          if (basket.status !== 'Settled') {
-            return null;
-          }
-
-          const entryIndex = getCreationSnapshotIndex(basket);
-          if (entryIndex === null || entryIndex <= 0 || entryIndex > 1) {
-            return null;
-          }
-
-          return ((1 / entryIndex) - 1) * 100;
-        })(),
-      }))
-      .sort((left, right) => {
-        const leftSettled = left.basket.status === 'Settled';
-        const rightSettled = right.basket.status === 'Settled';
-
-        if (leftSettled !== rightSettled) {
-          return leftSettled ? -1 : 1;
+      .map((basket) => {
+        const basketChainId = extractOnChainBasketId(basket.id);
+        if (basketChainId === null) {
+          return null;
         }
 
-        const leftMaxWin = left.maxWinPercent ?? Number.NEGATIVE_INFINITY;
-        const rightMaxWin = right.maxWinPercent ?? Number.NEGATIVE_INFINITY;
+        const entityId = `${ENV.PROGRAM_ID}:${basketChainId}`.toLowerCase();
+        const winnings = winningsByEntityId.get(entityId);
 
-        if (leftMaxWin === rightMaxWin) {
+        return {
+          basket,
+          totalPayout: winnings?.totalPayout ?? null,
+          totalRealizedProfit: winnings?.totalRealizedProfit ?? null,
+          participantCount: winnings?.participantCount ?? 0,
+          followerCount: (() => {
+            try {
+              return getFollowerCount(basket.id);
+            } catch {
+              return 0;
+            }
+          })(),
+        };
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+      .sort((left, right) => {
+        const leftHasWinnings = left.totalPayout !== null;
+        const rightHasWinnings = right.totalPayout !== null;
+
+        if (leftHasWinnings !== rightHasWinnings) {
+          return leftHasWinnings ? -1 : 1;
+        }
+
+        if (leftHasWinnings && rightHasWinnings) {
+          const leftPayout = BigInt(left.totalPayout!);
+          const rightPayout = BigInt(right.totalPayout!);
+
+          if (leftPayout !== rightPayout) {
+            return rightPayout > leftPayout ? 1 : -1;
+          }
+        }
+
+        const statusPriority = (status: Basket['status'] | undefined) => {
+          switch (status) {
+            case 'Settled':
+              return 0;
+            case 'SettlementPending':
+              return 1;
+            case 'Active':
+              return 2;
+            default:
+              return 3;
+          }
+        };
+
+        const leftStatusPriority = statusPriority(left.basket.status);
+        const rightStatusPriority = statusPriority(right.basket.status);
+
+        if (leftStatusPriority !== rightStatusPriority) {
+          return leftStatusPriority - rightStatusPriority;
+        }
+
+        if (left.followerCount !== right.followerCount) {
           return right.followerCount - left.followerCount;
         }
 
-        return rightMaxWin - leftMaxWin;
+        return left.basket.name.localeCompare(right.basket.name);
       })
       .slice(0, 20);
-  }, [onChainBaskets]);
+  }, [allTimeBasketWinningsQuery.data, onChainBaskets]);
 
   const topCurators = useMemo(() => {
     const curatorMap: Record<string, { totalFollowers: number; basketCount: number }> = {};
@@ -1005,7 +1052,7 @@ function CommunityVaraLeaderboard() {
       </TabsList>
 
       <TabsContent value="baskets">
-        {loading ? (
+        {loading || allTimeBasketWinningsQuery.isLoading ? (
           <Card className="card-elevated">
             <CardContent className="p-0">
               <div className="border-b px-6 py-3">
@@ -1027,12 +1074,22 @@ function CommunityVaraLeaderboard() {
               </div>
             </CardContent>
           </Card>
+        ) : allTimeBasketWinningsQuery.isError ? (
+          <Card className="card-elevated border-destructive/40">
+            <CardContent className="py-12 text-center">
+              <Loader2 className="mx-auto mb-4 h-10 w-10 text-destructive" />
+              <p className="text-lg font-medium">Unable to load top baskets</p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {(allTimeBasketWinningsQuery.error as Error)?.message ?? 'Unknown indexer error'}
+              </p>
+            </CardContent>
+          </Card>
         ) : topBaskets.length === 0 ? (
           <Card>
             <CardContent className="py-12 text-center">
               <Trophy className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
               <p className="text-muted-foreground">
-                No baskets yet. Be the first to create one!
+                No finalized baskets with winnings yet.
               </p>
               {network === 'vara' && (
                 <p className="text-xs text-muted-foreground/70 mt-2">
@@ -1049,7 +1106,7 @@ function CommunityVaraLeaderboard() {
                   <span className="text-center">#</span>
                   <span>Basket</span>
                   <span className="text-center">Status</span>
-                  <span className="text-right">Max Win</span>
+                  <span className="text-right">Total Won</span>
                   <span className="text-right">Followers</span>
                 </div>
               </div>
@@ -1077,9 +1134,7 @@ function CommunityVaraLeaderboard() {
                         </Badge>
                       </div>
                       <span className="text-right font-semibold tabular-nums">
-                        {entry.maxWinPercent === null
-                          ? '-'
-                          : `+${entry.maxWinPercent.toFixed(1)}%`}
+                        {entry.totalPayout === null ? '-' : formatChipAmount(entry.totalPayout)}
                       </span>
                       <span className="text-right flex items-center justify-end gap-1.5">
                         <Users className="w-3.5 h-3.5 text-muted-foreground" />

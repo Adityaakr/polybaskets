@@ -98,6 +98,20 @@ type AllTimeRewardsQuery = {
   };
 };
 
+type DailyBasketContributionNode = {
+  basketId: string;
+  user: string;
+  realizedProfit: string;
+  payout: string;
+  principal: string;
+};
+
+type AllTimeBasketWinningsQuery = {
+  allDailyBasketContributions: {
+    nodes: DailyBasketContributionNode[];
+  };
+};
+
 export type ContestLeaderboardDay = ContestDayProjectionNode | null;
 
 export type ContestLeaderboardEntry = DailyUserAggregateNode & {
@@ -122,6 +136,15 @@ export type AllTimeTradingPnlEntry = {
   totalRealizedProfit: string;
   totalRewards: string;
   basketCount: number;
+};
+
+export type AllTimeBasketWinningsEntry = {
+  rank: number;
+  basketId: string;
+  totalPayout: string;
+  totalRealizedProfit: string;
+  totalPrincipal: string;
+  participantCount: number;
 };
 
 const TODAY_CONTEST_LEADERBOARD_QUERY = `
@@ -234,6 +257,24 @@ const ALL_TIME_REWARDS_QUERY = `
       nodes {
         user
         reward
+      }
+    }
+  }
+`;
+
+const ALL_TIME_BASKET_WINNINGS_QUERY = `
+  query AllTimeBasketWinnings($offset: Int!, $first: Int!) {
+    allDailyBasketContributions(
+      orderBy: [BASKET_ID_ASC, USER_ASC]
+      offset: $offset
+      first: $first
+    ) {
+      nodes {
+        basketId
+        user
+        realizedProfit
+        payout
+        principal
       }
     }
   }
@@ -558,5 +599,78 @@ export const fetchAllTimeTradingPnl = async (): Promise<AllTimeTradingPnlEntry[]
       totalRealizedProfit: entry.totalRealizedProfit.toString(),
       totalRewards: entry.totalRewards.toString(),
       basketCount: entry.basketCount,
+    }));
+};
+
+export const fetchAllTimeBasketWinnings = async (): Promise<AllTimeBasketWinningsEntry[]> => {
+  const basketTotals = new Map<
+    string,
+    {
+      basketId: string;
+      totalPayout: bigint;
+      totalRealizedProfit: bigint;
+      totalPrincipal: bigint;
+      participants: Set<string>;
+    }
+  >();
+
+  for (let offset = 0; ; offset += ALL_TIME_TRADING_BATCH_SIZE) {
+    const data = await graphQLRequest<AllTimeBasketWinningsQuery>(
+      ALL_TIME_BASKET_WINNINGS_QUERY,
+      {
+        offset,
+        first: ALL_TIME_TRADING_BATCH_SIZE,
+      },
+    );
+
+    const nodes = data.allDailyBasketContributions.nodes;
+    if (nodes.length === 0) {
+      break;
+    }
+
+    for (const node of nodes) {
+      const key = node.basketId.toLowerCase();
+      const current =
+        basketTotals.get(key) ??
+        {
+          basketId: node.basketId,
+          totalPayout: 0n,
+          totalRealizedProfit: 0n,
+          totalPrincipal: 0n,
+          participants: new Set<string>(),
+        };
+
+      current.totalPayout += BigInt(node.payout);
+      current.totalRealizedProfit += BigInt(node.realizedProfit);
+      current.totalPrincipal += BigInt(node.principal);
+      current.participants.add(node.user.toLowerCase());
+
+      basketTotals.set(key, current);
+    }
+
+    if (nodes.length < ALL_TIME_TRADING_BATCH_SIZE) {
+      break;
+    }
+  }
+
+  return Array.from(basketTotals.values())
+    .sort((left, right) => {
+      if (left.totalPayout === right.totalPayout) {
+        if (left.totalRealizedProfit === right.totalRealizedProfit) {
+          return left.basketId.localeCompare(right.basketId);
+        }
+
+        return right.totalRealizedProfit > left.totalRealizedProfit ? 1 : -1;
+      }
+
+      return right.totalPayout > left.totalPayout ? 1 : -1;
+    })
+    .map((entry, index) => ({
+      rank: index + 1,
+      basketId: entry.basketId,
+      totalPayout: entry.totalPayout.toString(),
+      totalRealizedProfit: entry.totalRealizedProfit.toString(),
+      totalPrincipal: entry.totalPrincipal.toString(),
+      participantCount: entry.participants.size,
     }));
 };

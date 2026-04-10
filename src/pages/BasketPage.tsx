@@ -148,6 +148,62 @@ type BasketItemRow = {
   probChange: number;
 };
 
+type IndexedCreationReference = {
+  index: number;
+  timestamp: string | null;
+};
+
+const INDEXED_CREATION_REFERENCE_QUERY = `
+  query IndexedCreationReference($basketId: String!) {
+    allChipPositions(
+      filter: { basketId: { equalTo: $basketId } }
+      orderBy: UPDATED_AT_ASC
+      first: 1
+    ) {
+      nodes {
+        indexAtCreationBps
+        updatedAt
+      }
+    }
+  }
+`;
+
+async function fetchIndexedCreationReference(
+  basketEntityId: string,
+): Promise<IndexedCreationReference | null> {
+  const response = await fetch(ENV.INDEXER_GRAPHQL_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      query: INDEXED_CREATION_REFERENCE_QUERY,
+      variables: {
+        basketId: basketEntityId,
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Indexer GraphQL request failed: ${response.status}`);
+  }
+
+  const body = await response.json();
+  if (body.errors?.length) {
+    throw new Error(body.errors[0].message ?? 'Indexer GraphQL error');
+  }
+
+  const node = body.data?.allChipPositions?.nodes?.[0];
+  if (!node || typeof node.indexAtCreationBps !== 'number' || node.indexAtCreationBps <= 0) {
+    return null;
+  }
+
+  return {
+    index: node.indexAtCreationBps / 10000,
+    timestamp: node.updatedAt ?? null,
+  };
+}
+
 export default function BasketPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -229,6 +285,15 @@ export default function BasketPage() {
   const lanePositionEntryIndex = lanePosition?.index_at_creation_bps !== undefined
     ? lanePosition.index_at_creation_bps / 10000
     : null;
+  const indexedCreationReferenceQuery = useQuery({
+    queryKey: ['indexed-creation-reference', onChainId, ENV.PROGRAM_ID],
+    enabled: isOnChain && onChainId !== null,
+    queryFn: () =>
+      fetchIndexedCreationReference(`${ENV.PROGRAM_ID}:${onChainId}`),
+    staleTime: 60_000,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
+  });
   
   // Safely get following status and followers count
   let following = false;
@@ -988,7 +1053,33 @@ export default function BasketPage() {
     };
   }, [deferredBasketItemRows]);
 
-  const creationSnapshotIndex = getCreationSnapshotIndex(basket);
+  const localCreationSnapshotIndex = getCreationSnapshotIndex(basket);
+  const creationReference = localCreationSnapshotIndex !== null
+    ? {
+        index: localCreationSnapshotIndex,
+        timestamp: basket?.createdSnapshot?.timestamp
+          ? new Date(basket.createdSnapshot.timestamp).toISOString()
+          : null,
+        source: 'snapshot' as const,
+      }
+    : indexedCreationReferenceQuery.data
+      ? {
+          index: indexedCreationReferenceQuery.data.index,
+          timestamp: indexedCreationReferenceQuery.data.timestamp,
+          source: 'indexed_position' as const,
+        }
+      : null;
+  const creationSnapshotIndex = creationReference?.index ?? null;
+  const creationReferenceTimestamp = creationReference?.timestamp ?? null;
+  const creationReferenceSource = creationReference?.source ?? null;
+  const creationReferenceLabel = creationReferenceSource === 'indexed_position'
+    ? 'First indexed position reference'
+    : 'Basket creation index';
+  const creationReferenceDescription = creationSnapshotIndex !== null
+    ? creationReferenceSource === 'indexed_position'
+      ? `${(creationSnapshotIndex * 100).toFixed(2)}% from earliest indexed CHIP position`
+      : `${(creationSnapshotIndex * 100).toFixed(2)}% from saved snapshot`
+    : null;
   const nativePositionEntryIndex = userPosition?.index_at_creation_bps !== undefined
     ? userPosition.index_at_creation_bps / 10000
     : null;
@@ -1059,6 +1150,11 @@ export default function BasketPage() {
   const showStakeReturn = (usesSettlementIndex || hasValidData) && positionEntryIndex !== null && positionEntryIndex > 0;
   const headlineChange = showStakeReturn ? stakeReturnPercent : indexChangePercent;
   const headlineChangeBase = showStakeReturn ? displayedIndex - positionEntryIndex : indexChange;
+  const headlineChangeLabel = showStakeReturn
+    ? 'stake return'
+    : creationReferenceSource === 'indexed_position'
+      ? 'since first indexed position'
+      : 'since creation';
 
   // Handle betting
   const handleBet = async () => {
@@ -1679,12 +1775,12 @@ export default function BasketPage() {
                 {(usesSettlementIndex || hasValidData) && (showStakeReturn || creationSnapshotIndex !== null) ? (
                   <span className={`stat-chip ${getChangeClass(headlineChangeBase)}`}>
                     {showStakeReturn
-                      ? `${headlineChange >= 0 ? '+' : ''}${headlineChange.toFixed(2)}% stake return`
-                      : `${headlineChange >= 0 ? '+' : ''}${headlineChange.toFixed(2)}% since creation`}
+                      ? `${headlineChange >= 0 ? '+' : ''}${headlineChange.toFixed(2)}% ${headlineChangeLabel}`
+                      : `${headlineChange >= 0 ? '+' : ''}${headlineChange.toFixed(2)}% ${headlineChangeLabel}`}
                   </span>
                 ) : creationSnapshotIndex === null ? (
                   <span className="stat-chip stat-chip-neutral">
-                    Creation snapshot unavailable
+                    Creation reference unavailable
                   </span>
                 ) : (
                   <span className="stat-chip stat-chip-neutral">
@@ -1947,17 +2043,17 @@ export default function BasketPage() {
                     </p>
                   </div>
                   <div>
-                    <span className="text-xs text-muted-foreground">Basket Creation Index</span>
+                    <span className="text-xs text-muted-foreground">{creationReferenceLabel}</span>
                     <p className="text-2xl font-semibold tabular-nums mt-1">
                       {creationSnapshotIndex !== null ? creationSnapshotIndex.toFixed(3) : '—'}
                     </p>
                     {creationSnapshotIndex !== null ? (
                       <p className="text-[10px] text-muted-foreground">
-                        {(creationSnapshotIndex * 100).toFixed(2)}% from saved snapshot
+                        {creationReferenceDescription}
                       </p>
                     ) : (
                       <p className="text-[10px] text-yellow-500">
-                        Not stored on-chain. No local creation snapshot for this basket.
+                        Not stored on-chain and no indexed position reference is available for this basket.
                       </p>
                     )}
                   </div>
@@ -2033,17 +2129,17 @@ export default function BasketPage() {
             <CardContent>
               <div className={`grid gap-4 text-sm ${positionEntryIndex !== null ? 'grid-cols-3' : 'grid-cols-2'}`}>
                 <div>
-                  <span className="text-muted-foreground">Basket creation index</span>
+                  <span className="text-muted-foreground">{creationReferenceLabel}</span>
                   <p className="text-xl font-semibold tabular-nums mt-1">
                     {creationSnapshotIndex !== null ? creationSnapshotIndex.toFixed(3) : '—'}
                   </p>
                   {creationSnapshotIndex !== null ? (
                     <p className="text-[10px] text-muted-foreground">
-                      {(creationSnapshotIndex * 100).toFixed(2)}% from saved snapshot
+                      {creationReferenceDescription}
                     </p>
                   ) : (
                     <p className="text-[10px] text-yellow-500">
-                      No creation snapshot available for this basket in local metadata.
+                      No local snapshot or indexed position reference is available for this basket.
                     </p>
                   )}
                 </div>
@@ -2061,8 +2157,8 @@ export default function BasketPage() {
                 <div>
                   <span className="text-muted-foreground">Timestamp</span>
                   <p className="text-sm mt-1">
-                    {creationSnapshotIndex !== null
-                      ? new Date(basket.createdSnapshot.timestamp).toLocaleString()
+                    {creationReferenceTimestamp
+                      ? new Date(creationReferenceTimestamp).toLocaleString()
                       : 'Unavailable'}
                   </p>
                 </div>
