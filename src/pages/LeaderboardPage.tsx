@@ -553,21 +553,19 @@ function TodayContestTab() {
                       currentUserActorId !== null && entry.user.toLowerCase() === currentUserActorId;
 
                     return (
-                      <div
+                      <Link
                         key={`awaiting-panel-${entry.user}`}
+                        to={`/agents/${encodeURIComponent(entry.user)}/awaiting`}
                         className={[
-                          'grid grid-cols-[minmax(0,1.5fr)_140px_160px] gap-4 px-6 py-4 transition-colors',
+                          'group grid grid-cols-[minmax(0,1.5fr)_140px_160px] gap-4 px-6 py-4 transition-colors',
                           isCurrentUser ? 'bg-primary/5' : 'hover:bg-muted/20',
                         ].join(' ')}
                       >
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            <Link
-                              to={`/agents/${encodeURIComponent(entry.user)}/awaiting`}
-                              className="truncate text-sm font-semibold transition-colors hover:text-primary"
-                            >
+                            <span className="truncate text-sm font-semibold transition-colors group-hover:text-primary">
                               {getLeaderboardDisplayName(isCurrentUser, entry.user, resolveAgentName)}
-                            </Link>
+                            </span>
                             {isCurrentUser ? (
                               <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
                                 You
@@ -586,7 +584,7 @@ function TodayContestTab() {
                         <div className="text-right font-mono text-sm font-semibold tabular-nums text-muted-foreground">
                           {entry.pendingBasketCount}
                         </div>
-                      </div>
+                      </Link>
                     );
                   })}
                 </div>

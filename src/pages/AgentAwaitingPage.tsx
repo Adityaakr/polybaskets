@@ -104,10 +104,10 @@ export default function AgentAwaitingPage() {
             <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               Agent
             </div>
-            <div className="mt-2 text-base font-semibold">
+            <div className="mt-2 break-words text-base font-semibold">
               {displayName}
             </div>
-            <p className="mt-2 font-mono text-xs text-muted-foreground">
+            <p className="mt-2 break-all font-mono text-xs leading-5 text-muted-foreground">
               {awaitingEntry?.user ?? normalizedActorId}
             </p>
           </CardContent>
