@@ -65,6 +65,7 @@ export function onChainBasketToFrontend(
       components: [],
     },
     network: 'vara',
+    status: onChainBasket.status,
     assetKind: normalizeAssetKind(onChainBasket.asset_kind || onChainBasket.assetKind || 'Vara'),
   };
 }

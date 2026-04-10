@@ -28,10 +28,12 @@ export interface Basket {
   items: BasketItem[];
   createdSnapshot: Snapshot;
   network: NetworkType;
+  status?: BasketStatus;
   assetKind?: BasketAssetKind;
 }
 
 export type BasketAssetKind = 'Vara' | 'FT';
+export type BasketStatus = 'Active' | 'SettlementPending' | 'Settled';
 
 export interface BasketDraft {
   items: BasketItem[];

@@ -3,7 +3,7 @@ import { useMemo, useState, useEffect, useDeferredValue } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { getBasketById, isFollowing, followBasket, unfollowBasket, getFollowerCount, deleteBasket } from '@/lib/basket-storage.ts';
 import { searchMarkets, getOutcomeProbabilities, getOutcomePrices, getMarketDetailsBatch, formatProbability, formatPrice } from '@/lib/polymarket.ts';
-import { OutcomeProbabilities } from '@/types/polymarket.ts';
+import { OutcomeProbabilities, type PolymarketMarket } from '@/types/polymarket.ts';
 import { calculateBasketIndex, truncateAddress, formatWeight, getChangeClass, getCreationSnapshotIndex } from '@/lib/basket-utils.ts';
 import { useWallet } from '@/contexts/WalletContext';
 import { useBasket } from '@/contexts/BasketContext';
@@ -109,6 +109,19 @@ function formatDurationFromSeconds(totalSeconds: number): string {
   return `${Math.max(1, minutes)} minute${minutes === 1 ? '' : 's'}`;
 }
 
+function isCloneableMarket(market: PolymarketMarket): boolean {
+  if (!market.active || market.closed || market.acceptingOrders === false) {
+    return false;
+  }
+
+  if (!market.endDate) {
+    return true;
+  }
+
+  const endTs = new Date(market.endDate).getTime();
+  return !Number.isNaN(endTs) && endTs > Date.now();
+}
+
 type BasketItemChange = {
   currentProb: number;
   originalProb: number;
@@ -142,7 +155,7 @@ export default function BasketPage() {
   const { network } = useNetwork();
   const { api, isApiReady } = useApi();
   const { account } = useAccount();
-  const { addItem } = useBasket();
+  const { replaceDraft } = useBasket();
   const { toast } = useToast();
   const { basketMarket: varaEthBasketMarket, isLoading: isLoadingVaraEth } = useVaraEthBasketMarket();
   const [copied, setCopied] = useState(false);
@@ -157,6 +170,7 @@ export default function BasketPage() {
   const [loadingOnChain, setLoadingOnChain] = useState(false);
   const [betting, setBetting] = useState(false);
   const [claiming, setClaiming] = useState(false);
+  const [cloningBasket, setCloningBasket] = useState(false);
   const [betAmount, setBetAmount] = useState('');
   
   // Payout celebration modal state
@@ -1487,16 +1501,73 @@ export default function BasketPage() {
     }
   };
 
-  const handleClone = () => {
-    basket.items.forEach(item => {
-      // Add to basket context - this is simplified
-      // In real implementation, we'd need to fetch market data first
-    });
-    toast({ 
-      title: 'Basket cloned to builder',
-      description: 'Edit the weights and save as your own.' 
-    });
-    navigate('/builder');
+  const handleClone = async () => {
+    if (!basket || basket.items.length === 0) {
+      toast({
+        title: 'Nothing To Clone',
+        description: 'This basket does not contain any items yet.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setCloningBasket(true);
+
+    try {
+      const marketIds = Array.from(new Set(basket.items.map((item) => item.marketId)));
+      const marketMap = await getMarketDetailsBatch(marketIds);
+
+      const cloneableItems = basket.items.flatMap((item) => {
+        const market = marketMap.get(item.marketId);
+        if (!market || !isCloneableMarket(market)) {
+          return [];
+        }
+
+        const probs = getOutcomeProbabilities(market);
+        return [{
+          ...item,
+          slug: market.slug || item.slug,
+          question: market.question || item.question,
+          currentProb: item.outcome === 'YES' ? probs.YES : probs.NO,
+        }];
+      });
+
+      const skippedCount = basket.items.length - cloneableItems.length;
+
+      if (cloneableItems.length === 0) {
+        toast({
+          title: 'Clone Unavailable',
+          description: 'All markets in this basket have already ended or stopped accepting orders.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      replaceDraft({
+        items: cloneableItems,
+        name: basket.name,
+        description: basket.description,
+        tags: basket.tags,
+      });
+
+      toast({
+        title: skippedCount > 0 ? 'Basket cloned with active markets only' : 'Basket cloned to builder',
+        description:
+          skippedCount > 0
+            ? `${skippedCount} item${skippedCount === 1 ? '' : 's'} were skipped because the market already ended or is no longer accepting orders.`
+            : 'Edit the weights and save as your own.',
+      });
+      navigate('/builder');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to clone this basket.';
+      toast({
+        title: 'Clone Failed',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setCloningBasket(false);
+    }
   };
 
   const handleDelete = () => {
@@ -2305,9 +2376,19 @@ export default function BasketPage() {
             onClick={handleClone}
             variant="outline"
             className="w-full gap-2"
+            disabled={cloningBasket}
           >
-            <Copy className="w-4 h-4" />
-            Clone Basket
+            {cloningBasket ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Cloning Basket...
+              </>
+            ) : (
+              <>
+                <Copy className="w-4 h-4" />
+                Clone Basket
+              </>
+            )}
           </Button>
 
           {isOnChain ? (

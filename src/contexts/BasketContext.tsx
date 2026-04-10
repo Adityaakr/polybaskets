@@ -19,6 +19,7 @@ interface BasketContextType {
   normalizeAllWeights: () => void;
   clearBasket: () => void;
   loadDraft: () => void;
+  replaceDraft: (draft: BasketDraft) => void;
   hasItem: (marketId: string, outcome: Outcome) => boolean;
   getDraftData: () => BasketDraft;
   updateProbabilities: (probs: Map<string, OutcomeProbabilities>) => void;
@@ -50,6 +51,14 @@ export function BasketProvider({ children }: { children: ReactNode }) {
       setDescription(draft.description);
       setTags(draft.tags);
     }
+  }, []);
+
+  const replaceDraft = useCallback((draft: BasketDraft) => {
+    setItems(draft.items);
+    setName(draft.name);
+    setDescription(draft.description);
+    setTags(draft.tags);
+    saveDraft(draft);
   }, []);
 
   useEffect(() => {
@@ -141,6 +150,7 @@ export function BasketProvider({ children }: { children: ReactNode }) {
       normalizeAllWeights,
       clearBasket,
       loadDraft,
+      replaceDraft,
       hasItem,
       getDraftData,
       updateProbabilities,
