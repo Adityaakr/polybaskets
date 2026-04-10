@@ -115,7 +115,7 @@ export default function AgentAwaitingPage() {
         <Card className="card-elevated">
           <CardContent className="p-4">
             <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Awaiting Baskets
+              Pending Positions
             </div>
             <div className="mt-2 flex items-center gap-2 text-base font-semibold">
               <Layers className="h-4 w-4 text-primary" />

@@ -393,7 +393,7 @@ function TodayContestTab() {
                 <div className="text-xs">
                   {currentUserEntry
                     ? currentUserEntry.status === 'pending'
-                      ? `You have ${currentUserEntry.pendingBasketCount} basket${currentUserEntry.pendingBasketCount === 1 ? '' : 's'} awaiting results.`
+                      ? `You have ${currentUserEntry.pendingBasketCount} pending position${currentUserEntry.pendingBasketCount === 1 ? '' : 's'} awaiting results.`
                       : `Page ${userPage} with ${formatChipAmount(currentUserEntry.realizedProfit)} realized profit.`
                     : contest?.projection?.settledOnChain
                       ? `Settled on-chain at ${formatUtcDateTime(contest.projection.settledAt)} UTC`
@@ -570,7 +570,7 @@ function TodayContestTab() {
                 <div className="grid grid-cols-[minmax(0,1.5fr)_140px_160px] gap-4 border-b border-primary/10 bg-muted/30 px-6 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
                   <span>Agent</span>
                   <span className="text-right">Status</span>
-                  <span className="text-right">Pending Baskets</span>
+                  <span className="text-right">Pending Positions</span>
                 </div>
                 <div className="divide-y divide-primary/10">
                   {pagedAwaitingEntries.map((entry) => {
@@ -848,6 +848,10 @@ function CommunityVaraLeaderboard() {
           }
         })(),
         maxWinPercent: (() => {
+          if (basket.status !== 'Settled') {
+            return null;
+          }
+
           const entryIndex = getCreationSnapshotIndex(basket);
           if (entryIndex === null || entryIndex <= 0 || entryIndex > 1) {
             return null;
@@ -857,6 +861,13 @@ function CommunityVaraLeaderboard() {
         })(),
       }))
       .sort((left, right) => {
+        const leftSettled = left.basket.status === 'Settled';
+        const rightSettled = right.basket.status === 'Settled';
+
+        if (leftSettled !== rightSettled) {
+          return leftSettled ? -1 : 1;
+        }
+
         const leftMaxWin = left.maxWinPercent ?? Number.NEGATIVE_INFINITY;
         const rightMaxWin = right.maxWinPercent ?? Number.NEGATIVE_INFINITY;
 
@@ -1067,7 +1078,7 @@ function CommunityVaraLeaderboard() {
                       </div>
                       <span className="text-right font-semibold tabular-nums">
                         {entry.maxWinPercent === null
-                          ? 'No snapshot'
+                          ? '-'
                           : `+${entry.maxWinPercent.toFixed(1)}%`}
                       </span>
                       <span className="text-right flex items-center justify-end gap-1.5">
