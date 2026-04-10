@@ -78,11 +78,23 @@ type TodayContestLeaderboardQuery = {
 type DailyUserAggregateProfitNode = {
   user: string;
   realizedProfit: string;
+  basketCount: number;
 };
 
 type AllTimeTradingPnlQuery = {
   allDailyUserAggregates: {
     nodes: DailyUserAggregateProfitNode[];
+  };
+};
+
+type AllTimeRewardsNode = {
+  user: string;
+  reward: string | null;
+};
+
+type AllTimeRewardsQuery = {
+  allContestDayWinners: {
+    nodes: AllTimeRewardsNode[];
   };
 };
 
@@ -107,6 +119,8 @@ export type AllTimeTradingPnlEntry = {
   rank: number;
   user: string;
   totalRealizedProfit: string;
+  totalRewards: string;
+  basketCount: number;
 };
 
 const TODAY_CONTEST_LEADERBOARD_QUERY = `
@@ -203,6 +217,22 @@ const ALL_TIME_TRADING_PNL_QUERY = `
       nodes {
         user
         realizedProfit
+        basketCount
+      }
+    }
+  }
+`;
+
+const ALL_TIME_REWARDS_QUERY = `
+  query AllTimeRewards($offset: Int!, $first: Int!) {
+    allContestDayWinners(
+      orderBy: [USER_ASC]
+      offset: $offset
+      first: $first
+    ) {
+      nodes {
+        user
+        reward
       }
     }
   }
@@ -421,7 +451,7 @@ export const fetchTodayContestLeaderboard = async (
 };
 
 export const fetchAllTimeTradingPnl = async (): Promise<AllTimeTradingPnlEntry[]> => {
-  const profitTotals = new Map<string, { user: string; totalRealizedProfit: bigint }>();
+  const profitTotals = new Map<string, { user: string; totalRealizedProfit: bigint; basketCount: number; totalRewards: bigint }>();
 
   for (let offset = 0; ; offset += ALL_TIME_TRADING_BATCH_SIZE) {
     const data = await graphQLRequest<AllTimeTradingPnlQuery>(
@@ -445,12 +475,52 @@ export const fetchAllTimeTradingPnl = async (): Promise<AllTimeTradingPnlEntry[]
 
       if (current) {
         current.totalRealizedProfit += realizedProfit;
+        current.basketCount += node.basketCount;
         continue;
       }
 
       profitTotals.set(key, {
         user: node.user,
         totalRealizedProfit: realizedProfit,
+        basketCount: node.basketCount,
+        totalRewards: 0n,
+      });
+    }
+
+    if (nodes.length < ALL_TIME_TRADING_BATCH_SIZE) {
+      break;
+    }
+  }
+
+  for (let offset = 0; ; offset += ALL_TIME_TRADING_BATCH_SIZE) {
+    const data = await graphQLRequest<AllTimeRewardsQuery>(
+      ALL_TIME_REWARDS_QUERY,
+      {
+        offset,
+        first: ALL_TIME_TRADING_BATCH_SIZE,
+      },
+    );
+
+    const nodes = data.allContestDayWinners.nodes;
+    if (nodes.length === 0) {
+      break;
+    }
+
+    for (const node of nodes) {
+      const reward = node.reward ? BigInt(node.reward) : 0n;
+      const key = node.user.toLowerCase();
+      const current = profitTotals.get(key);
+
+      if (current) {
+        current.totalRewards += reward;
+        continue;
+      }
+
+      profitTotals.set(key, {
+        user: node.user,
+        totalRealizedProfit: 0n,
+        basketCount: 0,
+        totalRewards: reward,
       });
     }
 
@@ -471,5 +541,7 @@ export const fetchAllTimeTradingPnl = async (): Promise<AllTimeTradingPnlEntry[]
       rank: index + 1,
       user: entry.user,
       totalRealizedProfit: entry.totalRealizedProfit.toString(),
+      totalRewards: entry.totalRewards.toString(),
+      basketCount: entry.basketCount,
     }));
 };

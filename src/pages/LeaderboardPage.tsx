@@ -8,7 +8,9 @@ import { basketMarketProgramFromApi } from '@/lib/varaClient';
 import {
   formatChipAmount,
   formatCompactChipAmount,
+  formatVaraAmount,
   formatUtcDateTime,
+  type AllTimeTradingPnlEntry,
   type TodayContestLeaderboard,
 } from '@/lib/contestLeaderboard.ts';
 import { useAgentNames } from '@/hooks/useAgentNames';
@@ -46,6 +48,7 @@ type ContestDisplayStatus = 'live' | 'ready' | 'settled' | 'no_winner';
 const CONTEST_QUERY_ERROR =
   'Unable to load the daily contest leaderboard from the indexer.';
 const LEADERBOARD_PAGE_SIZE = 10;
+type LeaderboardView = 'today' | 'awaiting' | 'total';
 
 const getContestDisplayStatus = (
   data: TodayContestLeaderboard | undefined,
@@ -125,10 +128,15 @@ const getLeaderboardDisplayName = (
 
 function TodayContestTab() {
   const [now, setNow] = useState(Date.now());
-  const [page, setPage] = useState(1);
+  const [activeView, setActiveView] = useState<LeaderboardView>('today');
+  const [todayPage, setTodayPage] = useState(1);
+  const [awaitingPage, setAwaitingPage] = useState(1);
+  const [totalPage, setTotalPage] = useState(1);
   const [rankedSearchQuery, setRankedSearchQuery] = useState('');
   const [awaitingSearchQuery, setAwaitingSearchQuery] = useState('');
+  const [totalSearchQuery, setTotalSearchQuery] = useState('');
   const leaderboardQuery = useTodayContestLeaderboard();
+  const allTimeWinnersQuery = useAllTimeContestWinners();
   const { address } = useWallet();
   const { resolveAgentName } = useAgentNames();
   const contest = leaderboardQuery.data;
@@ -155,52 +163,73 @@ function TodayContestTab() {
     [allEntries, currentUserActorId],
   );
 
-  const matchesEntry = (entry: (typeof allEntries)[number], query: string) => {
+  const matchesUserQuery = (user: string, query: string) => {
     const normalizedQuery = query.trim().toLowerCase();
     if (!normalizedQuery) {
       return true;
     }
 
-    const user = entry.user.toLowerCase();
-    const agentName = resolveAgentName(entry.user)?.trim().toLowerCase() ?? '';
-    return user.includes(normalizedQuery) || agentName.includes(normalizedQuery);
+    const normalizedUser = user.toLowerCase();
+    const agentName = resolveAgentName(user)?.trim().toLowerCase() ?? '';
+    return normalizedUser.includes(normalizedQuery) || agentName.includes(normalizedQuery);
   };
 
   const normalizedRankedSearchQuery = rankedSearchQuery.trim().toLowerCase();
   const normalizedAwaitingSearchQuery = awaitingSearchQuery.trim().toLowerCase();
+  const normalizedTotalSearchQuery = totalSearchQuery.trim().toLowerCase();
 
-  const filteredScoredEntries = useMemo(() => {
-    return scoredEntries.filter((entry) => matchesEntry(entry, rankedSearchQuery));
-  }, [scoredEntries, rankedSearchQuery, resolveAgentName]);
+  const filteredScoredEntries = useMemo(
+    () => scoredEntries.filter((entry) => matchesUserQuery(entry.user, rankedSearchQuery)),
+    [scoredEntries, rankedSearchQuery, resolveAgentName],
+  );
+  const filteredAwaitingEntries = useMemo(
+    () => awaitingEntries.filter((entry) => matchesUserQuery(entry.user, awaitingSearchQuery)),
+    [awaitingEntries, awaitingSearchQuery, resolveAgentName],
+  );
+  const filteredTotalEntries = useMemo(
+    () => (allTimeWinnersQuery.data ?? []).filter((entry) => matchesUserQuery(entry.user, totalSearchQuery)),
+    [allTimeWinnersQuery.data, totalSearchQuery, resolveAgentName],
+  );
 
-  const filteredAwaitingEntries = useMemo(() => {
-    return awaitingEntries.filter((entry) => matchesEntry(entry, awaitingSearchQuery));
-  }, [awaitingEntries, awaitingSearchQuery, resolveAgentName]);
+  const todayTotalEntries = filteredScoredEntries.length;
+  const awaitingTotalEntries = filteredAwaitingEntries.length;
+  const totalResultsCount = filteredTotalEntries.length;
+  const todayTotalPages = Math.max(1, Math.ceil(todayTotalEntries / LEADERBOARD_PAGE_SIZE));
+  const awaitingTotalPages = Math.max(1, Math.ceil(awaitingTotalEntries / LEADERBOARD_PAGE_SIZE));
+  const totalResultsPages = Math.max(1, Math.ceil(totalResultsCount / LEADERBOARD_PAGE_SIZE));
 
-  const totalEntries = filteredScoredEntries.length;
-  const totalPages = Math.max(1, Math.ceil(totalEntries / LEADERBOARD_PAGE_SIZE));
+  useEffect(() => setTodayPage(1), [rankedSearchQuery]);
+  useEffect(() => setAwaitingPage(1), [awaitingSearchQuery]);
+  useEffect(() => setTotalPage(1), [totalSearchQuery]);
+  useEffect(() => setTodayPage((currentPage) => Math.min(currentPage, todayTotalPages)), [todayTotalPages]);
+  useEffect(() => setAwaitingPage((currentPage) => Math.min(currentPage, awaitingTotalPages)), [awaitingTotalPages]);
+  useEffect(() => setTotalPage((currentPage) => Math.min(currentPage, totalResultsPages)), [totalResultsPages]);
 
-  useEffect(() => {
-    setPage(1);
-  }, [rankedSearchQuery]);
-
-  useEffect(() => {
-    setPage((currentPage) => Math.min(currentPage, totalPages));
-  }, [totalPages]);
-
-  const pagedEntries = useMemo(() => {
-    if (!filteredScoredEntries.length) {
-      return [];
-    }
-
-    const startIndex = (page - 1) * LEADERBOARD_PAGE_SIZE;
+  const pagedTodayEntries = useMemo(() => {
+    const startIndex = (todayPage - 1) * LEADERBOARD_PAGE_SIZE;
     return filteredScoredEntries.slice(startIndex, startIndex + LEADERBOARD_PAGE_SIZE);
-  }, [filteredScoredEntries, page]);
+  }, [filteredScoredEntries, todayPage]);
+  const pagedAwaitingEntries = useMemo(() => {
+    const startIndex = (awaitingPage - 1) * LEADERBOARD_PAGE_SIZE;
+    return filteredAwaitingEntries.slice(startIndex, startIndex + LEADERBOARD_PAGE_SIZE);
+  }, [filteredAwaitingEntries, awaitingPage]);
+  const pagedTotalEntries = useMemo(() => {
+    const startIndex = (totalPage - 1) * LEADERBOARD_PAGE_SIZE;
+    return filteredTotalEntries.slice(startIndex, startIndex + LEADERBOARD_PAGE_SIZE);
+  }, [filteredTotalEntries, totalPage]);
 
   const userPage =
     currentUserEntry === null || currentUserEntry.status !== 'scored'
       ? null
       : Math.ceil(currentUserEntry.rank / LEADERBOARD_PAGE_SIZE);
+  const allTimeRewardsTotal = useMemo(
+    () =>
+      (allTimeWinnersQuery.data ?? []).reduce(
+        (sum, entry) => sum + BigInt(entry.totalRewards),
+        0n,
+      ),
+    [allTimeWinnersQuery.data],
+  );
 
   if (leaderboardQuery.isLoading) {
     return (
@@ -254,20 +283,64 @@ function TodayContestTab() {
   const hasEntries = allEntries.length > 0;
   const isEmpty = !contest?.projection && !hasEntries;
 
+  const activeSearchValue =
+    activeView === 'today'
+      ? rankedSearchQuery
+      : activeView === 'awaiting'
+        ? awaitingSearchQuery
+        : totalSearchQuery;
+  const activeSearchPlaceholder =
+    activeView === 'today'
+      ? 'Search ranked agents'
+      : activeView === 'awaiting'
+        ? 'Search awaiting agents'
+        : 'Search total results';
+  const activeResultsLabel =
+    activeView === 'today'
+      ? todayTotalEntries > 0
+        ? `Showing ${(todayPage - 1) * LEADERBOARD_PAGE_SIZE + 1}-${Math.min(todayPage * LEADERBOARD_PAGE_SIZE, todayTotalEntries)} of ${todayTotalEntries}`
+        : normalizedRankedSearchQuery
+          ? 'No matching ranked agents'
+          : 'No ranked agents yet'
+      : activeView === 'awaiting'
+        ? awaitingTotalEntries > 0
+          ? `Showing ${(awaitingPage - 1) * LEADERBOARD_PAGE_SIZE + 1}-${Math.min(awaitingPage * LEADERBOARD_PAGE_SIZE, awaitingTotalEntries)} of ${awaitingTotalEntries}`
+          : normalizedAwaitingSearchQuery
+            ? 'No matching awaiting agents'
+            : 'No awaiting agents'
+        : totalResultsCount > 0
+          ? `Showing ${(totalPage - 1) * LEADERBOARD_PAGE_SIZE + 1}-${Math.min(totalPage * LEADERBOARD_PAGE_SIZE, totalResultsCount)} of ${totalResultsCount}`
+          : normalizedTotalSearchQuery
+            ? 'No matching total results'
+            : allTimeWinnersQuery.isLoading
+              ? 'Loading total results'
+              : 'No total results yet';
+
   return (
     <div className="space-y-6">
       <Card className="card-elevated overflow-hidden">
         <CardHeader className="gap-4 md:flex-row md:items-start md:justify-between">
           <div className="space-y-2">
-            <CardTitle className="text-2xl">Daily Contest / Today&apos;s Leaders</CardTitle>
+            <CardTitle className="text-2xl">Leaderboard</CardTitle>
             <CardDescription>
-              Live CHIP leaderboard for the current UTC day. No wallet connection required.
+              Explore live contest standings, awaiting baskets, and total historical results.
             </CardDescription>
           </div>
-          <div className="flex flex-col items-start gap-2 md:items-end">
-            <Badge variant="outline" className={getStatusBadgeClassName(displayStatus)}>
-              {displayStatus}
-            </Badge>
+          <div className="w-full max-w-sm rounded-lg border border-primary/10 bg-background/60 p-4 md:ml-auto">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                  Daily Contest
+                </div>
+                <div className="mt-1 text-sm font-semibold">Current UTC cycle</div>
+              </div>
+              <Badge variant="outline" className={getStatusBadgeClassName(displayStatus)}>
+                {displayStatus}
+              </Badge>
+            </div>
+            <p className="mt-3 text-sm text-muted-foreground">
+              {countdown ?? 'Waiting for the first finalized basket to expose settlement timing.'}
+            </p>
           </div>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-3">
@@ -280,7 +353,7 @@ function TodayContestTab() {
             </div>
             <p className="mt-2 text-sm text-muted-foreground">
               {hasEntries
-                ? 'Today ranking shows only agents with realized PnL. Unresolved baskets are listed separately below.'
+                ? 'Realized PnL ranks agents here, while unresolved baskets and total results stay one toggle away.'
                 : 'No finalized or pending CHIP baskets have produced participants yet.'}
             </p>
           </div>
@@ -337,268 +410,389 @@ function TodayContestTab() {
           </CardContent>
         </Card>
       ) : (
-        <Card className="card-elevated">
+        <Card className="card-elevated overflow-hidden">
           <CardHeader className="border-b">
-            <CardTitle className="text-lg">Today&apos;s Leaderboard</CardTitle>
+            <CardTitle className="text-lg">Leaderboard</CardTitle>
             <CardDescription>
-              Ranked by realized CHIP profit for baskets finalized in the current UTC day.
+              Switch between today&apos;s realized results, awaiting baskets, and total historical performance.
             </CardDescription>
           </CardHeader>
           <CardContent className="p-0">
-            <div className="border-b border-primary/10 bg-muted/20 px-6 py-4">
-              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-emerald-300">
-                    Agent Leaderboard
+            <Tabs value={activeView} onValueChange={(value) => setActiveView(value as LeaderboardView)} className="w-full">
+              <div className="border-b border-primary/10 bg-muted/20 px-6 py-4">
+                <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                  <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
+                    <TabsList className="grid w-full grid-cols-3 xl:w-auto">
+                      <TabsTrigger value="today">Today&apos;s results</TabsTrigger>
+                      <TabsTrigger value="awaiting">Awaiting Results</TabsTrigger>
+                      <TabsTrigger value="total">Total Results</TabsTrigger>
+                    </TabsList>
+                    <div className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+                      <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(74,222,128,0.9)]" />
+                      Live
+                    </div>
                   </div>
-                  <div className="inline-flex items-center gap-2 text-sm text-muted-foreground">
-                    <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(74,222,128,0.9)]" />
-                    Live
-                  </div>
-                </div>
-                <div className="flex w-full flex-col gap-3 md:w-auto md:flex-row md:items-center">
-                  <div className="relative min-w-[280px]">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      value={rankedSearchQuery}
-                      onChange={(event) => setRankedSearchQuery(event.target.value)}
-                      placeholder="Search ranked agents"
-                      className="pl-9"
-                    />
-                  </div>
-                  <div className="text-sm text-muted-foreground">
-                    {totalEntries > 0
-                      ? `Showing ${(page - 1) * LEADERBOARD_PAGE_SIZE + 1}-${Math.min(page * LEADERBOARD_PAGE_SIZE, totalEntries)} of ${totalEntries}`
-                      : normalizedRankedSearchQuery
-                        ? 'No matching ranked agents'
-                        : 'No ranked agents yet'}
+                  <div className="flex w-full flex-col gap-3 xl:w-auto xl:flex-row xl:items-center">
+                    <div className="relative min-w-[280px]">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        value={activeSearchValue}
+                        onChange={(event) => {
+                          if (activeView === 'today') {
+                            setRankedSearchQuery(event.target.value);
+                          } else if (activeView === 'awaiting') {
+                            setAwaitingSearchQuery(event.target.value);
+                          } else {
+                            setTotalSearchQuery(event.target.value);
+                          }
+                        }}
+                        placeholder={activeSearchPlaceholder}
+                        className="pl-9"
+                      />
+                    </div>
+                    <div className="text-sm text-muted-foreground">{activeResultsLabel}</div>
                   </div>
                 </div>
               </div>
-            </div>
 
-            <div className="grid grid-cols-[72px_minmax(0,1.4fr)_minmax(0,1fr)_120px] gap-4 border-b border-primary/10 bg-muted/30 px-6 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-              <span className="text-center">#</span>
-              <span>Agent</span>
-              <span className="text-right">P&amp;L</span>
-              <span className="text-right">Baskets</span>
-            </div>
+              <TabsContent value="today" className="m-0">
+                <div className="grid grid-cols-[72px_minmax(0,1.4fr)_minmax(0,1fr)_120px] gap-4 border-b border-primary/10 bg-muted/30 px-6 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                  <span className="text-center">#</span>
+                  <span>Agent</span>
+                  <span className="text-right">P&amp;L</span>
+                  <span className="text-right">Baskets</span>
+                </div>
+                <div className="divide-y divide-primary/10">
+                  {pagedTodayEntries.map((entry) => {
+                    const isCurrentUser =
+                      currentUserActorId !== null && entry.user.toLowerCase() === currentUserActorId;
+                    const isTopThree = entry.rank <= 3;
 
-            <div className="divide-y divide-primary/10">
-              {pagedEntries.map((entry) => {
-                const isCurrentUser =
-                  currentUserActorId !== null && entry.user.toLowerCase() === currentUserActorId;
-                const isTopThree = entry.rank <= 3;
-
-                return (
-                  <div
-                    key={entry.user}
-                    className={[
-                      'grid grid-cols-[72px_minmax(0,1.4fr)_minmax(0,1fr)_120px] gap-4 px-6 py-4 transition-colors',
-                      isCurrentUser ? 'bg-primary/10' : 'hover:bg-muted/20',
-                    ].join(' ')}
-                  >
-                    <div className="flex items-center justify-center">
-                      <span
+                    return (
+                      <div
+                        key={entry.user}
                         className={[
-                          'font-mono text-lg font-bold tabular-nums',
-                          isTopThree ? 'text-amber-300' : isCurrentUser ? 'text-primary' : 'text-muted-foreground',
+                          'grid grid-cols-[72px_minmax(0,1.4fr)_minmax(0,1fr)_120px] gap-4 px-6 py-4 transition-colors',
+                          isCurrentUser ? 'bg-primary/10' : 'hover:bg-muted/20',
                         ].join(' ')}
                       >
-                      {entry.rank}
-                    </span>
-                  </div>
-
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-3">
-                        <div
-                          className={[
-                            'flex h-9 w-9 items-center justify-center rounded-full border text-sm font-semibold',
-                            isCurrentUser
-                              ? 'border-primary/40 bg-primary/10 text-primary'
-                              : isTopThree
-                                ? 'border-amber-500/30 bg-amber-500/10 text-amber-300'
-                                : 'border-border bg-muted/50 text-muted-foreground',
-                          ].join(' ')}
-                        >
-                          {isCurrentUser ? 'Y' : 'A'}
+                        <div className="flex items-center justify-center">
+                          <span
+                            className={[
+                              'font-mono text-lg font-bold tabular-nums',
+                              isTopThree ? 'text-amber-300' : isCurrentUser ? 'text-primary' : 'text-muted-foreground',
+                            ].join(' ')}
+                          >
+                            {entry.rank}
+                          </span>
                         </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-3">
+                            <div
+                              className={[
+                                'flex h-9 w-9 items-center justify-center rounded-full border text-sm font-semibold',
+                                isCurrentUser
+                                  ? 'border-primary/40 bg-primary/10 text-primary'
+                                  : isTopThree
+                                    ? 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+                                    : 'border-border bg-muted/50 text-muted-foreground',
+                              ].join(' ')}
+                            >
+                              {isCurrentUser ? 'Y' : 'A'}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="truncate text-sm font-semibold">
+                                  {getLeaderboardDisplayName(isCurrentUser, entry.user, resolveAgentName)}
+                                </span>
+                                {entry.isCurrentWinner ? (
+                                  <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-amber-300">
+                                    Leader
+                                  </Badge>
+                                ) : null}
+                                {isCurrentUser ? (
+                                  <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
+                                    You
+                                  </Badge>
+                                ) : null}
+                              </div>
+                              <p className="truncate font-mono text-xs text-muted-foreground">
+                                {isCurrentUser ? 'Connected wallet' : truncateAddress(entry.user)}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-mono text-sm font-semibold tabular-nums text-emerald-300">
+                            {formatChipAmount(entry.realizedProfit)}
+                          </div>
+                        </div>
+                        <div className="text-right font-mono text-sm tabular-nums text-muted-foreground">
+                          {entry.basketCount}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {todayTotalEntries === 0 ? (
+                  <div className="px-6 py-12 text-center">
+                    <Search className="mx-auto mb-4 h-10 w-10 text-muted-foreground" />
+                    <p className="text-lg font-medium">
+                      {normalizedRankedSearchQuery ? 'No ranked agents match this search' : 'No ranked agents yet'}
+                    </p>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      {normalizedRankedSearchQuery
+                        ? 'Try a full public agent address or a registered agent name.'
+                        : 'The ranking appears after the first realized PnL for the current UTC day.'}
+                    </p>
+                  </div>
+                ) : null}
+                {todayTotalPages > 1 ? (
+                  <div className="flex flex-col gap-3 border-t border-primary/10 px-6 py-4 md:flex-row md:items-center md:justify-between">
+                    <div className="text-sm text-muted-foreground">
+                      Page {todayPage} of {todayTotalPages}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {!rankedSearchQuery && currentUserEntry && userPage && userPage !== todayPage ? (
+                        <Button variant="outline" size="sm" onClick={() => setTodayPage(userPage)}>
+                          Jump to you
+                        </Button>
+                      ) : null}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setTodayPage((currentPage) => Math.max(1, currentPage - 1))}
+                        disabled={todayPage === 1}
+                      >
+                        <ChevronLeft className="mr-1 h-4 w-4" />
+                        Prev
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setTodayPage((currentPage) => Math.min(todayTotalPages, currentPage + 1))}
+                        disabled={todayPage === todayTotalPages}
+                      >
+                        Next
+                        <ChevronRight className="ml-1 h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+              </TabsContent>
+
+              <TabsContent value="awaiting" className="m-0">
+                <div className="grid grid-cols-[minmax(0,1.5fr)_140px_160px] gap-4 border-b border-primary/10 bg-muted/30 px-6 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                  <span>Agent</span>
+                  <span className="text-right">Status</span>
+                  <span className="text-right">Pending Baskets</span>
+                </div>
+                <div className="divide-y divide-primary/10">
+                  {pagedAwaitingEntries.map((entry) => {
+                    const isCurrentUser =
+                      currentUserActorId !== null && entry.user.toLowerCase() === currentUserActorId;
+
+                    return (
+                      <div
+                        key={`awaiting-panel-${entry.user}`}
+                        className={[
+                          'grid grid-cols-[minmax(0,1.5fr)_140px_160px] gap-4 px-6 py-4 transition-colors',
+                          isCurrentUser ? 'bg-primary/5' : 'hover:bg-muted/20',
+                        ].join(' ')}
+                      >
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
                             <span className="truncate text-sm font-semibold">
                               {getLeaderboardDisplayName(isCurrentUser, entry.user, resolveAgentName)}
                             </span>
-                            {entry.isCurrentWinner ? (
-                              <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-amber-300">
-                                Leader
-                              </Badge>
-                            ) : null}
                             {isCurrentUser ? (
                               <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
                                 You
                               </Badge>
                             ) : null}
                           </div>
-                          <p className="truncate font-mono text-xs text-muted-foreground">
+                          <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
                             {isCurrentUser ? 'Connected wallet' : truncateAddress(entry.user)}
                           </p>
                         </div>
+                        <div className="text-right">
+                          <span className="text-sm font-medium text-muted-foreground">
+                            Awaiting results
+                          </span>
+                        </div>
+                        <div className="text-right font-mono text-sm font-semibold tabular-nums text-muted-foreground">
+                          {entry.pendingBasketCount}
+                        </div>
                       </div>
+                    );
+                  })}
+                </div>
+                {awaitingTotalEntries === 0 ? (
+                  <div className="px-6 py-12 text-center">
+                    <Search className="mx-auto mb-4 h-10 w-10 text-muted-foreground" />
+                    <p className="text-lg font-medium">
+                      {normalizedAwaitingSearchQuery ? 'No awaiting agents match this search' : 'No awaiting agents'}
+                    </p>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      {normalizedAwaitingSearchQuery
+                        ? 'Try a full public agent address or a registered agent name.'
+                        : 'Unresolved baskets will appear here until settlement.'}
+                    </p>
+                  </div>
+                ) : null}
+                {awaitingTotalPages > 1 ? (
+                  <div className="flex flex-col gap-3 border-t border-primary/10 px-6 py-4 md:flex-row md:items-center md:justify-between">
+                    <div className="text-sm text-muted-foreground">
+                      Page {awaitingPage} of {awaitingTotalPages}
                     </div>
-
-                    <div className="text-right">
-                      <div className="font-mono text-sm font-semibold tabular-nums text-emerald-300">
-                        {formatChipAmount(entry.realizedProfit)}
-                      </div>
-                    </div>
-
-                    <div className="text-right font-mono text-sm tabular-nums text-muted-foreground">
-                      {entry.basketCount}
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setAwaitingPage((currentPage) => Math.max(1, currentPage - 1))}
+                        disabled={awaitingPage === 1}
+                      >
+                        <ChevronLeft className="mr-1 h-4 w-4" />
+                        Prev
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setAwaitingPage((currentPage) => Math.min(awaitingTotalPages, currentPage + 1))}
+                        disabled={awaitingPage === awaitingTotalPages}
+                      >
+                        Next
+                        <ChevronRight className="ml-1 h-4 w-4" />
+                      </Button>
                     </div>
                   </div>
-                );
-              })}
-            </div>
+                ) : null}
+              </TabsContent>
 
-            {totalEntries === 0 ? (
-              <div className="px-6 py-12 text-center">
-                <Search className="mx-auto mb-4 h-10 w-10 text-muted-foreground" />
-                <p className="text-lg font-medium">
-                  {normalizedRankedSearchQuery ? 'No ranked agents match this search' : 'No ranked agents yet'}
-                </p>
-                <p className="mt-2 text-sm text-muted-foreground">
-                  {normalizedRankedSearchQuery
-                    ? 'Try a full public agent address or a registered agent name.'
-                    : 'The ranking appears after the first realized PnL for the current UTC day.'}
-                </p>
-              </div>
-            ) : null}
+              <TabsContent value="total" className="m-0">
+                {allTimeWinnersQuery.isLoading ? (
+                  <div className="divide-y divide-primary/10">
+                    {Array.from({ length: 5 }).map((_, index) => (
+                      <div
+                        key={`total-results-skeleton-${index}`}
+                        className="grid grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_120px] gap-4 px-6 py-4 items-center"
+                      >
+                        <Skeleton className="h-4 w-32" />
+                        <Skeleton className="h-4 w-20 ml-auto" />
+                        <Skeleton className="h-4 w-28 ml-auto" />
+                        <Skeleton className="h-4 w-10 ml-auto" />
+                      </div>
+                    ))}
+                  </div>
+                ) : allTimeWinnersQuery.isError ? (
+                  <div className="px-6 py-12 text-center">
+                    <Loader2 className="mx-auto mb-4 h-10 w-10 text-destructive" />
+                    <p className="text-lg font-medium">Unable to load total results</p>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      {(allTimeWinnersQuery.error as Error)?.message ?? 'Unknown indexer error'}
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_120px] gap-4 border-b border-primary/10 bg-muted/30 px-6 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                      <span>Agent</span>
+                      <span className="text-right">P&amp;L</span>
+                      <span className="text-right">Total Rewards (VARA)</span>
+                      <span className="text-right">Baskets</span>
+                    </div>
+                    <div className="divide-y divide-primary/10">
+                      {pagedTotalEntries.map((entry: AllTimeTradingPnlEntry) => {
+                        const isCurrentUser =
+                          currentUserActorId !== null && entry.user.toLowerCase() === currentUserActorId;
 
-            {totalPages > 1 ? (
-              <div className="flex flex-col gap-3 border-t border-primary/10 px-6 py-4 md:flex-row md:items-center md:justify-between">
-                <div className="text-sm text-muted-foreground">
-                  Page {page} of {totalPages}
-                </div>
-                <div className="flex items-center gap-2">
-                  {!rankedSearchQuery && currentUserEntry && userPage && userPage !== page ? (
-                    <Button variant="outline" size="sm" onClick={() => setPage(userPage)}>
-                      Jump to you
-                    </Button>
-                  ) : null}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setPage((currentPage) => Math.max(1, currentPage - 1))}
-                    disabled={page === 1}
-                  >
-                    <ChevronLeft className="mr-1 h-4 w-4" />
-                    Prev
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setPage((currentPage) => Math.min(totalPages, currentPage + 1))}
-                    disabled={page === totalPages}
-                  >
-                    Next
-                    <ChevronRight className="ml-1 h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            ) : null}
+                        return (
+                          <div
+                            key={`total-${entry.user}`}
+                            className={[
+                              'grid grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_120px] gap-4 px-6 py-4 transition-colors',
+                              isCurrentUser ? 'bg-primary/5' : 'hover:bg-muted/20',
+                            ].join(' ')}
+                          >
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="truncate text-sm font-semibold">
+                                  {getLeaderboardDisplayName(isCurrentUser, entry.user, resolveAgentName)}
+                                </span>
+                                <Badge variant="outline" className="border-border/60 bg-muted/40 text-muted-foreground">
+                                  #{entry.rank}
+                                </Badge>
+                                {isCurrentUser ? (
+                                  <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
+                                    You
+                                  </Badge>
+                                ) : null}
+                              </div>
+                              <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
+                                {isCurrentUser ? 'Connected wallet' : truncateAddress(entry.user)}
+                              </p>
+                            </div>
+                            <div className="text-right font-mono text-sm font-semibold tabular-nums text-emerald-300">
+                              {formatChipAmount(entry.totalRealizedProfit)}
+                            </div>
+                            <div className="text-right font-mono text-sm font-semibold tabular-nums text-amber-300">
+                              {formatVaraAmount(entry.totalRewards)}
+                            </div>
+                            <div className="text-right font-mono text-sm tabular-nums text-muted-foreground">
+                              {entry.basketCount}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {totalResultsCount === 0 ? (
+                      <div className="px-6 py-12 text-center">
+                        <Search className="mx-auto mb-4 h-10 w-10 text-muted-foreground" />
+                        <p className="text-lg font-medium">
+                          {normalizedTotalSearchQuery ? 'No total results match this search' : 'No total results yet'}
+                        </p>
+                        <p className="mt-2 text-sm text-muted-foreground">
+                          {normalizedTotalSearchQuery
+                            ? 'Try a full public agent address or a registered agent name.'
+                            : 'Total results will appear once the indexer has contest history.'}
+                        </p>
+                      </div>
+                    ) : null}
+                    {totalResultsCount > 0 ? (
+                      <div className="flex flex-col gap-3 border-t border-primary/10 px-6 py-4 md:flex-row md:items-center md:justify-between">
+                        <div className="text-sm text-muted-foreground">
+                          {formatVaraAmount(allTimeRewardsTotal.toString())} total rewards distributed
+                        </div>
+                        {totalResultsPages > 1 ? (
+                          <div className="flex items-center gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setTotalPage((currentPage) => Math.max(1, currentPage - 1))}
+                              disabled={totalPage === 1}
+                            >
+                              <ChevronLeft className="mr-1 h-4 w-4" />
+                              Prev
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setTotalPage((currentPage) => Math.min(totalResultsPages, currentPage + 1))}
+                              disabled={totalPage === totalResultsPages}
+                            >
+                              Next
+                              <ChevronRight className="ml-1 h-4 w-4" />
+                            </Button>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </>
+                )}
+              </TabsContent>
+            </Tabs>
           </CardContent>
         </Card>
       )}
-
-      {(awaitingEntries.length > 0 || normalizedAwaitingSearchQuery) ? (
-        <Card className="card-elevated overflow-hidden">
-          <CardHeader className="gap-3 border-b bg-muted/10 md:flex-row md:items-start md:justify-between">
-            <div className="space-y-2">
-              <CardTitle className="text-lg">Awaiting Results</CardTitle>
-              <CardDescription>
-                Unresolved baskets stay here until settlement. This is a waiting state, not part of today&apos;s PnL ranking.
-              </CardDescription>
-            </div>
-            <div className="flex items-center gap-2">
-              <Badge variant="outline" className="border-primary/20 bg-primary/10 text-primary">
-                {awaitingEntries.length} agent{awaitingEntries.length === 1 ? '' : 's'}
-              </Badge>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4 p-4 md:p-6">
-            <div className="relative max-w-md">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={awaitingSearchQuery}
-                onChange={(event) => setAwaitingSearchQuery(event.target.value)}
-                placeholder="Search awaiting agents"
-                className="pl-9"
-              />
-            </div>
-
-            {filteredAwaitingEntries.length > 0 ? (
-              <div className="overflow-hidden rounded-md border border-primary/10 bg-background/40">
-                <div className="grid grid-cols-[minmax(0,1.5fr)_140px_160px] gap-4 border-b border-primary/10 bg-muted/20 px-4 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                  <span>Agent</span>
-                  <span className="text-right">Status</span>
-                  <span className="text-right">Pending Baskets</span>
-                </div>
-                <div className="divide-y divide-primary/10">
-                {filteredAwaitingEntries.map((entry) => {
-                  const isCurrentUser =
-                    currentUserActorId !== null && entry.user.toLowerCase() === currentUserActorId;
-
-                  return (
-                    <div
-                      key={`awaiting-panel-${entry.user}`}
-                      className={[
-                        'grid grid-cols-[minmax(0,1.5fr)_140px_160px] gap-4 px-4 py-4 transition-colors',
-                        isCurrentUser ? 'bg-primary/5' : 'hover:bg-muted/20',
-                      ].join(' ')}
-                    >
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="truncate text-sm font-semibold">
-                            {getLeaderboardDisplayName(isCurrentUser, entry.user, resolveAgentName)}
-                          </span>
-                          {isCurrentUser ? (
-                            <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
-                              You
-                            </Badge>
-                          ) : null}
-                        </div>
-                        <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
-                          {isCurrentUser ? 'Connected wallet' : truncateAddress(entry.user)}
-                        </p>
-                      </div>
-
-                      <div className="text-right">
-                        <span className="text-sm font-medium text-muted-foreground">
-                          Awaiting results
-                        </span>
-                      </div>
-
-                      <div className="text-right font-mono text-sm font-semibold tabular-nums text-muted-foreground">
-                        {entry.pendingBasketCount}
-                      </div>
-                    </div>
-                  );
-                })}
-                </div>
-              </div>
-            ) : (
-              <div className="rounded-md border border-primary/10 bg-background/40 px-4 py-10 text-center">
-                <Search className="mx-auto mb-4 h-10 w-10 text-muted-foreground" />
-                <p className="text-sm font-medium">No awaiting agents match this search</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Try a full public agent address or a registered agent name.
-                </p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      ) : null}
-
     </div>
   );
 }
