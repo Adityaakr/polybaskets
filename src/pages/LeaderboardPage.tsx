@@ -319,79 +319,6 @@ function TodayContestTab() {
 
   return (
     <div className="space-y-6">
-      <Card className="card-elevated overflow-hidden">
-        <CardHeader className="gap-3 pb-3">
-          <div className="space-y-1.5">
-            <CardTitle className="text-base md:text-lg">Daily Contest / Today&apos;s Leaders</CardTitle>
-            <CardDescription className="text-sm">
-              Live CHIP leaderboard for the current UTC day. No wallet connection required.
-            </CardDescription>
-          </div>
-          <div className="flex flex-col gap-2 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              {countdown ?? 'Waiting for the first finalized basket to expose settlement timing.'}
-            </div>
-            <Badge variant="outline" className={cn('w-fit', getStatusBadgeClassName(displayStatus))}>
-              {displayStatus}
-            </Badge>
-          </div>
-        </CardHeader>
-        <CardContent className="grid gap-3 pt-0 md:grid-cols-3">
-          <div className="rounded-md border border-primary/10 bg-background/50 p-3.5">
-            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Participants
-            </div>
-            <div className="mt-1.5 text-xl font-semibold tabular-nums">
-              {scoredEntries.length}
-            </div>
-            <p className="mt-1.5 text-xs leading-5 text-muted-foreground">
-              {hasEntries
-                ? 'Realized PnL ranks agents here, while unresolved baskets and total results stay one toggle away.'
-                : 'No finalized or pending CHIP baskets have produced participants yet.'}
-            </p>
-          </div>
-          <div className="rounded-md border border-primary/10 bg-background/50 p-3.5">
-            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Settlement Allowed At
-            </div>
-            <div className="mt-1.5 text-sm font-semibold md:text-base">
-              {contest?.projection?.settlementAllowedAt
-                ? formatUtcDateTime(contest.projection.settlementAllowedAt)
-                : 'Pending first finalized basket'}
-            </div>
-            <p className="mt-1.5 text-xs leading-5 text-muted-foreground">
-              {countdown ?? 'The read model will expose settlement timing after the first finalized basket.'}
-            </p>
-          </div>
-          <div className="rounded-md border border-primary/10 bg-background/50 p-3.5">
-            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Your Position
-            </div>
-            <div className="mt-1.5 flex items-center gap-2 text-sm font-semibold md:text-base">
-              <Radio className="h-3.5 w-3.5 text-primary" />
-              <span>
-                {currentUserEntry
-                  ? currentUserEntry.status === 'pending'
-                    ? 'Awaiting results'
-                    : `#${currentUserEntry.rank}`
-                  : address
-                    ? 'Not ranked yet'
-                    : 'Connect wallet'}
-              </span>
-            </div>
-            <p className="mt-1.5 text-xs leading-5 text-muted-foreground">
-              {currentUserEntry
-                ? currentUserEntry.status === 'pending'
-                  ? `You have ${currentUserEntry.pendingBasketCount} basket${currentUserEntry.pendingBasketCount === 1 ? '' : 's'} awaiting results.`
-                  : `You are on page ${userPage} with ${formatChipAmount(currentUserEntry.realizedProfit)} realized profit.`
-                : contest?.projection?.settledOnChain
-                  ? `Settled on-chain at ${formatUtcDateTime(contest.projection.settledAt)} UTC`
-                  : 'Live projection from the indexer read model.'}
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-
       {isEmpty ? (
         <Card className="card-elevated">
           <CardContent className="py-12 text-center">
@@ -409,6 +336,46 @@ function TodayContestTab() {
             <CardDescription>
               Switch between today&apos;s realized results, awaiting baskets, and total historical performance.
             </CardDescription>
+            <div className="flex flex-col gap-3 pt-2 lg:flex-row lg:items-start lg:justify-between">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline" className="border-primary/15 bg-background/70 text-foreground">
+                  {scoredEntries.length} participant{scoredEntries.length === 1 ? '' : 's'}
+                </Badge>
+                <Badge variant="outline" className={cn('w-fit', getStatusBadgeClassName(displayStatus))}>
+                  {displayStatus}
+                </Badge>
+                <Badge variant="outline" className="border-primary/15 bg-background/70 text-muted-foreground">
+                  Settlement Allowed At:{' '}
+                  {contest?.projection?.settlementAllowedAt
+                    ? formatUtcDateTime(contest.projection.settlementAllowedAt)
+                    : 'Pending first finalized basket'}
+                </Badge>
+              </div>
+              <div className="flex flex-col gap-1 text-sm text-muted-foreground lg:max-w-md lg:text-right">
+                <div>{countdown ?? 'Waiting for the first finalized basket to expose settlement timing.'}</div>
+                <div className="flex items-center gap-2 lg:justify-end">
+                  <Radio className="h-3.5 w-3.5 text-primary" />
+                  <span>
+                    {currentUserEntry
+                      ? currentUserEntry.status === 'pending'
+                        ? `Your position: Awaiting results`
+                        : `Your position: #${currentUserEntry.rank}`
+                      : address
+                        ? 'Your position: Not ranked yet'
+                        : 'Your position: Connect wallet'}
+                  </span>
+                </div>
+                <div className="text-xs">
+                  {currentUserEntry
+                    ? currentUserEntry.status === 'pending'
+                      ? `You have ${currentUserEntry.pendingBasketCount} basket${currentUserEntry.pendingBasketCount === 1 ? '' : 's'} awaiting results.`
+                      : `Page ${userPage} with ${formatChipAmount(currentUserEntry.realizedProfit)} realized profit.`
+                    : contest?.projection?.settledOnChain
+                      ? `Settled on-chain at ${formatUtcDateTime(contest.projection.settledAt)} UTC`
+                      : 'Live projection from the indexer read model.'}
+                </div>
+              </div>
+            </div>
           </CardHeader>
           <CardContent className="p-0">
             <Tabs value={activeView} onValueChange={(value) => setActiveView(value as LeaderboardView)} className="w-full">
