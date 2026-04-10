@@ -321,9 +321,9 @@ function TodayContestTab() {
       <Card className="card-elevated overflow-hidden">
         <CardHeader className="gap-4 md:flex-row md:items-start md:justify-between">
           <div className="space-y-2">
-            <CardTitle className="text-2xl">Leaderboard</CardTitle>
+            <CardTitle className="text-lg">Daily Contest / Today&apos;s Leaders</CardTitle>
             <CardDescription>
-              Explore live contest standings, awaiting baskets, and total historical results.
+              Live CHIP leaderboard for the current UTC day. No wallet connection required.
             </CardDescription>
           </div>
           <div className="w-full max-w-sm rounded-lg border border-primary/10 bg-background/60 p-4 md:ml-auto">
