@@ -562,9 +562,12 @@ function TodayContestTab() {
                       >
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className="truncate text-sm font-semibold">
+                            <Link
+                              to={`/agents/${encodeURIComponent(entry.user)}/awaiting`}
+                              className="truncate text-sm font-semibold transition-colors hover:text-primary"
+                            >
                               {getLeaderboardDisplayName(isCurrentUser, entry.user, resolveAgentName)}
-                            </span>
+                            </Link>
                             {isCurrentUser ? (
                               <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
                                 You

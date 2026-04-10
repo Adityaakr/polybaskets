@@ -106,6 +106,7 @@ export type ContestLeaderboardEntry = DailyUserAggregateNode & {
   reward: string | null;
   isCurrentWinner: boolean;
   pendingBasketCount: number;
+  awaitingBasketIds: string[];
 };
 
 export type TodayContestLeaderboard = {
@@ -360,6 +361,9 @@ export const fetchTodayContestLeaderboard = async (
     data.allContestDayWinners.nodes.map((winner) => [winner.user, winner.reward ?? null]),
   );
   const winners = new Set(data.allContestDayWinners.nodes.map((winner) => winner.user));
+  const basketEntityToBasketId = new Map(
+    data.allBaskets.nodes.map((basket) => [basket.id, basket.basketId]),
+  );
   const todayBetBasketIds = new Set(data.allBaskets.nodes.map((basket) => basket.id));
   const settledBasketIds = new Set(
     data.allBasketSettlements.nodes
@@ -367,6 +371,7 @@ export const fetchTodayContestLeaderboard = async (
       .map((settlement) => settlement.basketId),
   );
   const pendingBasketCounts = new Map<string, number>();
+  const pendingBasketIdsByUser = new Map<string, Set<string>>();
 
   for (const position of data.allChipPositions.nodes) {
     if (BigInt(position.shares) <= 0n) {
@@ -379,6 +384,12 @@ export const fetchTodayContestLeaderboard = async (
 
     const userKey = position.user.toLowerCase();
     pendingBasketCounts.set(userKey, (pendingBasketCounts.get(userKey) ?? 0) + 1);
+    const basketId = basketEntityToBasketId.get(position.basketId);
+    if (basketId) {
+      const current = pendingBasketIdsByUser.get(userKey) ?? new Set<string>();
+      current.add(basketId);
+      pendingBasketIdsByUser.set(userKey, current);
+    }
   }
 
   const scoredEntries: ContestLeaderboardEntry[] = data.allDailyUserAggregates.nodes.map((entry) => ({
@@ -388,6 +399,7 @@ export const fetchTodayContestLeaderboard = async (
     reward: rewardsByUser.get(entry.user) ?? null,
     isCurrentWinner: winners.has(entry.user),
     pendingBasketCount: 0,
+    awaitingBasketIds: [],
   }));
 
   const pendingEntries: ContestLeaderboardEntry[] = Array.from(pendingBasketCounts.entries()).map(
@@ -410,6 +422,9 @@ export const fetchTodayContestLeaderboard = async (
         reward: null,
         isCurrentWinner: false,
         pendingBasketCount,
+        awaitingBasketIds: Array.from(pendingBasketIdsByUser.get(userKey) ?? []).sort(
+          (left, right) => Number(left) - Number(right),
+        ),
       };
     },
   );
