@@ -15,8 +15,7 @@ import {
 } from '@/lib/contestLeaderboard.ts';
 import { useAgentNames } from '@/hooks/useAgentNames';
 import { ENV, isBasketAssetKindEnabled } from '@/env';
-import { truncateAddress } from '@/lib/basket-utils.ts';
-import { NETWORKS } from '@/lib/network.ts';
+import { getCreationSnapshotIndex, truncateAddress } from '@/lib/basket-utils.ts';
 import { useTodayContestLeaderboard } from '@/hooks/useTodayContestLeaderboard';
 import { useAllTimeContestWinners } from '@/hooks/useAllTimeContestWinners';
 import { actorIdFromAddress } from '@/lib/varaClient';
@@ -32,7 +31,6 @@ import {
   Trophy,
   Users,
   Layers,
-  Circle,
   Crown,
   Loader2,
   Timer,
@@ -84,6 +82,33 @@ const getStatusBadgeClassName = (status: ContestDisplayStatus): string => {
       return 'border-amber-500/30 bg-amber-500/10 text-amber-300';
     case 'no_winner':
       return 'border-border bg-muted/60 text-muted-foreground';
+  }
+};
+
+const getCommunityBasketStatusMeta = (
+  status: Basket['status'] | undefined,
+): { label: string; className: string } => {
+  switch (status) {
+    case 'Settled':
+      return {
+        label: 'Finalized',
+        className: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
+      };
+    case 'SettlementPending':
+      return {
+        label: 'Awaiting results',
+        className: 'border-amber-500/30 bg-amber-500/10 text-amber-300',
+      };
+    case 'Active':
+      return {
+        label: 'Active',
+        className: 'border-sky-500/30 bg-sky-500/10 text-sky-300',
+      };
+    default:
+      return {
+        label: 'Unknown',
+        className: 'border-border bg-muted/60 text-muted-foreground',
+      };
   }
 };
 
@@ -822,8 +847,25 @@ function CommunityVaraLeaderboard() {
             return 0;
           }
         })(),
+        maxWinPercent: (() => {
+          const entryIndex = getCreationSnapshotIndex(basket);
+          if (entryIndex === null || entryIndex <= 0 || entryIndex > 1) {
+            return null;
+          }
+
+          return ((1 / entryIndex) - 1) * 100;
+        })(),
       }))
-      .sort((left, right) => right.followerCount - left.followerCount)
+      .sort((left, right) => {
+        const leftMaxWin = left.maxWinPercent ?? Number.NEGATIVE_INFINITY;
+        const rightMaxWin = right.maxWinPercent ?? Number.NEGATIVE_INFINITY;
+
+        if (leftMaxWin === rightMaxWin) {
+          return right.followerCount - left.followerCount;
+        }
+
+        return rightMaxWin - leftMaxWin;
+      })
       .slice(0, 20);
   }, [onChainBaskets]);
 
@@ -850,7 +892,13 @@ function CommunityVaraLeaderboard() {
 
     return Object.entries(curatorMap)
       .map(([address, stats]) => ({ address, ...stats }))
-      .sort((left, right) => right.totalFollowers - left.totalFollowers)
+      .sort((left, right) => {
+        if (right.basketCount === left.basketCount) {
+          return right.totalFollowers - left.totalFollowers;
+        }
+
+        return right.basketCount - left.basketCount;
+      })
       .slice(0, 20);
   }, [onChainBaskets]);
 
@@ -986,46 +1034,41 @@ function CommunityVaraLeaderboard() {
           <Card className="card-elevated">
             <CardContent className="p-0">
               <div className="border-b">
-                <div className="grid grid-cols-6 gap-4 px-6 py-3 text-xs font-medium text-muted-foreground bg-muted/50">
+                <div className="grid grid-cols-[72px_minmax(0,1.6fr)_180px_140px_140px] gap-4 px-6 py-3 text-xs font-medium text-muted-foreground bg-muted/50">
                   <span className="text-center">#</span>
-                  <span className="col-span-2">Basket</span>
-                  <span className="text-center">Network</span>
-                  <span className="text-right">Index</span>
+                  <span>Basket</span>
+                  <span className="text-center">Status</span>
+                  <span className="text-right">Max Win</span>
                   <span className="text-right">Followers</span>
                 </div>
               </div>
               <div className="divide-y">
                 {topBaskets.map((entry, index) => {
-                  const networkConfig = NETWORKS[entry.basket.network];
+                  const statusMeta = getCommunityBasketStatusMeta(entry.basket.status);
                   return (
                     <Link
                       key={entry.basket.id}
                       to={`/basket/${entry.basket.id}`}
-                      className="grid grid-cols-6 gap-4 px-6 py-4 items-center hover:bg-muted/30 transition-colors"
+                      className="grid grid-cols-[72px_minmax(0,1.6fr)_180px_140px_140px] gap-4 px-6 py-4 items-center hover:bg-muted/30 transition-colors"
                     >
                       <span className="text-center font-semibold text-muted-foreground">
                         {index + 1}
                       </span>
-                      <div className="col-span-2">
+                      <div className="min-w-0">
                         <p className="font-medium truncate">{entry.basket.name}</p>
                         <p className="text-sm text-muted-foreground">
                           by {truncateAddress(entry.basket.owner)}
                         </p>
                       </div>
                       <div className="text-center">
-                        <span className="inline-flex items-center gap-1.5">
-                          {entry.basket.network === 'vara' ? (
-                            <img src="/toggle.png" alt="Vara Network" className="w-4 h-4 object-contain" />
-                          ) : (
-                            <Circle className="w-2 h-2 fill-blue-500 text-blue-500" />
-                          )}
-                          <span className="text-xs text-muted-foreground">
-                            {networkConfig.name}
-                          </span>
-                        </span>
+                        <Badge variant="outline" className={statusMeta.className}>
+                          {statusMeta.label}
+                        </Badge>
                       </div>
                       <span className="text-right font-semibold tabular-nums">
-                        {entry.basket.createdSnapshot.basketIndex.toFixed(3)}
+                        {entry.maxWinPercent === null
+                          ? 'No snapshot'
+                          : `+${entry.maxWinPercent.toFixed(1)}%`}
                       </span>
                       <span className="text-right flex items-center justify-end gap-1.5">
                         <Users className="w-3.5 h-3.5 text-muted-foreground" />
