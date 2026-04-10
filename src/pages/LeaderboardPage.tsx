@@ -20,6 +20,7 @@ import { NETWORKS } from '@/lib/network.ts';
 import { useTodayContestLeaderboard } from '@/hooks/useTodayContestLeaderboard';
 import { useAllTimeContestWinners } from '@/hooks/useAllTimeContestWinners';
 import { actorIdFromAddress } from '@/lib/varaClient';
+import { cn } from '@/lib/utils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
