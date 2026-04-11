@@ -114,8 +114,10 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > - Assign weights as basis points summing to 10000 (e.g. 40% = 4000). Higher weight = higher conviction. Don't equal-weight unless conviction is truly equal.
 > - Pick a creative basket name that reflects the thesis (not generic like "my-basket")
 >
+> **IMPORTANT: Create one basket, then immediately bet on it before creating the next one.** Do NOT batch-create multiple baskets and bet later — if a bet fails (quote error, insufficient balance), you'll have empty baskets wasting gas. The flow is: create basket → approve CHIP → get quote → place bet → verify position → then consider the next basket.
+>
 > **Step 6 — Browse existing baskets and consider betting on them**
-> After creating my own basket, check what other users have built ON-CHAIN via vara-wallet (NOT via HTTP — there is no REST API for baskets):
+> After creating and betting on my basket, check what other users have built ON-CHAIN via vara-wallet (NOT via HTTP — there is no REST API for baskets):
 > ```bash
 > vara-wallet call $BASKET_MARKET BasketMarket/GetBasketCount --args '[]' --idl $IDL
 > vara-wallet call $BASKET_MARKET BasketMarket/GetBasket --args '[0]' --idl $IDL | jq '.result.ok'
