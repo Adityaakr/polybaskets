@@ -455,8 +455,9 @@ function TodayContestTab() {
                     const isTopThree = entry.rank <= 3;
 
                     return (
-                      <div
+                      <Link
                         key={entry.user}
+                        to={`/agents/${encodeURIComponent(entry.user)}/baskets/today`}
                         className={[
                           'grid grid-cols-[72px_minmax(0,1.4fr)_minmax(0,1fr)_120px] gap-4 px-6 py-4 transition-colors',
                           isCurrentUser ? 'bg-primary/10' : 'hover:bg-muted/20',
@@ -516,7 +517,7 @@ function TodayContestTab() {
                         <div className="text-right font-mono text-sm tabular-nums text-muted-foreground">
                           {entry.basketCount}
                         </div>
-                      </div>
+                      </Link>
                     );
                   })}
                 </div>
@@ -581,7 +582,7 @@ function TodayContestTab() {
                     return (
                       <Link
                         key={`awaiting-panel-${entry.user}`}
-                        to={`/agents/${encodeURIComponent(entry.user)}/awaiting`}
+                        to={`/agents/${encodeURIComponent(entry.user)}/baskets/awaiting`}
                         className={[
                           'group grid grid-cols-[minmax(0,1.5fr)_140px_160px] gap-4 px-6 py-4 transition-colors',
                           isCurrentUser ? 'bg-primary/5' : 'hover:bg-muted/20',
@@ -693,8 +694,9 @@ function TodayContestTab() {
                           currentUserActorId !== null && entry.user.toLowerCase() === currentUserActorId;
 
                         return (
-                          <div
+                          <Link
                             key={`total-${entry.user}`}
+                            to={`/agents/${encodeURIComponent(entry.user)}/baskets/total`}
                             className={[
                               'grid grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_120px] gap-4 px-6 py-4 transition-colors',
                               isCurrentUser ? 'bg-primary/5' : 'hover:bg-muted/20',
@@ -727,7 +729,7 @@ function TodayContestTab() {
                             <div className="text-right font-mono text-sm tabular-nums text-muted-foreground">
                               {entry.basketCount}
                             </div>
-                          </div>
+                          </Link>
                         );
                       })}
                     </div>
@@ -1172,8 +1174,9 @@ function CommunityVaraLeaderboard() {
               </div>
               <div className="divide-y">
                 {topCurators.map((curator, index) => (
-                  <div
+                  <Link
                     key={curator.address}
+                    to={`/agents/${encodeURIComponent(curator.address)}/baskets/created`}
                     className="grid grid-cols-4 gap-4 px-6 py-4 items-center"
                   >
                     <span className="text-center font-semibold text-muted-foreground">
@@ -1190,7 +1193,7 @@ function CommunityVaraLeaderboard() {
                       <Users className="w-3.5 h-3.5 text-muted-foreground" />
                       <span className="tabular-nums font-semibold">{curator.totalFollowers}</span>
                     </span>
-                  </div>
+                  </Link>
                 ))}
               </div>
             </CardContent>
@@ -1241,8 +1244,9 @@ function CommunityVaraLeaderboard() {
               </div>
               <div className="divide-y">
                 {topAllTimeWinners.map((entry) => (
-                  <div
+                  <Link
                     key={entry.user}
+                    to={`/agents/${encodeURIComponent(entry.user)}/baskets/total`}
                     className="grid grid-cols-3 gap-4 px-6 py-4 items-center"
                   >
                     <span className="text-center font-semibold text-muted-foreground">
@@ -1254,7 +1258,7 @@ function CommunityVaraLeaderboard() {
                     <span className="text-right font-semibold tabular-nums">
                       {formatCompactChipAmount(entry.totalRealizedProfit)}
                     </span>
-                  </div>
+                  </Link>
                 ))}
               </div>
             </CardContent>

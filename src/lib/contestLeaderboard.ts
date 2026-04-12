@@ -73,6 +73,9 @@ type TodayContestLeaderboardQuery = {
   allBasketSettlements: {
     nodes: BasketSettlementNode[];
   };
+  allDailyBasketContributions: {
+    nodes: DailyBasketContributionNode[];
+  };
 };
 
 type DailyUserAggregateProfitNode = {
@@ -121,6 +124,7 @@ export type ContestLeaderboardEntry = DailyUserAggregateNode & {
   isCurrentWinner: boolean;
   pendingBasketCount: number;
   awaitingBasketIds: string[];
+  resolvedBasketIds: string[];
 };
 
 export type TodayContestLeaderboard = {
@@ -226,6 +230,18 @@ const TODAY_CONTEST_LEADERBOARD_QUERY = `
         basketId
         status
         finalizedAt
+      }
+    }
+    allDailyBasketContributions(
+      condition: { dayId: $aggregateDayId }
+      first: 500
+    ) {
+      nodes {
+        basketId
+        user
+        realizedProfit
+        payout
+        principal
       }
     }
   }
@@ -413,6 +429,7 @@ export const fetchTodayContestLeaderboard = async (
   );
   const pendingBasketCounts = new Map<string, number>();
   const pendingBasketIdsByUser = new Map<string, Set<string>>();
+  const resolvedBasketIdsByUser = new Map<string, Set<string>>();
 
   for (const position of data.allChipPositions.nodes) {
     if (BigInt(position.shares) <= 0n) {
@@ -433,6 +450,18 @@ export const fetchTodayContestLeaderboard = async (
     }
   }
 
+  for (const contribution of data.allDailyBasketContributions.nodes) {
+    const userKey = contribution.user.toLowerCase();
+    const basketId = basketEntityToBasketId.get(contribution.basketId);
+    if (!basketId) {
+      continue;
+    }
+
+    const current = resolvedBasketIdsByUser.get(userKey) ?? new Set<string>();
+    current.add(basketId);
+    resolvedBasketIdsByUser.set(userKey, current);
+  }
+
   const scoredEntries: ContestLeaderboardEntry[] = data.allDailyUserAggregates.nodes.map((entry) => ({
     ...entry,
     status: "scored",
@@ -441,6 +470,9 @@ export const fetchTodayContestLeaderboard = async (
     isCurrentWinner: winners.has(entry.user),
     pendingBasketCount: 0,
     awaitingBasketIds: [],
+    resolvedBasketIds: Array.from(
+      resolvedBasketIdsByUser.get(entry.user.toLowerCase()) ?? [],
+    ).sort((left, right) => Number(left) - Number(right)),
   }));
 
   const pendingEntries: ContestLeaderboardEntry[] = Array.from(pendingBasketCounts.entries()).map(
@@ -466,6 +498,7 @@ export const fetchTodayContestLeaderboard = async (
         awaitingBasketIds: Array.from(pendingBasketIdsByUser.get(userKey) ?? []).sort(
           (left, right) => Number(left) - Number(right),
         ),
+        resolvedBasketIds: [],
       };
     },
   );
@@ -673,4 +706,59 @@ export const fetchAllTimeBasketWinnings = async (): Promise<AllTimeBasketWinning
       totalPrincipal: entry.totalPrincipal.toString(),
       participantCount: entry.participants.size,
     }));
+};
+
+type AgentHistoricalBasketIdsQuery = {
+  allDailyBasketContributions: {
+    nodes: Array<{
+      basketId: string;
+      finalizedAt: string;
+    }>;
+  };
+};
+
+const AGENT_HISTORICAL_BASKET_IDS_QUERY = `
+  query AgentHistoricalBasketIds($user: String!, $offset: Int!, $first: Int!) {
+    allDailyBasketContributions(
+      filter: { user: { equalTo: $user } }
+      orderBy: [FINALIZED_AT_DESC, BASKET_ID_ASC]
+      offset: $offset
+      first: $first
+    ) {
+      nodes {
+        basketId
+        finalizedAt
+      }
+    }
+  }
+`;
+
+export const fetchAgentHistoricalBasketIds = async (user: string): Promise<string[]> => {
+  const basketIds = new Set<string>();
+
+  for (let offset = 0; ; offset += ALL_TIME_TRADING_BATCH_SIZE) {
+    const data = await graphQLRequest<AgentHistoricalBasketIdsQuery>(
+      AGENT_HISTORICAL_BASKET_IDS_QUERY,
+      {
+        user,
+        offset,
+        first: ALL_TIME_TRADING_BATCH_SIZE,
+      },
+    );
+
+    const nodes = data.allDailyBasketContributions.nodes;
+    if (nodes.length === 0) {
+      break;
+    }
+
+    for (const node of nodes) {
+      basketIds.add(node.basketId.split(":").pop() ?? node.basketId);
+    }
+
+    if (nodes.length < ALL_TIME_TRADING_BATCH_SIZE) {
+      break;
+    }
+  }
+
+  return Array.from(basketIds);
 };

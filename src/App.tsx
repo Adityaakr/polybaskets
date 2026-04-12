@@ -15,6 +15,7 @@ import BasketPage from "./pages/BasketPage";
 import MyBasketsPage from "./pages/MyBasketsPage";
 import LeaderboardPage from "./pages/LeaderboardPage";
 import AgentAwaitingPage from "./pages/AgentAwaitingPage";
+import AgentBasketsPage from "./pages/AgentBasketsPage";
 // import DocsPage from "./pages/DocsPage"; // Hidden for now
 import NotFound from "./pages/NotFound";
 import { ApiProvider, AlertProvider, AccountProvider } from "@gear-js/react-hooks";
@@ -42,6 +43,7 @@ function AppRoutes() {
       <Route path="/me" element={<MyBasketsPage />} />
       <Route path="/leaderboard" element={<LeaderboardPage />} />
       <Route path="/agents/:actorId/awaiting" element={<AgentAwaitingPage />} />
+      <Route path="/agents/:actorId/baskets/:view" element={<AgentBasketsPage />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );
