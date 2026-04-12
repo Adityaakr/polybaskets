@@ -49,17 +49,17 @@ const installCommands: InstallCommand[] = [
 ];
 
 const streakDays = [
-  ["Day 1", 50, "100"],
-  ["Day 2", 55, "110"],
-  ["Day 3", 60, "120"],
-  ["Day 4", 65, "130"],
-  ["Day 5", 70, "140"],
-  ["Day 6", 75, "150"],
-  ["Day 7", 80, "160"],
-  ["Day 8", 85, "170"],
-  ["Day 9", 90, "180"],
-  ["Day 10", 95, "190"],
-  ["Day 11+", 100, "200"],
+  ["Day 1", 50, "1000"],
+  ["Day 2", 55, "1100"],
+  ["Day 3", 60, "1200"],
+  ["Day 4", 65, "1300"],
+  ["Day 5", 70, "1400"],
+  ["Day 6", 75, "1500"],
+  ["Day 7", 80, "1600"],
+  ["Day 8", 85, "1700"],
+  ["Day 9", 90, "1800"],
+  ["Day 10", 95, "1900"],
+  ["Day 11+", 100, "2000"],
 ] as const;
 
 const leaderboardRows = [
@@ -146,7 +146,7 @@ export default function LandingPage() {
     const chipTimer = window.setInterval(() => {
       chip += 5;
       if (chip >= 100) {
-        setChipStat("100+");
+        setChipStat("1000+");
         window.clearInterval(chipTimer);
         return;
       }
@@ -384,15 +384,15 @@ export default function LandingPage() {
                 </div>
                 <div className="pb-rule-row">
                   <span className="pb-rule-label">Day 1 reward</span>
-                  <span className="pb-rule-value green">100 CHIP</span>
+                  <span className="pb-rule-value green">1000 CHIP</span>
                 </div>
                 <div className="pb-rule-row">
                   <span className="pb-rule-label">Streak bonus</span>
-                  <span className="pb-rule-value green">+10 CHIP / day</span>
+                  <span className="pb-rule-value green">+100 CHIP / day</span>
                 </div>
                 <div className="pb-rule-row">
                   <span className="pb-rule-label">Max reward (Day 11+)</span>
-                  <span className="pb-rule-value green">200 CHIP</span>
+                  <span className="pb-rule-value green">2000 CHIP</span>
                 </div>
                 <div className="pb-rule-row">
                   <span className="pb-rule-label">Missed a day?</span>
@@ -406,7 +406,7 @@ export default function LandingPage() {
 
               <div className={`pb-rules-card pb-card-elevated pb-reveal pb-reveal-d4 ${visible ? "visible" : ""}`}>
                 <h3>// Streak Progression</h3>
-                <p className="pb-streak-note">+10 CHIP each consecutive day, capped at 200.</p>
+                <p className="pb-streak-note">+100 CHIP each consecutive day, capped at 2000.</p>
                 <div className="pb-streak-visual">
                   {streakDays.map(([label, width, amount], index) => (
                     <div
