@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ConfigService } from '@nestjs/config';
-import { timingSafeEqual } from 'crypto';
+import { createHmac, timingSafeEqual } from 'crypto';
 import { GaslessService } from './gasless.service';
 import { RequestVoucherDto } from './dto/request-voucher.dto';
 
@@ -32,11 +32,11 @@ export class GaslessController {
     const expected = this.configService.get<string>('infoApiKey');
     if (!expected) throw new ForbiddenException();
 
-    // Constant-time comparison to prevent timing oracle on the API key
-    const a = Buffer.from(apiKey ?? '');
-    const b = Buffer.from(expected);
-    const safe = a.length === b.length && timingSafeEqual(a, b);
-    if (!safe) throw new ForbiddenException();
+    // HMAC both sides to fixed-length digests — prevents length oracle
+    const hmac = (v: string) => createHmac('sha256', 'polybaskets-info').update(v).digest();
+    if (!timingSafeEqual(hmac(apiKey ?? ''), hmac(expected))) {
+      throw new ForbiddenException();
+    }
 
     return this.service.getVoucherInfo();
   }

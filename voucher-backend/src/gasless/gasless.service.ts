@@ -1,4 +1,4 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, InternalServerErrorException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { decodeAddress, HexString } from '@gear-js/api';
@@ -118,11 +118,14 @@ export class GaslessService {
     // pg_advisory_lock is session-scoped, so using DataSource.query() risks
     // acquiring and releasing on different pooled connections.
     const qr = this.dataSource.createQueryRunner();
-    await qr.connect();
-    const lockKey = this.getTodayLockKey(address);
-    await qr.query('SELECT pg_advisory_lock($1)', [lockKey]);
+    let lockAcquired = false;
 
     try {
+      await qr.connect();
+      const lockKey = this.getTodayLockKey(address);
+      await qr.query('SELECT pg_advisory_lock($1)', [lockKey]);
+      lockAcquired = true;
+
       // Existing voucher lookup inside the locked section to prevent two
       // concurrent requests from both seeing existing === null and both issuing.
       const existing = await this.voucherService.getVoucher(address);
@@ -164,9 +167,11 @@ export class GaslessService {
     } catch (error) {
       if (error instanceof BadRequestException) throw error;
       this.logger.error('Failed to process voucher request', error);
-      throw new BadRequestException('Failed to process voucher request');
+      throw new InternalServerErrorException('Voucher processing failed — please retry');
     } finally {
-      await qr.query('SELECT pg_advisory_unlock($1)', [lockKey]);
+      if (lockAcquired) {
+        await qr.query('SELECT pg_advisory_unlock($1)', [this.getTodayLockKey(address)]);
+      }
       await qr.release();
     }
   }
