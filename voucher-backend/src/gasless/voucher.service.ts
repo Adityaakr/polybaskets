@@ -31,15 +31,35 @@ function withTimeout<T>(promise: Promise<T>, message: string): Promise<T> {
 export class VoucherService implements OnModuleInit {
   private logger = new Logger('VoucherService');
   private api: GearApi;
+  private nodeUrl: string;
   public account;
 
   constructor(
     @InjectRepository(Voucher) private readonly repo: Repository<Voucher>,
     private readonly configService: ConfigService,
   ) {
-    this.api = new GearApi({
-      providerAddress: configService.get('nodeUrl'),
-    });
+    this.nodeUrl = configService.get('nodeUrl');
+    this.api = new GearApi({ providerAddress: this.nodeUrl });
+  }
+
+  /**
+   * Ensures the GearApi WebSocket is connected. If the connection dropped
+   * (node restart, network glitch), creates a fresh instance and awaits ready.
+   * Call this before every chain operation.
+   */
+  private async ensureConnected(): Promise<GearApi> {
+    if (this.api.isConnected) return this.api;
+
+    this.logger.warn('GearApi disconnected — reconnecting...');
+    try {
+      await this.api.disconnect();
+    } catch {
+      // old socket may already be dead
+    }
+    this.api = new GearApi({ providerAddress: this.nodeUrl });
+    await this.api.isReadyOrError;
+    this.logger.log('GearApi reconnected');
+    return this.api;
   }
 
   getAccountBalance() {
@@ -70,6 +90,7 @@ export class VoucherService implements OnModuleInit {
     amount: number,
     durationInSec: number,
   ): Promise<string> {
+    await this.ensureConnected();
     const durationInBlocks = Math.round(durationInSec / SECONDS_PER_BLOCK);
 
     const issuerBalance = (await this.getAccountBalance()).toBigInt();
@@ -150,6 +171,11 @@ export class VoucherService implements OnModuleInit {
     prolongDurationInSec?: number,
     addPrograms?: HexString[],
   ) {
+    if (voucher.revoked) {
+      throw new Error(`Cannot update revoked voucher ${voucher.voucherId} — issue a new one instead`);
+    }
+
+    await this.ensureConnected();
     const voucherBalance =
       (await this.api.balance.findOut(voucher.voucherId)).toBigInt() /
       PLANCK_PER_VARA;
@@ -197,7 +223,6 @@ export class VoucherService implements OnModuleInit {
       const blockNumber = (await this.api.blocks.getBlockNumber(blockHash)).toNumber();
       voucher.validUpToBlock = BigInt(blockNumber + durationInBlocks);
       voucher.validUpTo = new Date(Date.now() + prolongDurationInSec * 1000);
-      voucher.revoked = false;
     }
     voucher.lastRenewedAt = now;
 
@@ -206,6 +231,7 @@ export class VoucherService implements OnModuleInit {
   }
 
   async revoke(voucher: Voucher) {
+    await this.ensureConnected();
     const tx = this.api.voucher.revoke(voucher.account, voucher.voucherId);
     try {
       await withTimeout(
@@ -231,8 +257,10 @@ export class VoucherService implements OnModuleInit {
         'revoke signAndSend timed out after 60s',
       );
     } catch (e) {
-      this.logger.error(`Failed to revoke voucher ${voucher.voucherId}`, e);
-      return;
+      this.logger.error(
+        `On-chain revoke failed for ${voucher.voucherId} — marking DB as revoked to stop retries`,
+        e,
+      );
     }
     voucher.revoked = true;
     await this.repo.save(voucher);

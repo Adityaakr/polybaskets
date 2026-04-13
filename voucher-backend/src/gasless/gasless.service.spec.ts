@@ -1,6 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, InternalServerErrorException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 
@@ -29,6 +29,7 @@ function makeProgram(overrides: Partial<GaslessProgram> = {}): GaslessProgram {
     name: 'BasketMarket',
     address: PROGRAM,
     varaToIssue: 3,
+    weight: 1,
     duration: 86400,
     status: GaslessProgramStatus.Enabled,
     oneTime: false,
@@ -57,7 +58,7 @@ function makeVoucher(overrides: Partial<Voucher> = {}): Voucher {
 describe('GaslessService', () => {
   let service: GaslessService;
   let voucherSvc: jest.Mocked<Pick<VoucherService, 'getVoucher' | 'issue' | 'update'>>;
-  let programRepo: { findOneBy: jest.Mock };
+  let programRepo: { findOneBy: jest.Mock; findBy: jest.Mock };
   let voucherRepo: { createQueryBuilder: jest.Mock };
   let ds: { createQueryRunner: jest.Mock };
   let qrQuery: jest.Mock;
@@ -75,7 +76,10 @@ describe('GaslessService', () => {
       ),
     };
 
-    programRepo = { findOneBy: jest.fn().mockResolvedValue(makeProgram()) };
+    programRepo = {
+      findOneBy: jest.fn().mockResolvedValue(makeProgram()),
+      findBy: jest.fn().mockResolvedValue([makeProgram({ weight: 1 })]),
+    };
     voucherRepo = { createQueryBuilder: jest.fn().mockReturnValue(qb) };
     qrQuery = jest.fn().mockResolvedValue([]);
     qrRelease = jest.fn().mockResolvedValue(undefined);
@@ -88,7 +92,7 @@ describe('GaslessService', () => {
     };
     cfg = {
       get: jest.fn().mockImplementation((key: string) =>
-        key === 'dailyVaraCap' ? 100 : undefined,
+        key === 'dailyVaraCap' ? 3 : undefined,
       ),
     };
     voucherSvc = {
@@ -183,14 +187,14 @@ describe('GaslessService', () => {
   // ── Daily cap ──────────────────────────────────────────────────────────────
 
   it('throws 400 when daily cap is exceeded', async () => {
-    (service as any)._setTodayTotal(99); // 99 + 3 > 100
+    (service as any)._setTodayTotal(1); // 1 + 3 > 3
     await expect(
       service.requestVoucher({ account: ACCOUNT, program: PROGRAM }),
     ).rejects.toThrow('Daily voucher budget exhausted');
   });
 
   it('allows request when todayTotal + amount equals cap exactly (boundary inclusive)', async () => {
-    (service as any)._setTodayTotal(97); // 97 + 3 = 100, not > 100
+    (service as any)._setTodayTotal(0); // 0 + 3 = 3, not > 3
     const result = await service.requestVoucher({ account: ACCOUNT, program: PROGRAM });
     expect(result).toEqual({ voucherId: '0xnewvoucher' });
   });
@@ -245,16 +249,25 @@ describe('GaslessService', () => {
     voucherSvc.issue.mockRejectedValue(new Error('chain error'));
     await expect(
       service.requestVoucher({ account: ACCOUNT, program: PROGRAM }),
-    ).rejects.toThrow(BadRequestException);
+    ).rejects.toThrow(InternalServerErrorException);
     const calls = qrQuery.mock.calls.map((c) => c[0]);
     expect(calls).toContain('SELECT pg_advisory_unlock($1)');
     expect(qrRelease).toHaveBeenCalled();
   });
 
-  it('wraps unexpected errors as BadRequestException', async () => {
+  it('wraps infrastructure errors as 500 InternalServerErrorException', async () => {
     voucherSvc.issue.mockRejectedValue(new Error('RPC timeout'));
     await expect(
       service.requestVoucher({ account: ACCOUNT, program: PROGRAM }),
-    ).rejects.toThrow(BadRequestException);
+    ).rejects.toThrow(InternalServerErrorException);
+  });
+
+  it('releases QueryRunner even when lock acquisition fails', async () => {
+    // Simulate pg_advisory_lock failure
+    qrQuery.mockRejectedValueOnce(new Error('DB connection lost'));
+    await expect(
+      service.requestVoucher({ account: ACCOUNT, program: PROGRAM }),
+    ).rejects.toThrow();
+    expect(qrRelease).toHaveBeenCalled();
   });
 });

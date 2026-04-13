@@ -27,15 +27,17 @@ export class VoucherTask {
       order: { validUpTo: 'ASC' },
     });
 
+    let succeeded = 0;
     for (const voucher of expired) {
       try {
         await this.voucherService.revoke(voucher);
+        succeeded++;
         this.logger.log(`Revoked voucher ${voucher.voucherId}`);
       } catch (e) {
         this.logger.error(`Failed to revoke ${voucher.voucherId}`, e);
       }
     }
 
-    this.logger.log(`Revoked ${expired.length} expired vouchers`);
+    this.logger.log(`Revoked ${succeeded}/${expired.length} expired vouchers`);
   }
 }

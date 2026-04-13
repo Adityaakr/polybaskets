@@ -149,6 +149,15 @@ describe('VoucherService', () => {
     ).rejects.not.toThrow('Insufficient issuer balance');
   });
 
+  // ── update() guard ─────────────────────────────────────────────────────────
+
+  it('update() throws when called on a revoked voucher — prevents resurrection', async () => {
+    const revoked = makeVoucher({ revoked: true });
+    await expect(
+      service.update(revoked, 10, 86400),
+    ).rejects.toThrow('Cannot update revoked voucher');
+  });
+
   // ── signAndSend timeout ────────────────────────────────────────────────────
 
   it('rejects with timeout error when signAndSend does not settle within 60s', async () => {
