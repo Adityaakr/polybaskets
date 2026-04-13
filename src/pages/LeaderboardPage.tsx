@@ -423,15 +423,6 @@ function TodayContestTab() {
     currentUserEntry === null || currentUserEntry.status !== 'scored'
       ? null
       : Math.ceil(currentUserEntry.rank / LEADERBOARD_PAGE_SIZE);
-  const allTimeRewardsTotal = useMemo(
-    () =>
-      (allTimeWinnersQuery.data ?? []).reduce(
-        (sum, entry) => sum + BigInt(entry.totalRewards),
-        0n,
-      ),
-    [allTimeWinnersQuery.data],
-  );
-
   if (leaderboardQuery.isLoading) {
     return (
       <div className="space-y-6">
@@ -690,25 +681,32 @@ function TodayContestTab() {
               </TabsContent>
 
               <TabsContent value="awaiting" className="m-0">
-                <div className="grid grid-cols-[minmax(0,1.5fr)_140px_160px] gap-4 border-b border-primary/10 bg-muted/30 px-6 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                <div className="grid grid-cols-[72px_minmax(0,1.5fr)_140px_160px] gap-4 border-b border-primary/10 bg-muted/30 px-6 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                  <span className="text-center">#</span>
                   <span>Agent</span>
                   <span className="text-right">Status</span>
                   <span className="text-right">Pending Positions</span>
                 </div>
                 <div className="divide-y divide-primary/10">
-                  {pagedAwaitingEntries.map((entry) => {
+                  {pagedAwaitingEntries.map((entry, index) => {
                     const isCurrentUser =
                       currentUserActorId !== null && entry.user.toLowerCase() === currentUserActorId;
+                    const absoluteRank = (awaitingPage - 1) * LEADERBOARD_PAGE_SIZE + index + 1;
 
                     return (
                       <Link
                         key={`awaiting-panel-${entry.user}`}
                         to={`/agents/${encodeURIComponent(entry.user)}/baskets/awaiting`}
                         className={[
-                          'group grid grid-cols-[minmax(0,1.5fr)_140px_160px] gap-4 px-6 py-4 transition-colors',
+                          'group grid grid-cols-[72px_minmax(0,1.5fr)_140px_160px] gap-4 px-6 py-4 transition-colors',
                           isCurrentUser ? 'bg-primary/5' : 'hover:bg-muted/20',
                         ].join(' ')}
                       >
+                        <div className="flex items-center justify-center">
+                          <span className="font-mono text-lg font-bold tabular-nums text-muted-foreground">
+                            {absoluteRank}
+                          </span>
+                        </div>
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
                             <span className="truncate text-sm font-semibold transition-colors group-hover:text-primary">
@@ -784,8 +782,9 @@ function TodayContestTab() {
                     {Array.from({ length: 5 }).map((_, index) => (
                       <div
                         key={`total-results-skeleton-${index}`}
-                        className="grid grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_120px] gap-4 px-6 py-4 items-center"
+                        className="grid grid-cols-[72px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_120px] gap-4 px-6 py-4 items-center"
                       >
+                        <Skeleton className="h-4 w-6 mx-auto" />
                         <Skeleton className="h-4 w-32" />
                         <Skeleton className="h-4 w-20 ml-auto" />
                         <Skeleton className="h-4 w-28 ml-auto" />
@@ -803,7 +802,8 @@ function TodayContestTab() {
                   </div>
                 ) : (
                   <>
-                    <div className="grid grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_120px] gap-4 border-b border-primary/10 bg-muted/30 px-6 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                    <div className="grid grid-cols-[72px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_120px] gap-4 border-b border-primary/10 bg-muted/30 px-6 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                      <span className="text-center">#</span>
                       <span>Agent</span>
                       <span className="text-right">P&amp;L</span>
                       <span className="text-right">Total Rewards (VARA)</span>
@@ -819,18 +819,20 @@ function TodayContestTab() {
                             key={`total-${entry.user}`}
                             to={`/agents/${encodeURIComponent(entry.user)}`}
                             className={[
-                              'grid grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_120px] gap-4 px-6 py-4 transition-colors',
+                              'grid grid-cols-[72px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_120px] gap-4 px-6 py-4 transition-colors',
                               isCurrentUser ? 'bg-primary/5' : 'hover:bg-muted/20',
                             ].join(' ')}
                           >
+                            <div className="flex items-center justify-center">
+                              <span className="font-mono text-lg font-bold tabular-nums text-muted-foreground">
+                                {entry.rank}
+                              </span>
+                            </div>
                             <div className="min-w-0">
                               <div className="flex items-center gap-2">
                                 <span className="truncate text-sm font-semibold">
                                   {getLeaderboardDisplayName(isCurrentUser, entry.user, resolveAgentName)}
                                 </span>
-                                <Badge variant="outline" className="border-border/60 bg-muted/40 text-muted-foreground">
-                                  #{entry.rank}
-                                </Badge>
                                 {isCurrentUser ? (
                                   <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
                                     You
@@ -870,7 +872,7 @@ function TodayContestTab() {
                     {totalResultsCount > 0 ? (
                       <div className="flex flex-col gap-3 border-t border-primary/10 px-6 py-4 md:flex-row md:items-center md:justify-between">
                         <div className="text-sm text-muted-foreground">
-                          {formatVaraAmount(allTimeRewardsTotal.toString())} total rewards distributed
+                          Page {totalPage} of {totalResultsPages}
                         </div>
                         {totalResultsPages > 1 ? (
                           <div className="flex items-center gap-2">
@@ -917,6 +919,10 @@ function CommunityVaraLeaderboard() {
   const [onChainBaskets, setOnChainBaskets] = useState<Basket[]>([]);
   const [loading, setLoading] = useState(false);
   const [followVersion, setFollowVersion] = useState(0);
+  const [activeCommunityView, setActiveCommunityView] = useState<'winnings' | 'baskets' | 'curators'>('winnings');
+  const [communityBasketSearchQuery, setCommunityBasketSearchQuery] = useState('');
+  const [communityCuratorSearchQuery, setCommunityCuratorSearchQuery] = useState('');
+  const [communityWinningsSearchQuery, setCommunityWinningsSearchQuery] = useState('');
   const [basketsPage, setBasketsPage] = useState(1);
   const [curatorsPage, setCuratorsPage] = useState(1);
   const [winningsPage, setWinningsPage] = useState(1);
@@ -1132,18 +1138,52 @@ function CommunityVaraLeaderboard() {
     [address],
   );
 
-  const allTimeProfitTotal = useMemo(
-    () =>
-      (allTimeWinnersQuery.data ?? []).reduce(
-        (sum, entry) => sum + BigInt(entry.totalRealizedProfit),
-        0n,
-      ),
-    [allTimeWinnersQuery.data],
+  const matchesUserQuery = (user: string, query: string) => {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) {
+      return true;
+    }
+
+    const normalizedUser = user.toLowerCase();
+    const agentName = resolveAgentName(user)?.trim().toLowerCase() ?? '';
+    return normalizedUser.includes(normalizedQuery) || agentName.includes(normalizedQuery);
+  };
+
+  const filteredCommunityBaskets = useMemo(() => {
+    const normalizedQuery = communityBasketSearchQuery.trim().toLowerCase();
+    if (!normalizedQuery) {
+      return topBaskets;
+    }
+
+    return topBaskets.filter((entry) => {
+      const basketName = entry.basket.name.toLowerCase();
+      const owner = entry.basket.owner.toLowerCase();
+      const ownerName = resolveAgentName(entry.basket.owner)?.trim().toLowerCase() ?? '';
+      return (
+        basketName.includes(normalizedQuery) ||
+        owner.includes(normalizedQuery) ||
+        ownerName.includes(normalizedQuery)
+      );
+    });
+  }, [communityBasketSearchQuery, resolveAgentName, topBaskets]);
+
+  const filteredCommunityCurators = useMemo(
+    () => topCurators.filter((entry) => matchesUserQuery(entry.address, communityCuratorSearchQuery)),
+    [communityCuratorSearchQuery, topCurators],
   );
 
-  const basketsTotalPages = Math.max(1, Math.ceil(topBaskets.length / COMMUNITY_PAGE_SIZE));
-  const curatorsTotalPages = Math.max(1, Math.ceil(topCurators.length / COMMUNITY_PAGE_SIZE));
-  const winningsTotalPages = Math.max(1, Math.ceil(topAllTimeWinners.length / COMMUNITY_PAGE_SIZE));
+  const filteredCommunityWinnings = useMemo(
+    () => topAllTimeWinners.filter((entry) => matchesUserQuery(entry.user, communityWinningsSearchQuery)),
+    [communityWinningsSearchQuery, topAllTimeWinners],
+  );
+
+  const basketsTotalPages = Math.max(1, Math.ceil(filteredCommunityBaskets.length / COMMUNITY_PAGE_SIZE));
+  const curatorsTotalPages = Math.max(1, Math.ceil(filteredCommunityCurators.length / COMMUNITY_PAGE_SIZE));
+  const winningsTotalPages = Math.max(1, Math.ceil(filteredCommunityWinnings.length / COMMUNITY_PAGE_SIZE));
+
+  useEffect(() => setBasketsPage(1), [communityBasketSearchQuery]);
+  useEffect(() => setCuratorsPage(1), [communityCuratorSearchQuery]);
+  useEffect(() => setWinningsPage(1), [communityWinningsSearchQuery]);
 
   useEffect(() => {
     setBasketsPage((currentPage) => Math.min(currentPage, basketsTotalPages));
@@ -1159,18 +1199,51 @@ function CommunityVaraLeaderboard() {
 
   const pagedBaskets = useMemo(() => {
     const start = (basketsPage - 1) * COMMUNITY_PAGE_SIZE;
-    return topBaskets.slice(start, start + COMMUNITY_PAGE_SIZE);
-  }, [basketsPage, topBaskets]);
+    return filteredCommunityBaskets.slice(start, start + COMMUNITY_PAGE_SIZE);
+  }, [basketsPage, filteredCommunityBaskets]);
 
   const pagedCurators = useMemo(() => {
     const start = (curatorsPage - 1) * COMMUNITY_PAGE_SIZE;
-    return topCurators.slice(start, start + COMMUNITY_PAGE_SIZE);
-  }, [curatorsPage, topCurators]);
+    return filteredCommunityCurators.slice(start, start + COMMUNITY_PAGE_SIZE);
+  }, [curatorsPage, filteredCommunityCurators]);
 
   const pagedWinnings = useMemo(() => {
     const start = (winningsPage - 1) * COMMUNITY_PAGE_SIZE;
-    return topAllTimeWinners.slice(start, start + COMMUNITY_PAGE_SIZE);
-  }, [topAllTimeWinners, winningsPage]);
+    return filteredCommunityWinnings.slice(start, start + COMMUNITY_PAGE_SIZE);
+  }, [filteredCommunityWinnings, winningsPage]);
+
+  const activeCommunitySearchValue =
+    activeCommunityView === 'baskets'
+      ? communityBasketSearchQuery
+      : activeCommunityView === 'curators'
+        ? communityCuratorSearchQuery
+        : communityWinningsSearchQuery;
+
+  const activeCommunitySearchPlaceholder =
+    activeCommunityView === 'baskets'
+      ? 'Search ranked baskets'
+      : activeCommunityView === 'curators'
+        ? 'Search ranked agents'
+        : 'Search ranked agents';
+
+  const activeCommunityResultsLabel =
+    activeCommunityView === 'baskets'
+      ? filteredCommunityBaskets.length > 0
+        ? `Showing ${(basketsPage - 1) * COMMUNITY_PAGE_SIZE + 1}-${Math.min(basketsPage * COMMUNITY_PAGE_SIZE, filteredCommunityBaskets.length)} of ${filteredCommunityBaskets.length}`
+        : communityBasketSearchQuery.trim()
+          ? 'No matching baskets'
+          : 'No ranked baskets yet'
+      : activeCommunityView === 'curators'
+        ? filteredCommunityCurators.length > 0
+          ? `Showing ${(curatorsPage - 1) * COMMUNITY_PAGE_SIZE + 1}-${Math.min(curatorsPage * COMMUNITY_PAGE_SIZE, filteredCommunityCurators.length)} of ${filteredCommunityCurators.length}`
+          : communityCuratorSearchQuery.trim()
+            ? 'No matching agents'
+            : 'No ranked agents yet'
+        : filteredCommunityWinnings.length > 0
+          ? `Showing ${(winningsPage - 1) * COMMUNITY_PAGE_SIZE + 1}-${Math.min(winningsPage * COMMUNITY_PAGE_SIZE, filteredCommunityWinnings.length)} of ${filteredCommunityWinnings.length}`
+          : communityWinningsSearchQuery.trim()
+            ? 'No matching agents'
+            : 'No all-time PnL yet';
 
   return (
     <div className="space-y-6">
@@ -1182,11 +1255,6 @@ function CommunityVaraLeaderboard() {
               Cumulative realized trading profit by address across the full contest history.
             </CardDescription>
           </div>
-          {allTimeWinnersQuery.data && allTimeWinnersQuery.data.length > 0 ? (
-            <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-amber-300">
-              {formatCompactChipAmount(allTimeProfitTotal.toString())} total PnL
-            </Badge>
-          ) : null}
         </CardHeader>
         <CardContent>
           {allTimeWinnersQuery.isLoading ? (
@@ -1243,8 +1311,9 @@ function CommunityVaraLeaderboard() {
         </CardContent>
       </Card>
 
-      <Tabs defaultValue="winnings" className="space-y-6">
-      <TabsList>
+      <Tabs value={activeCommunityView} onValueChange={(value) => setActiveCommunityView(value as 'winnings' | 'baskets' | 'curators')} className="space-y-6">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+        <TabsList>
         <TabsTrigger value="winnings" className="gap-2">
           <Coins className="w-4 h-4" />
           All-Time PnL
@@ -1257,7 +1326,28 @@ function CommunityVaraLeaderboard() {
           <Crown className="w-4 h-4" />
           Top Agents
         </TabsTrigger>
-      </TabsList>
+        </TabsList>
+        <div className="flex w-full flex-col gap-3 xl:w-auto xl:flex-row xl:items-center">
+          <div className="relative min-w-[280px]">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={activeCommunitySearchValue}
+              onChange={(event) => {
+                if (activeCommunityView === 'baskets') {
+                  setCommunityBasketSearchQuery(event.target.value);
+                } else if (activeCommunityView === 'curators') {
+                  setCommunityCuratorSearchQuery(event.target.value);
+                } else {
+                  setCommunityWinningsSearchQuery(event.target.value);
+                }
+              }}
+              placeholder={activeCommunitySearchPlaceholder}
+              className="pl-9"
+            />
+          </div>
+          <div className="text-sm text-muted-foreground">{activeCommunityResultsLabel}</div>
+        </div>
+      </div>
 
       <TabsContent value="baskets">
         {loading || allTimeBasketWinningsQuery.isLoading ? (
@@ -1292,7 +1382,7 @@ function CommunityVaraLeaderboard() {
               </p>
             </CardContent>
           </Card>
-        ) : topBaskets.length === 0 ? (
+        ) : filteredCommunityBaskets.length === 0 ? (
           <Card>
             <CardContent className="py-12 text-center">
               <Trophy className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
@@ -1370,7 +1460,7 @@ function CommunityVaraLeaderboard() {
                   );
                 })}
               </div>
-              {topBaskets.length > 0 ? (
+              {filteredCommunityBaskets.length > 0 ? (
                 <div className="flex flex-col gap-3 border-t border-primary/10 px-6 py-4 md:flex-row md:items-center md:justify-between">
                   <div className="text-sm text-muted-foreground">
                     Page {basketsPage} of {basketsTotalPages}
@@ -1405,7 +1495,7 @@ function CommunityVaraLeaderboard() {
       </TabsContent>
 
       <TabsContent value="curators">
-        {topCurators.length === 0 ? (
+        {filteredCommunityCurators.length === 0 ? (
           <Card>
             <CardContent className="py-12 text-center">
               <Crown className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
@@ -1463,7 +1553,7 @@ function CommunityVaraLeaderboard() {
                   );
                 })}
               </div>
-              {topCurators.length > 0 ? (
+              {filteredCommunityCurators.length > 0 ? (
                 <div className="flex flex-col gap-3 border-t border-primary/10 px-6 py-4 md:flex-row md:items-center md:justify-between">
                   <div className="text-sm text-muted-foreground">
                     Page {curatorsPage} of {curatorsTotalPages}
@@ -1519,7 +1609,7 @@ function CommunityVaraLeaderboard() {
               </div>
             </CardContent>
           </Card>
-        ) : topAllTimeWinners.length === 0 ? (
+        ) : filteredCommunityWinnings.length === 0 ? (
           <Card>
             <CardContent className="py-12 text-center">
               <Coins className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
@@ -1568,7 +1658,7 @@ function CommunityVaraLeaderboard() {
                   </Link>
                 ))}
               </div>
-              {topAllTimeWinners.length > 0 ? (
+              {filteredCommunityWinnings.length > 0 ? (
                 <div className="flex flex-col gap-3 border-t border-primary/10 px-6 py-4 md:flex-row md:items-center md:justify-between">
                   <div className="text-sm text-muted-foreground">
                     Page {winningsPage} of {winningsTotalPages}
