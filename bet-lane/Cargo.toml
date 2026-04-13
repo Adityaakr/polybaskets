@@ -52,3 +52,12 @@ bet-lane-app = { version = "0.1.0", path = "app" }
 bet-lane-client = { version = "0.1.0", path = "client" }
 bet-token-client = { version = "0.1.0", path = "../bet-token/client" }
 polymarket-mirror-client = { version = "0.1.0", path = "../program/client" }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+
+[profile.release.package."*"]
+opt-level = 3
+strip = true
