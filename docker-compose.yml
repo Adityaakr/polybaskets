@@ -14,9 +14,12 @@ x-indexer-env: &indexer-env
   VARA_FROM_BLOCK: ${VARA_FROM_BLOCK}
   BASKET_MARKET_PROGRAM_ID: ${BASKET_MARKET_PROGRAM_ID}
   BET_LANE_PROGRAM_ID: ${BET_LANE_PROGRAM_ID}
+  BET_TOKEN_PROGRAM_ID: ${BET_TOKEN_PROGRAM_ID:-}
+  VITE_BET_TOKEN_PROGRAM_ID: ${VITE_BET_TOKEN_PROGRAM_ID:-}
   DAILY_CONTEST_PROGRAM_ID: ${DAILY_CONTEST_PROGRAM_ID}
   BASKET_MARKET_IDL_PATH: /app/program/polymarket-mirror.idl
   BET_LANE_IDL_PATH: /app/bet-lane/client/bet_lane_client.idl
+  BET_TOKEN_IDL_PATH: /app/bet-token/client/bet_token_client.idl
   DAILY_CONTEST_IDL_PATH: /app/daily-contest/daily-contest.idl
   CONTEST_GRACE_PERIOD_MS: ${CONTEST_GRACE_PERIOD_MS:-1800000}
 

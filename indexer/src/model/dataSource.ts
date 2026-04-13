@@ -8,6 +8,7 @@ import {
   ContestDayProjection,
   ContestDayWinner,
   DailyBasketContribution,
+  DailyUserActivityAggregate,
   DailyUserAggregate,
   IndexerState,
 } from "./index";
@@ -46,6 +47,7 @@ const AppDataSource = new DataSource({
     ChipPosition,
     DailyBasketContribution,
     DailyUserAggregate,
+    DailyUserActivityAggregate,
     ContestDayProjection,
     ContestDayWinner,
     IndexerState,

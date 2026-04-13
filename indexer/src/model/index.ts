@@ -3,6 +3,7 @@ export * from "./basketSettlement.model";
 export * from "./chipPosition.model";
 export * from "./dailyBasketContribution.model";
 export * from "./dailyUserAggregate.model";
+export * from "./dailyUserActivityAggregate.model";
 export * from "./contestDayProjection.model";
 export * from "./contestDayWinner.model";
 export * from "./indexerState.model";

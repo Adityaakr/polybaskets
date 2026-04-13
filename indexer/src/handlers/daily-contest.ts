@@ -9,6 +9,7 @@ import {
   ContestDayProjection,
   ContestDayWinner,
   DailyBasketContribution,
+  DailyUserActivityAggregate,
   DailyUserAggregate,
   IndexerState,
 } from "../model";
@@ -45,6 +46,20 @@ type BetClaimedPayload = {
   basket_id: number | string | bigint;
   user: string;
   amount: number | string | bigint;
+};
+
+type BetTokenApprovedPayload = {
+  owner: string;
+  spender: string;
+  value: number | string | bigint;
+  changed: boolean;
+};
+
+type BetTokenClaimedPayload = {
+  user: string;
+  amount: number | string | bigint;
+  streak_days: number;
+  claimed_at: number | string | bigint;
 };
 
 type DaySettledPayload = {
@@ -108,6 +123,9 @@ const dailyContributionId = (
 const dailyUserAggregateId = (dayId: bigint, user: string): string =>
   `${dayId.toString()}:${user}`;
 
+const dailyUserActivityAggregateId = (dayId: bigint, user: string): string =>
+  `${dayId.toString()}:${user}`;
+
 const contestDayId = (dayId: bigint): string => dayId.toString();
 
 const contestWinnerId = (dayId: bigint, user: string): string =>
@@ -149,22 +167,51 @@ const computeIndexerComplete = (
 };
 
 const sortedWinners = (
-  aggregates: DailyUserAggregate[]
-): DailyUserAggregate[] => {
-  const sorted = [...aggregates].sort((left, right) => {
-    if (left.realizedProfit === right.realizedProfit) {
-      return left.user.localeCompare(right.user);
-    }
-
-    return left.realizedProfit > right.realizedProfit ? -1 : 1;
-  });
-
-  if (!sorted.length) {
+  activities: Array<{
+    user: string;
+    txCount: number;
+    realizedProfit: bigint;
+    lastTxAt: Date;
+    lastTxBlock: bigint;
+    lastTxMessageId: string;
+  }>
+): Array<{
+  user: string;
+  txCount: number;
+  realizedProfit: bigint;
+  lastTxAt: Date;
+  lastTxBlock: bigint;
+  lastTxMessageId: string;
+}> => {
+  const eligible = activities.filter((item) => item.txCount > 0);
+  if (!eligible.length) {
     return [];
   }
 
-  const maxProfit = sorted[0].realizedProfit;
-  return sorted.filter((item) => item.realizedProfit === maxProfit);
+  return [...eligible].sort((left, right) => {
+    if (left.txCount !== right.txCount) {
+      return right.txCount - left.txCount;
+    }
+
+    if (left.realizedProfit !== right.realizedProfit) {
+      return left.realizedProfit > right.realizedProfit ? -1 : 1;
+    }
+
+    const timestampDiff = left.lastTxAt.getTime() - right.lastTxAt.getTime();
+    if (timestampDiff !== 0) {
+      return timestampDiff;
+    }
+
+    if (left.lastTxBlock !== right.lastTxBlock) {
+      return left.lastTxBlock < right.lastTxBlock ? -1 : 1;
+    }
+
+    if (left.lastTxMessageId !== right.lastTxMessageId) {
+      return left.lastTxMessageId.localeCompare(right.lastTxMessageId);
+    }
+
+    return left.user.localeCompare(right.user);
+  });
 };
 
 export class DailyContestHandler extends BaseHandler {
@@ -173,6 +220,7 @@ export class DailyContestHandler extends BaseHandler {
   private basketSettlementsToSave = new Map<string, BasketSettlement>();
   private chipPositionsToSave = new Map<string, ChipPosition>();
   private contributionsToSave = new Map<string, DailyBasketContribution>();
+  private activitiesToSave = new Map<string, DailyUserActivityAggregate>();
   private aggregatesByDay = new Map<string, DailyUserAggregate[]>();
   private daysToSave = new Map<string, ContestDayProjection>();
   private winnersByDay = new Map<string, ContestDayWinner[]>();
@@ -187,6 +235,9 @@ export class DailyContestHandler extends BaseHandler {
       config.betLaneProgramId,
       config.dailyContestProgramId,
     ];
+    if (config.betTokenProgramId) {
+      this.userMessageSentProgramIds.push(config.betTokenProgramId);
+    }
   }
 
   async init(_api?: GearApi): Promise<void> {
@@ -198,6 +249,12 @@ export class DailyContestHandler extends BaseHandler {
       config.betLaneProgramId,
       await SailsDecoder.new(config.betLaneIdlPath)
     );
+    if (config.betTokenProgramId) {
+      this.decoders.set(
+        config.betTokenProgramId,
+        await SailsDecoder.new(config.betTokenIdlPath)
+      );
+    }
     this.decoders.set(
       config.dailyContestProgramId,
       await SailsDecoder.new(config.dailyContestIdlPath)
@@ -209,6 +266,7 @@ export class DailyContestHandler extends BaseHandler {
     this.basketSettlementsToSave.clear();
     this.chipPositionsToSave.clear();
     this.contributionsToSave.clear();
+    this.activitiesToSave.clear();
     this.aggregatesByDay.clear();
     this.daysToSave.clear();
     this.winnersByDay.clear();
@@ -269,6 +327,10 @@ export class DailyContestHandler extends BaseHandler {
     await this.saveGroup(this.basketSettlementsToSave.values(), "basket settlements");
     await this.saveGroup(this.chipPositionsToSave.values(), "chip positions");
     await this.saveGroup(this.contributionsToSave.values(), "daily contributions");
+    await this.saveGroup(
+      this.activitiesToSave.values(),
+      "daily activity aggregates"
+    );
     await this.saveGroup(
       Array.from(this.aggregatesByDay.values()).reduce<DailyUserAggregate[]>(
         (acc, items) => acc.concat(items),
@@ -351,7 +413,12 @@ export class DailyContestHandler extends BaseHandler {
       }
 
       if (method === "BasketCreated") {
-        await this.handleBasketCreated(payload as BasketCreatedPayload, blockTimestamp);
+        await this.handleBasketCreated(
+          payload as BasketCreatedPayload,
+          blockHeight,
+          blockTimestamp,
+          event.args.message.id
+        );
       }
 
       if (method === "SettlementFinalized") {
@@ -371,11 +438,50 @@ export class DailyContestHandler extends BaseHandler {
       }
 
       if (method === "BetPlaced") {
-        await this.handleBetPlaced(payload as BetPlacedPayload, blockTimestamp);
+        await this.handleBetPlaced(
+          payload as BetPlacedPayload,
+          blockHeight,
+          blockTimestamp,
+          event.args.message.id
+        );
       }
 
       if (method === "Claimed") {
-        await this.handleBetClaimed(payload as BetClaimedPayload, blockTimestamp);
+        await this.handleBetClaimed(
+          payload as BetClaimedPayload,
+          blockHeight,
+          blockTimestamp,
+          event.args.message.id
+        );
+      }
+
+      return;
+    }
+
+    if (
+      config.betTokenProgramId &&
+      event.args.message.source === config.betTokenProgramId
+    ) {
+      if (service !== "BetToken") {
+        return;
+      }
+
+      if (method === "Approved") {
+        await this.handleBetTokenApproved(
+          payload as BetTokenApprovedPayload,
+          blockHeight,
+          blockTimestamp,
+          event.args.message.id
+        );
+      }
+
+      if (method === "Claimed") {
+        await this.handleBetTokenClaimed(
+          payload as BetTokenClaimedPayload,
+          blockHeight,
+          blockTimestamp,
+          event.args.message.id
+        );
       }
 
       return;
@@ -398,7 +504,9 @@ export class DailyContestHandler extends BaseHandler {
 
   private async handleBasketCreated(
     payload: BasketCreatedPayload,
-    blockTimestamp: Date
+    blockHeight: number,
+    blockTimestamp: Date,
+    messageId: string
   ): Promise<void> {
     const id = basketEntityId(payload.basket_id);
     this.basketsToSave.set(
@@ -413,11 +521,23 @@ export class DailyContestHandler extends BaseHandler {
         status: "created",
       })
     );
+
+    if (payload.asset_kind === "Bet") {
+      await this.recordActivity(
+        blockTimestamp,
+        String(payload.creator),
+        blockHeight,
+        messageId,
+        { txCount: 1, basketsMade: 1 }
+      );
+    }
   }
 
   private async handleBetPlaced(
     payload: BetPlacedPayload,
-    blockTimestamp: Date
+    blockHeight: number,
+    blockTimestamp: Date,
+    messageId: string
   ): Promise<void> {
     const basketId = basketEntityId(payload.basket_id);
     const position = new ChipPosition({
@@ -431,11 +551,20 @@ export class DailyContestHandler extends BaseHandler {
     });
 
     this.chipPositionsToSave.set(position.id, position);
+    await this.recordActivity(
+      blockTimestamp,
+      String(payload.user),
+      blockHeight,
+      messageId,
+      { txCount: 1, betsPlaced: 1 }
+    );
   }
 
   private async handleBetClaimed(
     payload: BetClaimedPayload,
-    blockTimestamp: Date
+    blockHeight: number,
+    blockTimestamp: Date,
+    messageId: string
   ): Promise<void> {
     const basketId = basketEntityId(payload.basket_id);
     const id = chipPositionId(basketId, String(payload.user));
@@ -443,13 +572,109 @@ export class DailyContestHandler extends BaseHandler {
       this.chipPositionsToSave.get(id) ||
       (await this.ctx.store.findOneBy(ChipPosition, { id }));
 
-    if (!existing) {
-      return;
+    if (existing) {
+      existing.claimed = true;
+      existing.updatedAt = blockTimestamp;
+      this.chipPositionsToSave.set(id, existing);
     }
 
-    existing.claimed = true;
-    existing.updatedAt = blockTimestamp;
-    this.chipPositionsToSave.set(id, existing);
+    await this.recordActivity(
+      blockTimestamp,
+      String(payload.user),
+      blockHeight,
+      messageId,
+      { txCount: 1, claimsCount: 1 }
+    );
+  }
+
+  private async handleBetTokenApproved(
+    payload: BetTokenApprovedPayload,
+    blockHeight: number,
+    blockTimestamp: Date,
+    messageId: string
+  ): Promise<void> {
+    await this.recordActivity(
+      blockTimestamp,
+      String(payload.owner),
+      blockHeight,
+      messageId,
+      { txCount: 1, approvesCount: 1 }
+    );
+  }
+
+  private async handleBetTokenClaimed(
+    payload: BetTokenClaimedPayload,
+    blockHeight: number,
+    blockTimestamp: Date,
+    messageId: string
+  ): Promise<void> {
+    await this.recordActivity(
+      blockTimestamp,
+      String(payload.user),
+      blockHeight,
+      messageId,
+      { txCount: 1, claimsCount: 1 }
+    );
+  }
+
+  private async recordActivity(
+    txTimestamp: Date,
+    user: string,
+    blockHeight: number,
+    messageId: string,
+    deltas: {
+      txCount?: number;
+      basketsMade?: number;
+      betsPlaced?: number;
+      approvesCount?: number;
+      claimsCount?: number;
+    }
+  ): Promise<void> {
+    const dayId = dayIdFromTimestamp(dateToTimestampMs(txTimestamp));
+    const id = dailyUserActivityAggregateId(dayId, user);
+    const existing =
+      this.activitiesToSave.get(id) ||
+      (await this.ctx.store.findOneBy(DailyUserActivityAggregate, { id })) ||
+      new DailyUserActivityAggregate({
+        id,
+        dayId,
+        user,
+        txCount: 0,
+        basketsMade: 0,
+        betsPlaced: 0,
+        approvesCount: 0,
+        claimsCount: 0,
+        lastTxAt: txTimestamp,
+        lastTxBlock: BigInt(blockHeight),
+        lastTxMessageId: messageId,
+        updatedAt: txTimestamp,
+      });
+
+    existing.txCount += deltas.txCount ?? 0;
+    existing.basketsMade += deltas.basketsMade ?? 0;
+    existing.betsPlaced += deltas.betsPlaced ?? 0;
+    existing.approvesCount += deltas.approvesCount ?? 0;
+    existing.claimsCount += deltas.claimsCount ?? 0;
+
+    const currentLastTxMs = existing.lastTxAt.getTime();
+    const nextTxMs = txTimestamp.getTime();
+    const nextBlock = BigInt(blockHeight);
+    const shouldReplaceLastTx =
+      nextTxMs > currentLastTxMs ||
+      (nextTxMs === currentLastTxMs &&
+        (nextBlock > existing.lastTxBlock ||
+          (nextBlock === existing.lastTxBlock &&
+            messageId.localeCompare(existing.lastTxMessageId) > 0)));
+
+    if (shouldReplaceLastTx) {
+      existing.lastTxAt = txTimestamp;
+      existing.lastTxBlock = nextBlock;
+      existing.lastTxMessageId = messageId;
+    }
+
+    existing.updatedAt = txTimestamp;
+    this.activitiesToSave.set(id, existing);
+    await this.recomputeDay(dayId, txTimestamp);
   }
 
   private async handleSettlementFinalized(
@@ -570,16 +795,45 @@ export class DailyContestHandler extends BaseHandler {
     this.aggregateDaysToReplace.add(dayId.toString());
     this.aggregatesByDay.set(dayId.toString(), aggregates);
 
-    const winners = sortedWinners(aggregates).map(
-      (winner) =>
-        new ContestDayWinner({
-          id: contestWinnerId(dayId, winner.user),
-          dayId: contestDayId(dayId),
-          user: winner.user,
-          realizedProfit: winner.realizedProfit,
-          reward: null,
-        })
+    const persistedActivities = await this.ctx.store.find(DailyUserActivityAggregate, {
+      where: { dayId } as FindOptionsWhere<DailyUserActivityAggregate>,
+    });
+    const activities = new Map(
+      persistedActivities.map((item) => [item.id, item])
     );
+
+    for (const [id, activity] of this.activitiesToSave.entries()) {
+      if (activity.dayId === dayId) {
+        activities.set(id, activity);
+      }
+    }
+
+    const profitsByUser = new Map(
+      aggregates.map((aggregate) => [aggregate.user, aggregate.realizedProfit])
+    );
+
+    const ranked = sortedWinners(
+      Array.from(activities.values()).map((activity) => ({
+        user: activity.user,
+        txCount: activity.txCount,
+        realizedProfit: profitsByUser.get(activity.user) ?? 0n,
+        lastTxAt: activity.lastTxAt,
+        lastTxBlock: activity.lastTxBlock,
+        lastTxMessageId: activity.lastTxMessageId,
+      }))
+    );
+
+    const winners = ranked.length
+      ? [
+          new ContestDayWinner({
+            id: contestWinnerId(dayId, ranked[0].user),
+            dayId: contestDayId(dayId),
+            user: ranked[0].user,
+            realizedProfit: ranked[0].realizedProfit,
+            reward: null,
+          }),
+        ]
+      : [];
 
     this.winnerDaysToReplace.add(dayId.toString());
     this.winnersByDay.set(dayId.toString(), winners);

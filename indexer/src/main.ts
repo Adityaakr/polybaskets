@@ -65,6 +65,12 @@ async function main() {
   console.log("Daily contest indexer");
   console.log(`BasketMarket -> ${sourceOfTruth.basketMarket}`);
   console.log(`BetLane -> ${sourceOfTruth.betLane}`);
+  console.log(`BetToken -> ${sourceOfTruth.betToken}`);
+  if (!config.betTokenProgramId) {
+    console.warn(
+      "[!] BET_TOKEN_PROGRAM_ID is not configured; Approved/BetToken Claimed activity will be skipped"
+    );
+  }
   console.log(`DailyContest -> ${sourceOfTruth.dailyContest}`);
   console.log(`Indexer -> ${sourceOfTruth.indexer}`);
 

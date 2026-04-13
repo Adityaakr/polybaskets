@@ -47,6 +47,21 @@ type DailyUserAggregate @entity {
   updatedAt: DateTime! @index
 }
 
+type DailyUserActivityAggregate @entity {
+  id: ID!
+  dayId: BigInt! @index
+  user: String! @index
+  txCount: Int!
+  basketsMade: Int!
+  betsPlaced: Int!
+  approvesCount: Int!
+  claimsCount: Int!
+  lastTxAt: DateTime! @index
+  lastTxBlock: BigInt!
+  lastTxMessageId: String!
+  updatedAt: DateTime! @index
+}
+
 type ContestDayProjection @entity {
   id: ID!
   dayId: BigInt! @index

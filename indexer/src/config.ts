@@ -12,6 +12,32 @@ const getEnv = (key: string, fallback?: string): string => {
   return value;
 };
 
+const getOptionalEnv = (...keys: string[]): string | undefined => {
+  for (const key of keys) {
+    const value = process.env[key]?.trim();
+    if (value) {
+      return value;
+    }
+  }
+
+  return undefined;
+};
+
+const getOptionalHexEnv = (...keys: string[]): HexString | null => {
+  const value = getOptionalEnv(...keys);
+  if (!value) {
+    return null;
+  }
+
+  if (!/^0x[0-9a-fA-F]{64}$/.test(value)) {
+    throw new Error(
+      `Environment variable ${keys.join(" or ")} must be a 32-byte hex ActorId`
+    );
+  }
+
+  return value as HexString;
+};
+
 const resolveFromCwd = (relativePath: string): string =>
   path.resolve(process.cwd(), relativePath);
 
@@ -62,6 +88,10 @@ export const config = {
   dbName: getEnv("DB_NAME", "polybaskets_indexer"),
   basketMarketProgramId: getEnv("BASKET_MARKET_PROGRAM_ID") as HexString,
   betLaneProgramId: getEnv("BET_LANE_PROGRAM_ID") as HexString,
+  betTokenProgramId: getOptionalHexEnv(
+    "BET_TOKEN_PROGRAM_ID",
+    "VITE_BET_TOKEN_PROGRAM_ID"
+  ),
   dailyContestProgramId: getEnv("DAILY_CONTEST_PROGRAM_ID") as HexString,
   basketMarketIdlPath: getEnv(
     "BASKET_MARKET_IDL_PATH",
@@ -70,6 +100,10 @@ export const config = {
   betLaneIdlPath: getEnv(
     "BET_LANE_IDL_PATH",
     resolveFromCwd("../bet-lane/client/bet_lane_client.idl")
+  ),
+  betTokenIdlPath: getEnv(
+    "BET_TOKEN_IDL_PATH",
+    resolveFromCwd("../bet-token/client/bet_token_client.idl")
   ),
   dailyContestIdlPath: getEnv(
     "DAILY_CONTEST_IDL_PATH",
@@ -83,6 +117,8 @@ export const config = {
 export const sourceOfTruth = {
   basketMarket: "basket metadata + settlement finalization day",
   betLane: "CHIP positions and payout formula",
+  betToken:
+    "CHIP approvals + faucet claims when BET_TOKEN_PROGRAM_ID or VITE_BET_TOKEN_PROGRAM_ID is configured",
   dailyContest: "final settled day result",
   indexer: "projected aggregates only",
 } as const;
