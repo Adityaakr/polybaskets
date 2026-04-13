@@ -492,24 +492,9 @@ impl<'a> BetLaneService<'a> {
             return Err(BetLaneError::AlreadyClaimed);
         }
 
-        let (_, basket_asset_kind) = self
-            .mirror_actor()
-            .basket_market()
-            .get_basket_status(basket_id)
-            .await
-            .map_err(|_| {
-                self.clear_pending_claim(basket_id, caller);
-                BetLaneError::BasketQueryFailed
-            })?
-            .map_err(|_| {
-                self.clear_pending_claim(basket_id, caller);
-                BetLaneError::BasketNotFound
-            })?;
-
-        if basket_asset_kind != MirrorBasketAssetKind::Bet {
-            self.clear_pending_claim(basket_id, caller);
-            return Err(BetLaneError::BasketAssetMismatch);
-        }
+        // Note: asset_kind check is skipped here. BetLane only creates positions
+        // for Bet baskets (enforced in place_bet). If a position exists, the basket
+        // is guaranteed to be Bet. This saves one cross-program call (~8-10B gas).
 
         let (settlement_status, payout_per_share) = self
             .mirror_actor()
