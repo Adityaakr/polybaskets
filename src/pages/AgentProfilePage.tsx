@@ -23,7 +23,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Skeleton } from '@/components/ui/skeleton';
 import { fetchAllOnChainBaskets, extractOnChainBasketId } from '@/lib/basket-onchain';
 import {
-  calculateActivityIndex,
   fetchAgentActivityStreak,
   fetchAgentHistoricalBasketIds,
   fetchAgentProfileSummary,
@@ -399,11 +398,7 @@ export default function AgentProfilePage() {
               <p className="text-xs text-muted-foreground">
                 Registered on-chain. Last visible agent registry record: {agentRecord.registered_at}
               </p>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                This address may still act as a user even if no explicit agent name is registered.
-              </p>
-            )}
+            ) : null}
           </CardContent>
         </Card>
 
@@ -446,11 +441,6 @@ export default function AgentProfilePage() {
               <div className="mt-2 text-base font-semibold">
                 {scoredEntry?.lastTxAt ? `${formatUtcTime(scoredEntry.lastTxAt)} UTC` : 'Pending'}
               </div>
-            </div>
-            <div className="md:col-span-4 text-xs text-muted-foreground">
-              {scoredEntry
-                ? `Activity index = ${todayIndex}. Raw score ${calculateActivityIndex(scoredEntry).toFixed(6)} is based on transactions first, then today's P&L, then earlier last activity.`
-                : 'The address is not in today’s scored activity leaderboard yet. Once it sends qualifying on-chain actions, this card will update automatically.'}
             </div>
           </CardContent>
         </Card>

@@ -908,6 +908,7 @@ function TodayContestTab() {
 }
 
 function CommunityVaraLeaderboard() {
+  const COMMUNITY_PAGE_SIZE = 10;
   const { api, isApiReady } = useApi();
   const { network } = useNetwork();
   const { address, connect } = useWallet();
@@ -916,6 +917,9 @@ function CommunityVaraLeaderboard() {
   const [onChainBaskets, setOnChainBaskets] = useState<Basket[]>([]);
   const [loading, setLoading] = useState(false);
   const [followVersion, setFollowVersion] = useState(0);
+  const [basketsPage, setBasketsPage] = useState(1);
+  const [curatorsPage, setCuratorsPage] = useState(1);
+  const [winningsPage, setWinningsPage] = useState(1);
   const allTimeWinnersQuery = useAllTimeContestWinners();
   const allTimeBasketWinningsQuery = useAllTimeBasketWinnings();
 
@@ -1059,8 +1063,7 @@ function CommunityVaraLeaderboard() {
         }
 
         return left.basket.name.localeCompare(right.basket.name);
-      })
-      .slice(0, 20);
+      });
   }, [address, allTimeBasketWinningsQuery.data, followVersion, onChainBaskets]);
 
   const topCurators = useMemo(() => {
@@ -1092,8 +1095,7 @@ function CommunityVaraLeaderboard() {
         }
 
         return right.basketCount - left.basketCount;
-      })
-      .slice(0, 20);
+      });
   }, [followVersion, onChainBaskets]);
 
   const handleToggleFollow = async (basket: Basket) => {
@@ -1121,7 +1123,7 @@ function CommunityVaraLeaderboard() {
   };
 
   const topAllTimeWinners = useMemo(
-    () => allTimeWinnersQuery.data?.slice(0, 20) ?? [],
+    () => allTimeWinnersQuery.data ?? [],
     [allTimeWinnersQuery.data],
   );
 
@@ -1138,6 +1140,37 @@ function CommunityVaraLeaderboard() {
       ),
     [allTimeWinnersQuery.data],
   );
+
+  const basketsTotalPages = Math.max(1, Math.ceil(topBaskets.length / COMMUNITY_PAGE_SIZE));
+  const curatorsTotalPages = Math.max(1, Math.ceil(topCurators.length / COMMUNITY_PAGE_SIZE));
+  const winningsTotalPages = Math.max(1, Math.ceil(topAllTimeWinners.length / COMMUNITY_PAGE_SIZE));
+
+  useEffect(() => {
+    setBasketsPage((currentPage) => Math.min(currentPage, basketsTotalPages));
+  }, [basketsTotalPages]);
+
+  useEffect(() => {
+    setCuratorsPage((currentPage) => Math.min(currentPage, curatorsTotalPages));
+  }, [curatorsTotalPages]);
+
+  useEffect(() => {
+    setWinningsPage((currentPage) => Math.min(currentPage, winningsTotalPages));
+  }, [winningsTotalPages]);
+
+  const pagedBaskets = useMemo(() => {
+    const start = (basketsPage - 1) * COMMUNITY_PAGE_SIZE;
+    return topBaskets.slice(start, start + COMMUNITY_PAGE_SIZE);
+  }, [basketsPage, topBaskets]);
+
+  const pagedCurators = useMemo(() => {
+    const start = (curatorsPage - 1) * COMMUNITY_PAGE_SIZE;
+    return topCurators.slice(start, start + COMMUNITY_PAGE_SIZE);
+  }, [curatorsPage, topCurators]);
+
+  const pagedWinnings = useMemo(() => {
+    const start = (winningsPage - 1) * COMMUNITY_PAGE_SIZE;
+    return topAllTimeWinners.slice(start, start + COMMUNITY_PAGE_SIZE);
+  }, [topAllTimeWinners, winningsPage]);
 
   return (
     <div className="space-y-6">
@@ -1287,15 +1320,16 @@ function CommunityVaraLeaderboard() {
                 </div>
               </div>
               <div className="divide-y">
-                {topBaskets.map((entry, index) => {
+                {pagedBaskets.map((entry, index) => {
                   const statusMeta = getCommunityBasketStatusMeta(entry.basket.status);
+                  const absoluteRank = (basketsPage - 1) * COMMUNITY_PAGE_SIZE + index + 1;
                   return (
                     <div
                       key={entry.basket.id}
                       className="grid grid-cols-[72px_minmax(0,1.6fr)_180px_140px_120px_132px] gap-4 px-6 py-4 items-center transition-colors hover:bg-muted/30"
                     >
                       <span className="text-center font-semibold text-muted-foreground">
-                        {index + 1}
+                        {absoluteRank}
                       </span>
                       <div className="min-w-0">
                         <Link
@@ -1336,6 +1370,35 @@ function CommunityVaraLeaderboard() {
                   );
                 })}
               </div>
+              {topBaskets.length > 0 ? (
+                <div className="flex flex-col gap-3 border-t border-primary/10 px-6 py-4 md:flex-row md:items-center md:justify-between">
+                  <div className="text-sm text-muted-foreground">
+                    Page {basketsPage} of {basketsTotalPages}
+                  </div>
+                  {basketsTotalPages > 1 ? (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setBasketsPage((currentPage) => Math.max(1, currentPage - 1))}
+                        disabled={basketsPage === 1}
+                      >
+                        <ChevronLeft className="mr-1 h-4 w-4" />
+                        Prev
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setBasketsPage((currentPage) => Math.min(basketsTotalPages, currentPage + 1))}
+                        disabled={basketsPage === basketsTotalPages}
+                      >
+                        Next
+                        <ChevronRight className="ml-1 h-4 w-4" />
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </CardContent>
           </Card>
         )}
@@ -1355,7 +1418,7 @@ function CommunityVaraLeaderboard() {
           <Card className="card-elevated">
             <CardContent className="p-0">
               <div className="border-b">
-                <div className="grid grid-cols-4 gap-4 px-6 py-3 text-xs font-medium text-muted-foreground bg-muted/50">
+                <div className="grid grid-cols-[72px_minmax(0,1.6fr)_140px_160px] gap-4 px-6 py-3 text-xs font-medium text-muted-foreground bg-muted/50">
                   <span className="text-center">#</span>
                   <span>Agent</span>
                   <span className="text-right">Baskets</span>
@@ -1363,14 +1426,16 @@ function CommunityVaraLeaderboard() {
                 </div>
               </div>
               <div className="divide-y">
-                {topCurators.map((curator, index) => (
+                {pagedCurators.map((curator, index) => {
+                  const absoluteRank = (curatorsPage - 1) * COMMUNITY_PAGE_SIZE + index + 1;
+                  return (
                   <Link
                     key={curator.address}
                     to={`/agents/${encodeURIComponent(curator.address)}`}
-                    className="grid grid-cols-4 gap-4 px-6 py-4 items-center transition-colors hover:bg-muted/20"
+                    className="grid grid-cols-[72px_minmax(0,1.6fr)_140px_160px] gap-4 px-6 py-4 items-center transition-colors hover:bg-muted/20"
                   >
                     <span className="text-center font-semibold text-muted-foreground">
-                      {index + 1}
+                      {absoluteRank}
                     </span>
                     <div className="min-w-0">
                       <div className="truncate text-sm font-semibold">
@@ -1395,8 +1460,38 @@ function CommunityVaraLeaderboard() {
                       <span className="tabular-nums font-semibold">{curator.totalFollowers}</span>
                     </span>
                   </Link>
-                ))}
+                  );
+                })}
               </div>
+              {topCurators.length > 0 ? (
+                <div className="flex flex-col gap-3 border-t border-primary/10 px-6 py-4 md:flex-row md:items-center md:justify-between">
+                  <div className="text-sm text-muted-foreground">
+                    Page {curatorsPage} of {curatorsTotalPages}
+                  </div>
+                  {curatorsTotalPages > 1 ? (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCuratorsPage((currentPage) => Math.max(1, currentPage - 1))}
+                        disabled={curatorsPage === 1}
+                      >
+                        <ChevronLeft className="mr-1 h-4 w-4" />
+                        Prev
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCuratorsPage((currentPage) => Math.min(curatorsTotalPages, currentPage + 1))}
+                        disabled={curatorsPage === curatorsTotalPages}
+                      >
+                        Next
+                        <ChevronRight className="ml-1 h-4 w-4" />
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </CardContent>
           </Card>
         )}
@@ -1437,18 +1532,18 @@ function CommunityVaraLeaderboard() {
           <Card className="card-elevated">
             <CardContent className="p-0">
               <div className="border-b">
-                <div className="grid grid-cols-3 gap-4 px-6 py-3 text-xs font-medium text-muted-foreground bg-muted/50">
+                <div className="grid grid-cols-[72px_minmax(0,1.6fr)_160px] gap-4 px-6 py-3 text-xs font-medium text-muted-foreground bg-muted/50">
                   <span className="text-center">#</span>
                   <span>Agent</span>
                   <span className="text-right">All-Time PnL</span>
                 </div>
               </div>
               <div className="divide-y">
-                {topAllTimeWinners.map((entry) => (
+                {pagedWinnings.map((entry) => (
                   <Link
                     key={entry.user}
                     to={`/agents/${encodeURIComponent(entry.user)}`}
-                    className="grid grid-cols-3 gap-4 px-6 py-4 items-center transition-colors hover:bg-muted/20"
+                    className="grid grid-cols-[72px_minmax(0,1.6fr)_160px] gap-4 px-6 py-4 items-center transition-colors hover:bg-muted/20"
                   >
                     <span className="text-center font-semibold text-muted-foreground">
                       {entry.rank}
@@ -1473,6 +1568,35 @@ function CommunityVaraLeaderboard() {
                   </Link>
                 ))}
               </div>
+              {topAllTimeWinners.length > 0 ? (
+                <div className="flex flex-col gap-3 border-t border-primary/10 px-6 py-4 md:flex-row md:items-center md:justify-between">
+                  <div className="text-sm text-muted-foreground">
+                    Page {winningsPage} of {winningsTotalPages}
+                  </div>
+                  {winningsTotalPages > 1 ? (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setWinningsPage((currentPage) => Math.max(1, currentPage - 1))}
+                        disabled={winningsPage === 1}
+                      >
+                        <ChevronLeft className="mr-1 h-4 w-4" />
+                        Prev
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setWinningsPage((currentPage) => Math.min(winningsTotalPages, currentPage + 1))}
+                        disabled={winningsPage === winningsTotalPages}
+                      >
+                        Next
+                        <ChevronRight className="ml-1 h-4 w-4" />
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </CardContent>
           </Card>
         )}
