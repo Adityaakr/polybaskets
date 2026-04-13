@@ -1,15 +1,20 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useApi } from '@gear-js/react-hooks';
+import { useQuery } from '@tanstack/react-query';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { useWallet } from '@/contexts/WalletContext';
 import { getFollowerCount, getBasketById } from '@/lib/basket-storage';
 import { extractOnChainBasketId, fetchAllOnChainBaskets } from '@/lib/basket-onchain';
 import { basketMarketProgramFromApi } from '@/lib/varaClient';
 import {
+  fetchAgentActivityStreak,
+  formatActivityIndex,
   formatChipAmount,
   formatCompactChipAmount,
   formatVaraAmount,
   formatUtcDateTime,
+  formatUtcTime,
+  type ContestLeaderboardEntry,
   type AllTimeTradingPnlEntry,
   type TodayContestLeaderboard,
 } from '@/lib/contestLeaderboard.ts';
@@ -38,8 +43,11 @@ import {
   Radio,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   Coins,
   Search,
+  Flame,
 } from 'lucide-react';
 import type { Basket } from '@/types/basket.ts';
 
@@ -153,9 +161,156 @@ const getLeaderboardDisplayName = (
   return agentName || truncateAddress(user);
 };
 
+type ActivityLeaderboardRowProps = {
+  dayId: string;
+  entry: ContestLeaderboardEntry;
+  isCurrentUser: boolean;
+  isExpanded: boolean;
+  onToggle: () => void;
+  resolveAgentName: (address: string) => string | null;
+};
+
+function ActivityLeaderboardRow({
+  dayId,
+  entry,
+  isCurrentUser,
+  isExpanded,
+  onToggle,
+  resolveAgentName,
+}: ActivityLeaderboardRowProps) {
+  const streakQuery = useQuery<number>({
+    queryKey: ['contest-activity-streak', dayId, entry.user],
+    queryFn: () => fetchAgentActivityStreak(entry.user, dayId),
+    enabled: isExpanded && entry.status === 'scored' && entry.txCount > 0,
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+  });
+
+  const isTopThree = entry.rank <= 3;
+
+  return (
+    <div className={cn('transition-colors', isCurrentUser ? 'bg-primary/10' : 'bg-transparent')}>
+      <button
+        type="button"
+        onClick={onToggle}
+        className={cn(
+          'grid w-full grid-cols-[72px_minmax(0,1.5fr)_140px_140px] gap-4 px-6 py-4 text-left transition-colors',
+          isCurrentUser ? 'hover:bg-primary/5' : 'hover:bg-muted/20',
+        )}
+      >
+        <div className="flex items-center justify-center">
+          <span
+            className={cn(
+              'font-mono text-lg font-bold tabular-nums',
+              isTopThree ? 'text-amber-300' : isCurrentUser ? 'text-primary' : 'text-muted-foreground',
+            )}
+          >
+            {entry.rank}
+          </span>
+        </div>
+        <div className="min-w-0">
+          <div className="flex items-center gap-3">
+            <div
+              className={cn(
+                'flex h-9 w-9 items-center justify-center rounded-full border text-sm font-semibold',
+                isCurrentUser
+                  ? 'border-primary/40 bg-primary/10 text-primary'
+                  : isTopThree
+                    ? 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+                    : 'border-border bg-muted/50 text-muted-foreground',
+              )}
+            >
+              {isCurrentUser ? 'Y' : 'A'}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="truncate text-sm font-semibold">
+                  {getLeaderboardDisplayName(isCurrentUser, entry.user, resolveAgentName)}
+                </span>
+                {entry.isCurrentWinner ? (
+                  <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-amber-300">
+                    Leader
+                  </Badge>
+                ) : null}
+                {isCurrentUser ? (
+                  <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
+                    You
+                  </Badge>
+                ) : null}
+              </div>
+              <p className="truncate font-mono text-xs text-muted-foreground">
+                {isCurrentUser ? 'Connected wallet' : truncateAddress(entry.user)}
+              </p>
+            </div>
+            {isExpanded ? (
+              <ChevronUp className="h-4 w-4 shrink-0 text-muted-foreground" />
+            ) : (
+              <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+            )}
+          </div>
+        </div>
+        <div className="text-right font-mono text-sm font-semibold tabular-nums text-emerald-300">
+          {formatActivityIndex(entry)}
+        </div>
+        <div className="text-right font-mono text-sm tabular-nums text-muted-foreground">
+          {entry.txCount} tx
+        </div>
+      </button>
+      {isExpanded ? (
+        <div className="border-t border-primary/10 bg-muted/10 px-6 py-4">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-lg border border-primary/10 bg-background/60 p-3">
+              <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Transactions</div>
+              <div className="mt-2 font-mono text-lg font-semibold tabular-nums">{entry.txCount}</div>
+            </div>
+            <div className="rounded-lg border border-primary/10 bg-background/60 p-3">
+              <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">P&amp;L today</div>
+              <div className="mt-2 font-mono text-lg font-semibold tabular-nums text-emerald-300">
+                {formatChipAmount(entry.realizedProfit)}
+              </div>
+            </div>
+            <div className="rounded-lg border border-primary/10 bg-background/60 p-3">
+              <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Baskets made</div>
+              <div className="mt-2 font-mono text-lg font-semibold tabular-nums">{entry.basketsMade}</div>
+            </div>
+            <div className="rounded-lg border border-primary/10 bg-background/60 p-3">
+              <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Bets placed</div>
+              <div className="mt-2 font-mono text-lg font-semibold tabular-nums">{entry.betsPlaced}</div>
+            </div>
+            <div className="rounded-lg border border-primary/10 bg-background/60 p-3">
+              <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Approves</div>
+              <div className="mt-2 font-mono text-lg font-semibold tabular-nums">{entry.approvesCount}</div>
+            </div>
+            <div className="rounded-lg border border-primary/10 bg-background/60 p-3">
+              <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Claims</div>
+              <div className="mt-2 font-mono text-lg font-semibold tabular-nums">{entry.claimsCount}</div>
+            </div>
+            <div className="rounded-lg border border-primary/10 bg-background/60 p-3">
+              <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Last tx</div>
+              <div className="mt-2 font-mono text-lg font-semibold tabular-nums">
+                {entry.lastTxAt ? `${formatUtcTime(entry.lastTxAt)} UTC` : 'Pending'}
+              </div>
+            </div>
+            <div className="rounded-lg border border-primary/10 bg-background/60 p-3">
+              <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Streak</div>
+              <div className="mt-2 flex items-center gap-2 font-mono text-lg font-semibold tabular-nums">
+                <Flame className="h-4 w-4 text-amber-300" />
+                <span>
+                  {streakQuery.isLoading ? '...' : `${streakQuery.data ?? 0} day${(streakQuery.data ?? 0) === 1 ? '' : 's'}`}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function TodayContestTab() {
   const [now, setNow] = useState(Date.now());
   const [activeView, setActiveView] = useState<LeaderboardView>('today');
+  const [expandedEntryUser, setExpandedEntryUser] = useState<string | null>(null);
   const [todayPage, setTodayPage] = useState(1);
   const [awaitingPage, setAwaitingPage] = useState(1);
   const [totalPage, setTotalPage] = useState(1);
@@ -349,9 +504,9 @@ function TodayContestTab() {
         <Card className="card-elevated">
           <CardContent className="py-12 text-center">
             <Trophy className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-            <p className="text-lg font-medium">No finalized CHIP baskets yet today</p>
+            <p className="text-lg font-medium">No activity leaderboard entries yet today</p>
             <p className="text-sm text-muted-foreground mt-2">
-              The leaderboard will appear after the first CHIP basket is finalized in this UTC day.
+              The leaderboard will appear after the first qualifying on-chain transaction in this UTC day.
             </p>
           </CardContent>
         </Card>
@@ -360,7 +515,7 @@ function TodayContestTab() {
           <CardHeader className="border-b">
             <CardTitle className="text-lg">Leaderboard</CardTitle>
             <CardDescription>
-              Switch between today&apos;s realized results, awaiting baskets, and total historical performance.
+              Switch between today&apos;s activity ranking, awaiting baskets, and total historical performance.
             </CardDescription>
             <div className="flex flex-col gap-3 pt-2 lg:flex-row lg:items-start lg:justify-between">
               <div className="flex flex-wrap items-center gap-2">
@@ -395,7 +550,7 @@ function TodayContestTab() {
                   {currentUserEntry
                     ? currentUserEntry.status === 'pending'
                       ? `You have ${currentUserEntry.pendingBasketCount} pending position${currentUserEntry.pendingBasketCount === 1 ? '' : 's'} awaiting results.`
-                      : `Page ${userPage} with ${formatChipAmount(currentUserEntry.realizedProfit)} realized profit.`
+                      : `Page ${userPage} with ${currentUserEntry.txCount} transactions and index ${formatActivityIndex(currentUserEntry)}.`
                     : contest?.projection?.settledOnChain
                       ? `Settled on-chain at ${formatUtcDateTime(contest.projection.settledAt)} UTC`
                       : 'Live projection from the indexer read model.'}
@@ -409,7 +564,7 @@ function TodayContestTab() {
                 <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                   <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
                     <TabsList className="grid w-full grid-cols-3 xl:w-auto">
-                      <TabsTrigger value="today">Today&apos;s results</TabsTrigger>
+                      <TabsTrigger value="today">Today&apos;s activity</TabsTrigger>
                       <TabsTrigger value="awaiting">Awaiting Results</TabsTrigger>
                       <TabsTrigger value="total">Total Results</TabsTrigger>
                     </TabsList>
@@ -442,82 +597,29 @@ function TodayContestTab() {
               </div>
 
               <TabsContent value="today" className="m-0">
-                <div className="grid grid-cols-[72px_minmax(0,1.4fr)_minmax(0,1fr)_120px] gap-4 border-b border-primary/10 bg-muted/30 px-6 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                <div className="grid grid-cols-[72px_minmax(0,1.5fr)_140px_140px] gap-4 border-b border-primary/10 bg-muted/30 px-6 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
                   <span className="text-center">#</span>
                   <span>Agent</span>
-                  <span className="text-right">P&amp;L</span>
-                  <span className="text-right">Baskets</span>
+                  <span className="text-right">Index</span>
+                  <span className="text-right">Transactions</span>
                 </div>
                 <div className="divide-y divide-primary/10">
                   {pagedTodayEntries.map((entry) => {
                     const isCurrentUser =
                       currentUserActorId !== null && entry.user.toLowerCase() === currentUserActorId;
-                    const isTopThree = entry.rank <= 3;
 
                     return (
-                      <Link
+                      <ActivityLeaderboardRow
                         key={entry.user}
-                        to={`/agents/${encodeURIComponent(entry.user)}/baskets/today`}
-                        className={[
-                          'grid grid-cols-[72px_minmax(0,1.4fr)_minmax(0,1fr)_120px] gap-4 px-6 py-4 transition-colors',
-                          isCurrentUser ? 'bg-primary/10' : 'hover:bg-muted/20',
-                        ].join(' ')}
-                      >
-                        <div className="flex items-center justify-center">
-                          <span
-                            className={[
-                              'font-mono text-lg font-bold tabular-nums',
-                              isTopThree ? 'text-amber-300' : isCurrentUser ? 'text-primary' : 'text-muted-foreground',
-                            ].join(' ')}
-                          >
-                            {entry.rank}
-                          </span>
-                        </div>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-3">
-                            <div
-                              className={[
-                                'flex h-9 w-9 items-center justify-center rounded-full border text-sm font-semibold',
-                                isCurrentUser
-                                  ? 'border-primary/40 bg-primary/10 text-primary'
-                                  : isTopThree
-                                    ? 'border-amber-500/30 bg-amber-500/10 text-amber-300'
-                                    : 'border-border bg-muted/50 text-muted-foreground',
-                              ].join(' ')}
-                            >
-                              {isCurrentUser ? 'Y' : 'A'}
-                            </div>
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2">
-                                <span className="truncate text-sm font-semibold">
-                                  {getLeaderboardDisplayName(isCurrentUser, entry.user, resolveAgentName)}
-                                </span>
-                                {entry.isCurrentWinner ? (
-                                  <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-amber-300">
-                                    Leader
-                                  </Badge>
-                                ) : null}
-                                {isCurrentUser ? (
-                                  <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
-                                    You
-                                  </Badge>
-                                ) : null}
-                              </div>
-                              <p className="truncate font-mono text-xs text-muted-foreground">
-                                {isCurrentUser ? 'Connected wallet' : truncateAddress(entry.user)}
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <div className="font-mono text-sm font-semibold tabular-nums text-emerald-300">
-                            {formatChipAmount(entry.realizedProfit)}
-                          </div>
-                        </div>
-                        <div className="text-right font-mono text-sm tabular-nums text-muted-foreground">
-                          {entry.basketCount}
-                        </div>
-                      </Link>
+                        dayId={contest?.dayId ?? ''}
+                        entry={entry}
+                        isCurrentUser={isCurrentUser}
+                        isExpanded={expandedEntryUser === entry.user}
+                        onToggle={() =>
+                          setExpandedEntryUser((current) => (current === entry.user ? null : entry.user))
+                        }
+                        resolveAgentName={resolveAgentName}
+                      />
                     );
                   })}
                 </div>
@@ -530,7 +632,7 @@ function TodayContestTab() {
                     <p className="mt-2 text-sm text-muted-foreground">
                       {normalizedRankedSearchQuery
                         ? 'Try a full public agent address or a registered agent name.'
-                        : 'The ranking appears after the first realized PnL for the current UTC day.'}
+                        : 'The ranking appears after the first qualifying transaction for the current UTC day.'}
                     </p>
                   </div>
                 ) : null}

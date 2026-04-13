@@ -54,9 +54,24 @@ type DailyUserAggregateNode = {
   updatedAt: string;
 };
 
+type DailyUserActivityAggregateNode = {
+  dayId: string;
+  user: string;
+  txCount: number;
+  basketsMade: number;
+  betsPlaced: number;
+  approvesCount: number;
+  claimsCount: number;
+  lastTxAt: string;
+  updatedAt: string;
+};
+
 type TodayContestLeaderboardQuery = {
   allContestDayProjections: {
     nodes: ContestDayProjectionNode[];
+  };
+  allDailyUserActivityAggregates: {
+    nodes: DailyUserActivityAggregateNode[];
   };
   allDailyUserAggregates: {
     nodes: DailyUserAggregateNode[];
@@ -118,6 +133,12 @@ type AllTimeBasketWinningsQuery = {
 export type ContestLeaderboardDay = ContestDayProjectionNode | null;
 
 export type ContestLeaderboardEntry = DailyUserAggregateNode & {
+  txCount: number;
+  basketsMade: number;
+  betsPlaced: number;
+  approvesCount: number;
+  claimsCount: number;
+  lastTxAt: string | null;
   status: "scored" | "pending";
   rank: number;
   reward: string | null;
@@ -154,6 +175,7 @@ export type AllTimeBasketWinningsEntry = {
 const TODAY_CONTEST_LEADERBOARD_QUERY = `
   query TodayContestLeaderboard(
     $projectionDayId: BigFloat!
+    $activityDayId: BigFloat!
     $aggregateDayId: BigFloat!
     $winnerDayId: String!
   ) {
@@ -171,6 +193,23 @@ const TODAY_CONTEST_LEADERBOARD_QUERY = `
         indexerComplete
         settlementAllowedAt
         settledAt
+        updatedAt
+      }
+    }
+    allDailyUserActivityAggregates(
+      condition: { dayId: $activityDayId }
+      orderBy: [TX_COUNT_DESC, LAST_TX_AT_ASC, USER_ASC]
+      first: 100
+    ) {
+      nodes {
+        dayId
+        user
+        txCount
+        basketsMade
+        betsPlaced
+        approvesCount
+        claimsCount
+        lastTxAt
         updatedAt
       }
     }
@@ -298,6 +337,31 @@ const ALL_TIME_BASKET_WINNINGS_QUERY = `
 
 const ALL_TIME_TRADING_BATCH_SIZE = 500;
 
+type AgentActivityHistoryQuery = {
+  allDailyUserActivityAggregates: {
+    nodes: Array<{
+      dayId: string;
+      txCount: number;
+    }>;
+  };
+};
+
+const AGENT_ACTIVITY_HISTORY_QUERY = `
+  query AgentActivityHistory($user: String!, $offset: Int!, $first: Int!) {
+    allDailyUserActivityAggregates(
+      filter: { user: { equalTo: $user } }
+      orderBy: [DAY_ID_DESC]
+      offset: $offset
+      first: $first
+    ) {
+      nodes {
+        dayId
+        txCount
+      }
+    }
+  }
+`;
+
 export const getCurrentUtcDayId = (now = Date.now()): string =>
   Math.floor(now / DAY_MS).toString();
 
@@ -323,6 +387,19 @@ export const formatUtcDateTime = (value?: string | null): string => {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
+    hour12: false,
+    timeZone: "UTC",
+  }).format(new Date(value));
+};
+
+export const formatUtcTime = (value?: string | null): string => {
+  if (!value) {
+    return "Pending";
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
     hour12: false,
     timeZone: "UTC",
   }).format(new Date(value));
@@ -378,6 +455,36 @@ export const formatCompactChipAmount = (value: string | null): string => {
   return `${sign}${formatter.format(scaled)} CHIP`;
 };
 
+const chipUnitsToNumber = (value: string): number =>
+  Number(BigInt(value)) / 10 ** CHIP_DECIMALS;
+
+export const calculateActivityIndex = (
+  entry: Pick<ContestLeaderboardEntry, "txCount" | "realizedProfit" | "lastTxAt">,
+): number => {
+  const pnlComponent = chipUnitsToNumber(entry.realizedProfit) * 0.001;
+
+  if (!entry.lastTxAt) {
+    return entry.txCount + pnlComponent;
+  }
+
+  const timestamp = new Date(entry.lastTxAt);
+  const secondsFromMidnight =
+    timestamp.getUTCHours() * 3600 +
+    timestamp.getUTCMinutes() * 60 +
+    timestamp.getUTCSeconds();
+  const timeBonus = (86400 - secondsFromMidnight) / 86400;
+
+  return entry.txCount + pnlComponent + timeBonus * 0.000001;
+};
+
+export const formatActivityIndex = (
+  entry: Pick<ContestLeaderboardEntry, "txCount" | "realizedProfit" | "lastTxAt">,
+): string =>
+  new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(calculateActivityIndex(entry));
+
 const graphQLRequest = async <T>(
   query: string,
   variables: Record<string, string | number>,
@@ -409,6 +516,7 @@ export const fetchTodayContestLeaderboard = async (
     TODAY_CONTEST_LEADERBOARD_QUERY,
     {
       projectionDayId: dayId,
+      activityDayId: dayId,
       aggregateDayId: dayId,
       winnerDayId: dayId,
     },
@@ -430,6 +538,9 @@ export const fetchTodayContestLeaderboard = async (
   const pendingBasketCounts = new Map<string, number>();
   const pendingBasketIdsByUser = new Map<string, Set<string>>();
   const resolvedBasketIdsByUser = new Map<string, Set<string>>();
+  const realizedProfitByUser = new Map(
+    data.allDailyUserAggregates.nodes.map((entry) => [entry.user.toLowerCase(), entry]),
+  );
 
   for (const position of data.allChipPositions.nodes) {
     if (BigInt(position.shares) <= 0n) {
@@ -462,8 +573,18 @@ export const fetchTodayContestLeaderboard = async (
     resolvedBasketIdsByUser.set(userKey, current);
   }
 
-  const scoredEntries: ContestLeaderboardEntry[] = data.allDailyUserAggregates.nodes.map((entry) => ({
-    ...entry,
+  const scoredEntries: ContestLeaderboardEntry[] = data.allDailyUserActivityAggregates.nodes.map((entry) => ({
+    dayId: entry.dayId,
+    user: entry.user,
+    realizedProfit: realizedProfitByUser.get(entry.user.toLowerCase())?.realizedProfit ?? "0",
+    basketCount: realizedProfitByUser.get(entry.user.toLowerCase())?.basketCount ?? 0,
+    updatedAt: entry.updatedAt,
+    txCount: entry.txCount,
+    basketsMade: entry.basketsMade,
+    betsPlaced: entry.betsPlaced,
+    approvesCount: entry.approvesCount,
+    claimsCount: entry.claimsCount,
+    lastTxAt: entry.lastTxAt,
     status: "scored",
     rank: 0,
     reward: rewardsByUser.get(entry.user) ?? null,
@@ -490,6 +611,12 @@ export const fetchTodayContestLeaderboard = async (
         realizedProfit: "0",
         basketCount: pendingBasketCount,
         updatedAt: matchingPosition?.updatedAt ?? new Date(0).toISOString(),
+        txCount: 0,
+        basketsMade: 0,
+        betsPlaced: 0,
+        approvesCount: 0,
+        claimsCount: 0,
+        lastTxAt: matchingPosition?.updatedAt ?? null,
         status: "pending",
         rank: 0,
         reward: null,
@@ -505,13 +632,23 @@ export const fetchTodayContestLeaderboard = async (
 
   const entries = scoredEntries
     .sort((left, right) => {
-      const leftProfit = BigInt(left.realizedProfit);
-      const rightProfit = BigInt(right.realizedProfit);
-      if (leftProfit === rightProfit) {
-        return left.user.localeCompare(right.user);
+      if (left.txCount !== right.txCount) {
+        return right.txCount - left.txCount;
       }
 
-      return rightProfit > leftProfit ? 1 : -1;
+      const leftProfit = BigInt(left.realizedProfit);
+      const rightProfit = BigInt(right.realizedProfit);
+      if (leftProfit !== rightProfit) {
+        return rightProfit > leftProfit ? 1 : -1;
+      }
+
+      const leftLastTxAt = left.lastTxAt ? new Date(left.lastTxAt).getTime() : Number.MAX_SAFE_INTEGER;
+      const rightLastTxAt = right.lastTxAt ? new Date(right.lastTxAt).getTime() : Number.MAX_SAFE_INTEGER;
+      if (leftLastTxAt !== rightLastTxAt) {
+        return leftLastTxAt - rightLastTxAt;
+      }
+
+      return left.user.localeCompare(right.user);
     })
     .map((entry, index) => ({
       ...entry,
@@ -537,6 +674,50 @@ export const fetchTodayContestLeaderboard = async (
     entries,
     awaitingEntries,
   };
+};
+
+export const fetchAgentActivityStreak = async (
+  user: string,
+  dayId = getCurrentUtcDayId(),
+): Promise<number> => {
+  let expectedDayId = BigInt(dayId);
+  let streak = 0;
+
+  for (let offset = 0; ; offset += ALL_TIME_TRADING_BATCH_SIZE) {
+    const data = await graphQLRequest<AgentActivityHistoryQuery>(
+      AGENT_ACTIVITY_HISTORY_QUERY,
+      {
+        user,
+        offset,
+        first: ALL_TIME_TRADING_BATCH_SIZE,
+      },
+    );
+
+    const nodes = data.allDailyUserActivityAggregates.nodes;
+    if (nodes.length === 0) {
+      break;
+    }
+
+    for (const node of nodes) {
+      const nodeDayId = BigInt(node.dayId);
+      if (nodeDayId > expectedDayId) {
+        continue;
+      }
+
+      if (nodeDayId !== expectedDayId || node.txCount <= 0) {
+        return streak;
+      }
+
+      streak += 1;
+      expectedDayId -= 1n;
+    }
+
+    if (nodes.length < ALL_TIME_TRADING_BATCH_SIZE) {
+      break;
+    }
+  }
+
+  return streak;
 };
 
 export const fetchAllTimeTradingPnl = async (): Promise<AllTimeTradingPnlEntry[]> => {
