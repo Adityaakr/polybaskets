@@ -3,6 +3,7 @@ import {
   Activity,
   Award,
   BarChart3,
+  CircleHelp,
   Coins,
   Layers3,
   RefreshCcw,
@@ -21,6 +22,7 @@ import {
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useProjectStats } from "@/hooks/useProjectStats";
 import { useAgentNames } from "@/hooks/useAgentNames";
 import {
@@ -83,19 +85,37 @@ function KpiCard({
   value,
   hint,
   icon: Icon,
+  info,
 }: {
   title: string;
   value: string;
   hint: string;
   icon: typeof Activity;
+  info?: string;
 }) {
   return (
     <Card className="card-elevated">
       <CardContent className="p-5">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              {title}
+            <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              <span>{title}</span>
+              {info ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+                      aria-label={`Explain ${title}`}
+                    >
+                      <CircleHelp className="h-3.5 w-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs text-xs leading-5">
+                    {info}
+                  </TooltipContent>
+                </Tooltip>
+              ) : null}
             </div>
             <div className="mt-3 text-3xl font-display font-semibold tracking-tight text-foreground">
               {value}
@@ -108,6 +128,39 @@ function KpiCard({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function SnapshotMetric({
+  label,
+  description,
+  value,
+}: {
+  label: string;
+  description: string;
+  value: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="text-muted-foreground">{label}</span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+              aria-label={`Explain ${label}`}
+            >
+              <CircleHelp className="h-3.5 w-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-xs text-xs leading-5">
+            {description}
+          </TooltipContent>
+        </Tooltip>
+      </div>
+      <span className="font-medium tabular-nums">{value}</span>
+    </div>
   );
 }
 
@@ -449,28 +502,26 @@ export default function StatsPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3 text-sm">
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-muted-foreground">Average tx per active agent</span>
-                  <span className="font-medium tabular-nums">
-                    {stats.summary.avgTxPerActiveAgent.toFixed(1)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-muted-foreground">Approvals sent</span>
-                  <span className="font-medium tabular-nums">{stats.summary.totalApproves}</span>
-                </div>
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-muted-foreground">Unique basket creators</span>
-                  <span className="font-medium tabular-nums">
-                    {stats.summary.uniqueBasketCreators}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-muted-foreground">Settled baskets</span>
-                  <span className="font-medium tabular-nums">
-                    {stats.summary.totalSettledBaskets}
-                  </span>
-                </div>
+                <SnapshotMetric
+                  label="Average transactions per active agent"
+                  description="The average number of qualifying on-chain transactions made by each active agent in the selected time range."
+                  value={stats.summary.avgTxPerActiveAgent.toFixed(1)}
+                />
+                <SnapshotMetric
+                  label="Approval transactions"
+                  description="How many BetToken approval transactions were sent in the selected time range."
+                  value={stats.summary.totalApproves.toString()}
+                />
+                <SnapshotMetric
+                  label="Agents who created baskets"
+                  description="Unique agent addresses that created at least one Bet basket in the selected time range."
+                  value={stats.summary.uniqueBasketCreators.toString()}
+                />
+                <SnapshotMetric
+                  label="Finalized baskets"
+                  description="How many baskets reached final settlement and contributed to realized outcomes in the selected time range."
+                  value={stats.summary.totalSettledBaskets.toString()}
+                />
               </CardContent>
             </Card>
 
@@ -482,28 +533,26 @@ export default function StatsPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3 text-sm">
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-muted-foreground">Settled principal</span>
-                  <span className="font-medium tabular-nums">
-                    {formatCompactChipAmount(stats.summary.totalSettledPrincipal)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-muted-foreground">Settled payout</span>
-                  <span className="font-medium tabular-nums">
-                    {formatCompactChipAmount(stats.summary.totalSettledPayout)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-muted-foreground">Winning days</span>
-                  <span className="font-medium tabular-nums">{stats.summary.uniqueWinners}</span>
-                </div>
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-muted-foreground">Average winning tx</span>
-                  <span className="font-medium tabular-nums">
-                    {stats.summary.avgWinningTxCount.toFixed(1)}
-                  </span>
-                </div>
+                <SnapshotMetric
+                  label="Settled principal"
+                  description="The total CHIP originally put into baskets that finalized during the selected time range."
+                  value={formatCompactChipAmount(stats.summary.totalSettledPrincipal)}
+                />
+                <SnapshotMetric
+                  label="Settled payout"
+                  description="The total CHIP returned after settlement from those same finalized baskets in the selected time range."
+                  value={formatCompactChipAmount(stats.summary.totalSettledPayout)}
+                />
+                <SnapshotMetric
+                  label="Unique winners"
+                  description="How many distinct agent addresses won at least one contest day in the selected time range."
+                  value={stats.summary.uniqueWinners.toString()}
+                />
+                <SnapshotMetric
+                  label="Average winner transactions"
+                  description="The average number of qualifying transactions made by the winning agent on winning days in the selected time range."
+                  value={stats.summary.avgWinningTxCount.toFixed(1)}
+                />
               </CardContent>
             </Card>
 
@@ -549,28 +598,32 @@ export default function StatsPage() {
         <TabsContent value="agents" className="space-y-6">
           <div className="grid gap-4 lg:grid-cols-4 md:grid-cols-2">
             <KpiCard
-              title="Top Current Streak"
+              title="Highest Current Streak"
               value={formatCompactNumber(Math.max(...stats.topAgents.map((agent) => agent.currentStreak), 0))}
               hint="Consecutive active UTC days ending today"
               icon={Layers3}
+              info="The longest active streak that is still alive right now. It looks at all agents and finds the highest number of consecutive UTC days ending today with at least one qualifying transaction."
             />
             <KpiCard
-              title="Top Longest Streak"
+              title="Longest Recorded Streak"
               value={formatCompactNumber(Math.max(...stats.topAgents.map((agent) => agent.longestStreak), 0))}
               hint="Best uninterrupted activity streak in indexed history"
               icon={Timer}
+              info="The single best uninterrupted streak found in the indexed history, even if that streak already ended. It measures consecutive UTC days with at least one qualifying transaction."
             />
             <KpiCard
-              title="Winning Agents"
+              title="Unique Winning Agents"
               value={formatCompactNumber(stats.summary.uniqueWinners)}
               hint="Unique accounts that won at least one day in range"
               icon={Trophy}
+              info="How many different agent addresses won at least one contest day inside the selected time range. If the same agent wins multiple days, it still counts only once here."
             />
             <KpiCard
               title="Average Winner P&L"
               value={formatCompactChipAmount(stats.summary.avgWinningRealizedProfit)}
               hint="Average realized P&L recorded for winning days"
               icon={Award}
+              info="The average realized P&L of the winning agent on winning days within the selected range. This is based on realized settlement outcomes, not open positions."
             />
           </div>
 
