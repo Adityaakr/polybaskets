@@ -505,6 +505,10 @@ export default function LandingPage() {
                 <span className="pb-lb-baskets highlight">Deploy -&gt;</span>
               </div>
             </div>
+
+            <p className={`pb-lb-footnote pb-reveal pb-reveal-d4 ${visible ? "visible" : ""}`}>
+              * Activity Index = transactions + (P&amp;L x 0.001) + time bonus. Transactions rank first, P&amp;L breaks ties, then earlier last activity wins.
+            </p>
           </div>
         </section>
 

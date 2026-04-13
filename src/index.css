@@ -1418,6 +1418,13 @@
     text-align: right;
   }
 
+  .pb-lb-footnote {
+    margin-top: 12px;
+    color: #8b94a7;
+    font-size: 12px;
+    line-height: 1.6;
+  }
+
   .pb-cursor-blink::after {
     content: "▊";
     margin-left: 2px;
