@@ -60,13 +60,6 @@ type DailyBasketContributionNode = {
   finalizedAt: string;
 };
 
-type BetBasketNode = {
-  id: string;
-  basketId: string;
-  creator: string;
-  createdAt: string;
-};
-
 type GraphQLNodesResponse<TNode> = {
   nodes: TNode[];
 };
@@ -77,7 +70,6 @@ type ProjectStatsDatasetQuery = {
   allContestDayProjections?: GraphQLNodesResponse<ContestDayProjectionNode>;
   allContestDayWinners?: GraphQLNodesResponse<ContestDayWinnerNode>;
   allDailyBasketContributions?: GraphQLNodesResponse<DailyBasketContributionNode>;
-  allBaskets?: GraphQLNodesResponse<BetBasketNode>;
 };
 
 export type ProjectStatsRange = "today" | "7d" | "30d" | "90d" | "all";
@@ -94,7 +86,6 @@ export type ProjectStatsDataset = {
   projections: ContestDayProjectionNode[];
   winners: ContestDayWinnerNode[];
   contributions: DailyBasketContributionNode[];
-  baskets: BetBasketNode[];
 };
 
 export type ProjectStatsSummary = {
@@ -260,24 +251,6 @@ const ALL_CONTRIBUTIONS_BATCH_QUERY = `
   }
 `;
 
-const ALL_BET_BASKETS_BATCH_QUERY = `
-  query ProjectStatsBasketBatch($offset: Int!, $first: Int!) {
-    allBaskets(
-      filter: { assetKind: { equalTo: "Bet" } }
-      orderBy: [ID_ASC]
-      offset: $offset
-      first: $first
-    ) {
-      nodes {
-        id
-        basketId
-        creator
-        createdAt
-      }
-    }
-  }
-`;
-
 const graphQLRequest = async <T>(
   query: string,
   variables: Record<string, string | number>,
@@ -327,9 +300,6 @@ const fetchPaginatedNodes = async <TNode>(
 
   return items;
 };
-
-const toDayIdFromIso = (value: string): string =>
-  Math.floor(new Date(value).getTime() / DAY_MS).toString();
 
 const getRangeStartDayId = (
   range: ProjectStatsRange,
@@ -452,7 +422,7 @@ export const formatCompactVaraAmount = (value: bigint): string =>
   formatCompactTokenAmount(value, VARA_DECIMALS, "VARA");
 
 export const fetchProjectStatsDataset = async (): Promise<ProjectStatsDataset> => {
-  const [activities, aggregates, projections, winners, contributions, baskets] =
+  const [activities, aggregates, projections, winners, contributions] =
     await Promise.all([
       fetchPaginatedNodes<ActivityAggregateNode>(
         ALL_ACTIVITY_BATCH_QUERY,
@@ -474,7 +444,6 @@ export const fetchProjectStatsDataset = async (): Promise<ProjectStatsDataset> =
         ALL_CONTRIBUTIONS_BATCH_QUERY,
         "allDailyBasketContributions",
       ),
-      fetchPaginatedNodes<BetBasketNode>(ALL_BET_BASKETS_BATCH_QUERY, "allBaskets"),
     ]);
 
   return {
@@ -483,7 +452,6 @@ export const fetchProjectStatsDataset = async (): Promise<ProjectStatsDataset> =
     projections,
     winners,
     contributions,
-    baskets,
   };
 };
 
@@ -563,7 +531,7 @@ export const buildProjectStatsView = (
   >();
 
   const topAgentRows = new Map<string, ProjectStatsAgentRow>();
-  const basketCreatorsInRange = new Set<string>();
+  const basketCreatorsByActivity = new Set<string>();
 
   const ensureDayRow = (dayId: string) => {
     const existing = dayRows.get(dayId);
@@ -649,6 +617,9 @@ export const buildProjectStatsView = (
     dayRow.betsPlaced += activity.betsPlaced;
     dayRow.approves += activity.approvesCount;
     dayRow.claims += activity.claimsCount;
+    if (activity.basketsMade > 0) {
+      basketCreatorsByActivity.add(userKey);
+    }
 
     const agent = ensureTopAgent(activity.user);
     agent.txCount += activity.txCount;
@@ -706,15 +677,6 @@ export const buildProjectStatsView = (
     dayRow.settledPrincipal += BigInt(contribution.principal);
     dayRow.settledPayout += BigInt(contribution.payout);
     dayRow.settledBasketIds.add(contribution.basketId);
-  }
-
-  for (const basket of dataset.baskets) {
-    const dayId = BigInt(toDayIdFromIso(basket.createdAt));
-    if (!isDayInRange(dayId, currentDayId, startDayId)) {
-      continue;
-    }
-
-    basketCreatorsInRange.add(basket.creator.toLowerCase());
   }
 
   const dailyRows = Array.from(dayRows.entries())
@@ -786,7 +748,7 @@ export const buildProjectStatsView = (
     totalSettledPrincipal: dailyRows.reduce((sum, row) => sum + row.settledPrincipal, 0n),
     totalSettledPayout: dailyRows.reduce((sum, row) => sum + row.settledPayout, 0n),
     totalSettledBaskets: dailyRows.reduce((sum, row) => sum + row.settledBaskets, 0),
-    uniqueBasketCreators: basketCreatorsInRange.size,
+    uniqueBasketCreators: basketCreatorsByActivity.size,
     settledDays: dailyRows.filter((row) => row.settledOnChain).length,
     readyDays: dailyRows.filter((row) => row.status === "ready").length,
     noWinnerDays: dailyRows.filter((row) => row.status === "no_winner").length,
