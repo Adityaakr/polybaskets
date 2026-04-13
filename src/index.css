@@ -833,6 +833,7 @@
   }
 
   .pb-install-step-label a,
+  .pb-install-substep a,
   .pb-step-text a,
   .pb-inline-link {
     color: #00ff00;
@@ -841,6 +842,7 @@
   }
 
   .pb-install-step-label a:hover,
+  .pb-install-substep a:hover,
   .pb-step-text a:hover,
   .pb-inline-link:hover {
     border-bottom-color: #00ff00;
