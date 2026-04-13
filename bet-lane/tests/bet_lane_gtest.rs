@@ -644,3 +644,75 @@ fn keypair_from_seed(seed: [u8; 32]) -> Keypair {
         .expect("seed should be valid")
         .expand_to_keypair(ExpansionMode::Ed25519)
 }
+
+/// Gas benchmark: measures exact gas consumed by place_bet via low-level gtest.
+///
+/// Run with: cargo test gas_benchmark -- --nocapture
+#[tokio::test(flavor = "current_thread")]
+async fn gas_benchmark_place_bet() {
+    use bet_lane_client::bet_lane::io::PlaceBet;
+    use sails_rs::client::CallCodec;
+
+    let harness = Harness::new().await;
+    let basket_id = harness.create_basket(BasketAssetKind::Bet).await;
+
+    harness.mint(harness.alice, 1000).await;
+    harness.approve_lane(harness.alice, 1000).await;
+
+    let quote = harness.signed_quote(
+        harness.alice,
+        basket_id,
+        U256::from(100u32),
+        5_000,
+        VALID_QUOTE_DEADLINE_MS,
+        42,
+    );
+
+    // Encode the Sails message payload: "BetLane" prefix + "PlaceBet" route + args
+    let payload = PlaceBet::encode_params_with_prefix(
+        "BetLane",
+        basket_id,
+        U256::from(100u32),
+        quote,
+    );
+
+    // Send raw message to bet-lane program and capture BlockRunResult
+    let lane_program = harness.env.system().get_program(harness.bet_lane.id())
+        .expect("bet-lane program should exist");
+    let alice_u64: u64 = DEFAULT_USER_BOB; // alice = DEFAULT_USER_BOB in harness
+    let msg_id = lane_program.send_bytes_with_gas(alice_u64, payload, 750_000_000_000, 0);
+
+    // Process all blocks until the message is fully handled (including cross-program calls)
+    let mut total_gas: u64 = 0;
+    let mut blocks_processed = 0;
+    loop {
+        let result = harness.env.system().run_next_block();
+        let block_gas: u64 = result.gas_burned.values().copied().sum();
+        total_gas = total_gas.saturating_add(block_gas);
+        blocks_processed += 1;
+        // Stop when no more messages are being processed
+        if result.total_processed == 0 {
+            break;
+        }
+        // Safety: don't loop forever
+        if blocks_processed > 20 {
+            panic!("gas benchmark: too many blocks processed, possible infinite loop");
+        }
+    }
+
+    let total_vara = total_gas as f64 * 100.0 / 1e12;
+    eprintln!("\n========================================");
+    eprintln!("  GAS BENCHMARK: place_bet()");
+    eprintln!("  Total gas burned: {total_gas}");
+    eprintln!("  Blocks processed: {blocks_processed}");
+    eprintln!("  Cost at 100 value/gas: {total_vara:.4} VARA");
+    eprintln!("========================================\n");
+
+    // Sanity: verify the bet actually landed
+    let mut lane = harness.bet_lane.bet_lane();
+    let position = lane
+        .get_position(harness.alice, basket_id)
+        .await
+        .expect("position query should succeed");
+    assert_eq!(position.shares, U256::from(100u32));
+}
