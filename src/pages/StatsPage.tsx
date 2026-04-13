@@ -337,7 +337,7 @@ export default function StatsPage() {
   return (
     <div className="content-grid py-8">
       <div className="mb-8 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-        <div>
+        <div className="min-w-0 flex-1">
           <h1 className="text-5xl font-display font-normal tracking-tight gradient-text reveal">
             Project Stats
           </h1>
@@ -348,13 +348,13 @@ export default function StatsPage() {
           </p>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="min-w-[180px]">
+        <div className="grid w-full gap-3 sm:grid-cols-2 lg:max-w-[440px] xl:max-w-[480px]">
+          <div className="min-w-0">
             <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
               Time range
             </div>
             <Select value={range} onValueChange={(value) => setRange(value as ProjectStatsRange)}>
-              <SelectTrigger>
+              <SelectTrigger className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -367,7 +367,7 @@ export default function StatsPage() {
             </Select>
           </div>
 
-          <div className="min-w-[180px]">
+          <div className="min-w-0">
             <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
               Top agents sort
             </div>
@@ -375,7 +375,7 @@ export default function StatsPage() {
               value={topAgentsSort}
               onValueChange={(value) => setTopAgentsSort(value as TopAgentsSortKey)}
             >
-              <SelectTrigger>
+              <SelectTrigger className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -394,7 +394,7 @@ export default function StatsPage() {
         <KpiCard
           title="Active Agents"
           value={formatCompactNumber(stats.summary.activeAgents)}
-          hint={`${stats.summary.newAgents} new, ${stats.summary.returningAgents} returning`}
+          hint={`${stats.summary.newAgents} first seen in this range, ${stats.summary.returningAgents} active before it`}
           icon={Users}
         />
         <KpiCard
@@ -532,11 +532,6 @@ export default function StatsPage() {
                       ? new Date(Number(stats.coverage.lastActivityDayId) * 86_400_000).toLocaleDateString("en-US", { timeZone: "UTC" })
                       : "—"}
                   </span>
-                </div>
-                <div className="rounded-md border border-primary/20 bg-primary/5 p-3 text-xs leading-5 text-muted-foreground">
-                  Public stats already cover activity, contest payouts, and realized settlement
-                  outcomes. Exact chain fees, voucher issuance, and quote-service usage still need
-                  dedicated backend indexing before they can be shown here honestly.
                 </div>
               </CardContent>
             </Card>

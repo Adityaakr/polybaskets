@@ -3,7 +3,13 @@ import { useApi } from '@gear-js/react-hooks';
 import { useQuery } from '@tanstack/react-query';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { useWallet } from '@/contexts/WalletContext';
-import { getFollowerCount, getBasketById } from '@/lib/basket-storage';
+import {
+  followBasket,
+  getBasketById,
+  getFollowerCount,
+  isFollowing,
+  unfollowBasket,
+} from '@/lib/basket-storage';
 import { extractOnChainBasketId, fetchAllOnChainBaskets } from '@/lib/basket-onchain';
 import { basketMarketProgramFromApi } from '@/lib/varaClient';
 import {
@@ -31,6 +37,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { useToast } from '@/hooks/use-toast';
 import { Input } from '@/components/ui/input';
 import { Link } from 'react-router-dom';
 import {
@@ -48,6 +55,7 @@ import {
   Coins,
   Search,
   Flame,
+  Heart,
 } from 'lucide-react';
 import type { Basket } from '@/types/basket.ts';
 
@@ -891,8 +899,11 @@ function TodayContestTab() {
 function CommunityVaraLeaderboard() {
   const { api, isApiReady } = useApi();
   const { network } = useNetwork();
+  const { address, connect } = useWallet();
+  const { toast } = useToast();
   const [onChainBaskets, setOnChainBaskets] = useState<Basket[]>([]);
   const [loading, setLoading] = useState(false);
+  const [followVersion, setFollowVersion] = useState(0);
   const allTimeWinnersQuery = useAllTimeContestWinners();
   const allTimeBasketWinningsQuery = useAllTimeBasketWinnings();
 
@@ -982,6 +993,15 @@ function CommunityVaraLeaderboard() {
               return 0;
             }
           })(),
+          isFollowing:
+            !!address &&
+            (() => {
+              try {
+                return isFollowing(address, basket.id);
+              } catch {
+                return false;
+              }
+            })(),
         };
       })
       .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
@@ -1029,7 +1049,7 @@ function CommunityVaraLeaderboard() {
         return left.basket.name.localeCompare(right.basket.name);
       })
       .slice(0, 20);
-  }, [allTimeBasketWinningsQuery.data, onChainBaskets]);
+  }, [address, allTimeBasketWinningsQuery.data, followVersion, onChainBaskets]);
 
   const topCurators = useMemo(() => {
     const curatorMap: Record<string, { totalFollowers: number; basketCount: number }> = {};
@@ -1062,7 +1082,31 @@ function CommunityVaraLeaderboard() {
         return right.basketCount - left.basketCount;
       })
       .slice(0, 20);
-  }, [onChainBaskets]);
+  }, [followVersion, onChainBaskets]);
+
+  const handleToggleFollow = async (basket: Basket) => {
+    if (!address) {
+      await connect();
+      return;
+    }
+
+    try {
+      if (isFollowing(address, basket.id)) {
+        unfollowBasket(address, basket.id);
+        toast({ title: 'Unfollowed basket' });
+      } else {
+        followBasket(address, basket.id);
+        toast({ title: 'Following basket!' });
+      }
+      setFollowVersion((current) => current + 1);
+    } catch (error) {
+      toast({
+        title: 'Unable to update follow',
+        description: error instanceof Error ? error.message : 'Unknown local storage error',
+        variant: 'destructive',
+      });
+    }
+  };
 
   const topAllTimeWinners = useMemo(
     () => allTimeWinnersQuery.data?.slice(0, 20) ?? [],
@@ -1151,7 +1195,7 @@ function CommunityVaraLeaderboard() {
         </TabsTrigger>
         <TabsTrigger value="curators" className="gap-2">
           <Crown className="w-4 h-4" />
-          Top Curators
+          Top Agents
         </TabsTrigger>
       </TabsList>
 
@@ -1206,28 +1250,33 @@ function CommunityVaraLeaderboard() {
           <Card className="card-elevated">
             <CardContent className="p-0">
               <div className="border-b">
-                <div className="grid grid-cols-[72px_minmax(0,1.6fr)_180px_140px_140px] gap-4 px-6 py-3 text-xs font-medium text-muted-foreground bg-muted/50">
+                <div className="grid grid-cols-[72px_minmax(0,1.6fr)_180px_140px_120px_132px] gap-4 px-6 py-3 text-xs font-medium text-muted-foreground bg-muted/50">
                   <span className="text-center">#</span>
                   <span>Basket</span>
                   <span className="text-center">Status</span>
                   <span className="text-right">Total Won</span>
                   <span className="text-right">Followers</span>
+                  <span className="text-right">Follow</span>
                 </div>
               </div>
               <div className="divide-y">
                 {topBaskets.map((entry, index) => {
                   const statusMeta = getCommunityBasketStatusMeta(entry.basket.status);
                   return (
-                    <Link
+                    <div
                       key={entry.basket.id}
-                      to={`/basket/${entry.basket.id}`}
-                      className="grid grid-cols-[72px_minmax(0,1.6fr)_180px_140px_140px] gap-4 px-6 py-4 items-center hover:bg-muted/30 transition-colors"
+                      className="grid grid-cols-[72px_minmax(0,1.6fr)_180px_140px_120px_132px] gap-4 px-6 py-4 items-center transition-colors hover:bg-muted/30"
                     >
                       <span className="text-center font-semibold text-muted-foreground">
                         {index + 1}
                       </span>
                       <div className="min-w-0">
-                        <p className="font-medium truncate">{entry.basket.name}</p>
+                        <Link
+                          to={`/basket/${entry.basket.id}`}
+                          className="font-medium truncate text-foreground transition-colors hover:text-primary"
+                        >
+                          {entry.basket.name}
+                        </Link>
                         <p className="text-sm text-muted-foreground">
                           by {truncateAddress(entry.basket.owner)}
                         </p>
@@ -1244,7 +1293,19 @@ function CommunityVaraLeaderboard() {
                         <Users className="w-3.5 h-3.5 text-muted-foreground" />
                         <span className="tabular-nums">{entry.followerCount}</span>
                       </span>
-                    </Link>
+                      <div className="flex justify-end">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={entry.isFollowing ? 'outline' : 'default'}
+                          className="gap-2"
+                          onClick={() => void handleToggleFollow(entry.basket)}
+                        >
+                          <Heart className={cn('h-4 w-4', entry.isFollowing ? 'fill-current' : '')} />
+                          {entry.isFollowing ? 'Following' : 'Follow'}
+                        </Button>
+                      </div>
+                    </div>
                   );
                 })}
               </div>
@@ -1259,7 +1320,7 @@ function CommunityVaraLeaderboard() {
             <CardContent className="py-12 text-center">
               <Crown className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
               <p className="text-muted-foreground">
-                No curators yet. Create a basket to get started!
+                No agents yet. Create a basket to get started!
               </p>
             </CardContent>
           </Card>
