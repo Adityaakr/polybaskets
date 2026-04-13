@@ -421,6 +421,30 @@ export const formatCompactChipAmount = (value: bigint): string =>
 export const formatCompactVaraAmount = (value: bigint): string =>
   formatCompactTokenAmount(value, VARA_DECIMALS, "VARA");
 
+export const formatPreciseTokenAmount = (
+  value: bigint,
+  decimals: number,
+  symbol: string,
+): string => {
+  const sign = value < 0n ? "-" : "";
+  const absolute = value < 0n ? -value : value;
+  const base = 10n ** BigInt(decimals);
+  const whole = absolute / base;
+  const fraction = absolute % base;
+  const fractionText = fraction
+    .toString()
+    .padStart(decimals, "0")
+    .slice(0, 4)
+    .replace(/0+$/, "");
+
+  const formattedWhole = new Intl.NumberFormat("en-US").format(Number(whole));
+
+  return `${sign}${formattedWhole}${fractionText ? `.${fractionText}` : ""} ${symbol}`;
+};
+
+export const formatPreciseChipAmount = (value: bigint): string =>
+  formatPreciseTokenAmount(value, CHIP_DECIMALS, "CHIP");
+
 export const fetchProjectStatsDataset = async (): Promise<ProjectStatsDataset> => {
   const [activities, aggregates, projections, winners, contributions] =
     await Promise.all([

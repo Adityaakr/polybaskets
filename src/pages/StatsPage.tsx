@@ -29,6 +29,7 @@ import {
   formatCompactChipAmount,
   formatCompactNumber,
   formatCompactVaraAmount,
+  formatPreciseChipAmount,
   formatPercentage,
   type ProjectStatsAgentRow,
   type ProjectStatsDailyRow,
@@ -545,12 +546,12 @@ export default function StatsPage() {
                 <SnapshotMetric
                   label="Settled principal"
                   description="The total CHIP originally put into baskets that finalized during the selected time range."
-                  value={formatCompactChipAmount(stats.summary.totalSettledPrincipal)}
+                  value={formatPreciseChipAmount(stats.summary.totalSettledPrincipal)}
                 />
                 <SnapshotMetric
                   label="Settled payout"
                   description="The total CHIP returned after settlement from those same finalized baskets in the selected time range."
-                  value={formatCompactChipAmount(stats.summary.totalSettledPayout)}
+                  value={formatPreciseChipAmount(stats.summary.totalSettledPayout)}
                 />
                 <SnapshotMetric
                   label="Unique winners"
@@ -614,33 +615,6 @@ export default function StatsPage() {
         </TabsContent>
 
         <TabsContent value="contest" className="space-y-6">
-          <div className="grid gap-4 lg:grid-cols-4 md:grid-cols-2">
-            <KpiCard
-              title="Settled Days"
-              value={formatCompactNumber(stats.summary.settledDays)}
-              hint="Contest days already settled on-chain"
-              icon={Award}
-            />
-            <KpiCard
-              title="Ready Days"
-              value={formatCompactNumber(stats.summary.readyDays)}
-              hint="Closed days with a projected result waiting to settle"
-              icon={Timer}
-            />
-            <KpiCard
-              title="No Winner Days"
-              value={formatCompactNumber(stats.summary.noWinnerDays)}
-              hint="Days that closed without an eligible winner"
-              icon={Trophy}
-            />
-            <KpiCard
-              title="Paid Rewards"
-              value={formatCompactVaraAmount(stats.summary.totalRewardsPaid)}
-              hint="Total VARA distributed across settled winners"
-              icon={Coins}
-            />
-          </div>
-
           <Card className="card-elevated overflow-hidden">
             <CardHeader>
               <CardTitle>Contest Ledger</CardTitle>
