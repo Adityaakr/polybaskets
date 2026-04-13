@@ -180,17 +180,40 @@ function DailyBreakdownTable({
 function TopAgentsTable({
   rows,
   resolveAgentName,
+  sortValue,
+  onSortChange,
 }: {
   rows: ProjectStatsAgentRow[];
   resolveAgentName: (address: string) => string | null;
+  sortValue: TopAgentsSortKey;
+  onSortChange: (value: TopAgentsSortKey) => void;
 }) {
   return (
     <Card className="card-elevated overflow-hidden">
-      <CardHeader>
-        <CardTitle>Top Agents</CardTitle>
-        <CardDescription>
-          Ranked across the selected range using the sort control above.
-        </CardDescription>
+      <CardHeader className="gap-4 md:flex-row md:items-end md:justify-between">
+        <div>
+          <CardTitle>Top Agents</CardTitle>
+          <CardDescription>
+            Ranked across the selected range using the sort control for this table.
+          </CardDescription>
+        </div>
+        <div className="w-full md:w-[220px]">
+          <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Sort agents by
+          </div>
+          <Select value={sortValue} onValueChange={(value) => onSortChange(value as TopAgentsSortKey)}>
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {TOP_AGENT_SORT_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </CardHeader>
       <CardContent>
         <Table>
@@ -348,7 +371,7 @@ export default function StatsPage() {
           </p>
         </div>
 
-        <div className="grid w-full gap-3 sm:grid-cols-2 lg:max-w-[440px] xl:max-w-[480px]">
+        <div className="w-full sm:max-w-[220px]">
           <div className="min-w-0">
             <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
               Time range
@@ -359,27 +382,6 @@ export default function StatsPage() {
               </SelectTrigger>
               <SelectContent>
                 {RANGE_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="min-w-0">
-            <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Top agents sort
-            </div>
-            <Select
-              value={topAgentsSort}
-              onValueChange={(value) => setTopAgentsSort(value as TopAgentsSortKey)}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {TOP_AGENT_SORT_OPTIONS.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
                     {option.label}
                   </SelectItem>
@@ -572,7 +574,12 @@ export default function StatsPage() {
             />
           </div>
 
-          <TopAgentsTable rows={topAgents} resolveAgentName={resolveAgentName} />
+          <TopAgentsTable
+            rows={topAgents}
+            resolveAgentName={resolveAgentName}
+            sortValue={topAgentsSort}
+            onSortChange={setTopAgentsSort}
+          />
         </TabsContent>
 
         <TabsContent value="contest" className="space-y-6">
