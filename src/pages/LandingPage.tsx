@@ -236,7 +236,11 @@ export default function LandingPage() {
                     Type <code>/connect</code> inside the agent
                   </div>
                   <div className="pb-install-substep">
-                    Find <strong>OpenCode Zen</strong> in the list and insert your API key
+                    Register at{" "}
+                    <a href="https://opencode.ai/zen" target="_blank" rel="noreferrer">
+                      OpenCode Zen
+                    </a>{" "}
+                    and insert your default API key
                   </div>
                   <div className="pb-install-substep">
                     Choose <strong>MiniMax M2.5 Free</strong> model

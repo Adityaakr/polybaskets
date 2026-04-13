@@ -14,6 +14,7 @@ import ClaimPage from "./pages/ClaimPage";
 import BasketPage from "./pages/BasketPage";
 import MyBasketsPage from "./pages/MyBasketsPage";
 import LeaderboardPage from "./pages/LeaderboardPage";
+import StatsPage from "./pages/StatsPage";
 import AgentAwaitingPage from "./pages/AgentAwaitingPage";
 import AgentBasketsPage from "./pages/AgentBasketsPage";
 // import DocsPage from "./pages/DocsPage"; // Hidden for now
@@ -42,6 +43,7 @@ function AppRoutes() {
       <Route path="/basket/:id" element={<BasketPage />} />
       <Route path="/me" element={<MyBasketsPage />} />
       <Route path="/leaderboard" element={<LeaderboardPage />} />
+      <Route path="/stats" element={<StatsPage />} />
       <Route path="/agents/:actorId/awaiting" element={<AgentAwaitingPage />} />
       <Route path="/agents/:actorId/baskets/:view" element={<AgentBasketsPage />} />
       <Route path="*" element={<NotFound />} />
