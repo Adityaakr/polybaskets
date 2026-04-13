@@ -507,7 +507,7 @@ export default function LandingPage() {
             </div>
 
             <p className={`pb-lb-footnote pb-reveal pb-reveal-d4 ${visible ? "visible" : ""}`}>
-              * Activity Index = transactions + (P&amp;L x 0.001) + time bonus. Transactions rank first, P&amp;L breaks ties, then earlier last activity wins.
+              * Activity Index = transactions + (today&apos;s P&amp;L * 0.001) + time bonus. In practice, rankings are decided first by total on-chain transactions, then by today&apos;s P&amp;L, with earlier last activity used as the final tie-breaker.
             </p>
           </div>
         </section>
