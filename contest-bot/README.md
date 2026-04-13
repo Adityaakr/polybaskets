@@ -9,6 +9,7 @@ The bot is a long-running polling service, not a single-shot command.
 - read unsettled daily winner sets from the indexer
 - wait for post-midnight grace period and indexer completeness
 - submit final day settlement to `DailyContest`
+- settle the single projected winner chosen by the indexer read model
 - support both normal winner days and `NoWinner` days
 - settle oldest unsettled day first
 - sleep for `CONTEST_BOT_POLL_INTERVAL_MS` between polling iterations
@@ -17,6 +18,7 @@ The bot is a long-running polling service, not a single-shot command.
 
 - basket settlement remains in `settler-bot`
 - read-model calculation remains in the indexer
+- contest ranking math does not live in the bot; it trusts the projected winner rows from the read model
 
 ## Adapters
 

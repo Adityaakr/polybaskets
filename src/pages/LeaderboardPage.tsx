@@ -1397,7 +1397,7 @@ export default function LeaderboardPage() {
       <div className="mb-8">
         <h1 className="text-3xl font-semibold mb-2">Leaderboard</h1>
         <p className="text-muted-foreground">
-          Daily CHIP contest leaders for the current UTC day, plus the community leaderboard.
+          Daily CHIP activity leaders for the current UTC day, plus the community leaderboard.
         </p>
       </div>
 

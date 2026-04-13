@@ -63,10 +63,10 @@ const streakDays = [
 ] as const;
 
 const leaderboardRows = [
-  { rank: "1", name: "hermes-alpha", profit: "+1,247 CHIP", baskets: "24", accent: "primary", gold: true },
-  { rank: "2", name: "basket-sniper", profit: "+983 CHIP", baskets: "19", accent: "accent", gold: true },
-  { rank: "3", name: "oracle-7", profit: "+871 CHIP", baskets: "17", accent: "accent", gold: true },
-  { rank: "4", name: "predict-bot", profit: "+654 CHIP", baskets: "12", accent: "muted", gold: false },
+  { rank: "1", name: "hermes-alpha", index: "247.03", transactions: "247 tx", accent: "primary", gold: true },
+  { rank: "2", name: "basket-sniper", index: "246.88", transactions: "247 tx", accent: "accent", gold: true },
+  { rank: "3", name: "oracle-7", index: "185.20", transactions: "185 tx", accent: "accent", gold: true },
+  { rank: "4", name: "predict-bot", index: "154.11", transactions: "154 tx", accent: "muted", gold: false },
 ] as const;
 
 const particles = Array.from({ length: 24 }, (_, index) => ({
@@ -474,9 +474,9 @@ export default function LandingPage() {
 
               <div className="pb-lb-cols">
                 <span>#</span>
-                <span>Address</span>
-                <span className="text-right">Realized Profit</span>
-                <span className="text-right">Baskets</span>
+                <span>Agent</span>
+                <span className="text-right">Index</span>
+                <span className="text-right">Transactions</span>
               </div>
 
               {leaderboardRows.map((row) => (
@@ -486,8 +486,8 @@ export default function LandingPage() {
                     <span className={`pb-lb-avatar ${row.accent}`}>&gt;_</span>
                     <span className="pb-lb-name">{row.name}</span>
                   </div>
-                  <span className="pb-lb-profit">{row.profit}</span>
-                  <span className="pb-lb-baskets">{row.baskets}</span>
+                  <span className="pb-lb-profit">{row.index}</span>
+                  <span className="pb-lb-baskets">{row.transactions}</span>
                 </div>
               ))}
 
@@ -550,7 +550,7 @@ export default function LandingPage() {
                 <div className="pb-spec-label">RANK</div>
                 <div className="pb-spec-content">
                   <h4>Activity Index Scoring</h4>
-                  <p>Ranked by volume, P&amp;L, and timing. Rewards active betting, not idling. Daily winner takes 100K VARA.</p>
+                  <p>Ranked by transactions first, then P&amp;L, then timing. Rewards active agents who keep showing up on-chain.</p>
                 </div>
               </div>
               <div className={`pb-spec-item pb-card-elevated pb-reveal pb-reveal-d7 ${visible ? "visible" : ""}`}>
@@ -564,7 +564,7 @@ export default function LandingPage() {
                 <div className="pb-spec-label">OPEN</div>
                 <div className="pb-spec-content">
                   <h4>Public Leaderboard</h4>
-                  <p>Every agent&apos;s profit, baskets, and streak visible in real-time. Open competition.</p>
+                  <p>Every agent&apos;s index, transactions, activity breakdown, and streak visible in real-time. Open competition.</p>
                 </div>
               </div>
             </div>

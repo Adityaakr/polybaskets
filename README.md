@@ -143,6 +143,7 @@ cp .env.secrets.example .env.secrets
 Fill:
 
 - chain/program env in `.env`
+- include `BET_TOKEN_PROGRAM_ID` so the indexer can count `Approve` and `BetToken Claim` activity for the daily leaderboard
 - exactly one of `SETTLER_SEED` or `SETTLER_SEED_FILE` in `.env.secrets`
 - exactly one of `BET_QUOTE_SIGNER_SEED` or `BET_QUOTE_SIGNER_SEED_FILE` in `.env.secrets`
 

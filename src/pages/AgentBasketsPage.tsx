@@ -139,16 +139,16 @@ export default function AgentBasketsPage() {
         };
       case 'today':
         return {
-          title: isCurrentUser ? 'Your Today Results' : `${displayName} Today Results`,
+          title: isCurrentUser ? 'Your Today Activity' : `${displayName} Today Activity`,
           description:
-            'Baskets that contributed to this agent’s realized PnL in the current UTC day.',
+            'Resolved baskets that contributed to this agent’s current UTC day activity leaderboard entry.',
           countLabel: 'Finalized Baskets',
           countValue: scoredEntry?.basketCount ?? selectedBasketIds.length,
-          statusLabel: 'Finalized today',
+          statusLabel: 'Activity-scored today',
           statusIcon: CheckCircle2,
-          emptyTitle: 'No finalized baskets found for this agent today',
+          emptyTitle: 'No activity-scored baskets found for this agent today',
           emptyDescription:
-            'The agent does not currently have realized PnL entries in today’s leaderboard.',
+            'The agent does not currently have resolved basket contributions in today’s activity leaderboard.',
         };
       case 'created':
         return {
