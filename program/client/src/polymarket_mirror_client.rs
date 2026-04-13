@@ -98,6 +98,12 @@ pub mod basket_market {
             basket_id: u64,
         ) -> sails_rs::client::PendingCall<io::GetBasket, Self::Env>;
         fn get_basket_count(&self) -> sails_rs::client::PendingCall<io::GetBasketCount, Self::Env>;
+        /// Lightweight query returning only status and asset_kind (avoids serializing
+        /// the full Basket struct with name, description, and Vec<BasketItem>).
+        fn get_basket_status(
+            &self,
+            basket_id: u64,
+        ) -> sails_rs::client::PendingCall<io::GetBasketStatus, Self::Env>;
         fn get_config(&self) -> sails_rs::client::PendingCall<io::GetConfig, Self::Env>;
         fn get_positions(
             &self,
@@ -107,6 +113,12 @@ pub mod basket_market {
             &self,
             basket_id: u64,
         ) -> sails_rs::client::PendingCall<io::GetSettlement, Self::Env>;
+        /// Lightweight query returning only settlement status and payout_per_share
+        /// (avoids serializing Vec<ItemResolution>, payload string, etc.).
+        fn get_settlement_result(
+            &self,
+            basket_id: u64,
+        ) -> sails_rs::client::PendingCall<io::GetSettlementResult, Self::Env>;
         fn is_vara_enabled(&self) -> sails_rs::client::PendingCall<io::IsVaraEnabled, Self::Env>;
     }
     pub struct BasketMarketImpl;
@@ -184,6 +196,12 @@ pub mod basket_market {
         fn get_basket_count(&self) -> sails_rs::client::PendingCall<io::GetBasketCount, Self::Env> {
             self.pending_call(())
         }
+        fn get_basket_status(
+            &self,
+            basket_id: u64,
+        ) -> sails_rs::client::PendingCall<io::GetBasketStatus, Self::Env> {
+            self.pending_call((basket_id,))
+        }
         fn get_config(&self) -> sails_rs::client::PendingCall<io::GetConfig, Self::Env> {
             self.pending_call(())
         }
@@ -197,6 +215,12 @@ pub mod basket_market {
             &self,
             basket_id: u64,
         ) -> sails_rs::client::PendingCall<io::GetSettlement, Self::Env> {
+            self.pending_call((basket_id,))
+        }
+        fn get_settlement_result(
+            &self,
+            basket_id: u64,
+        ) -> sails_rs::client::PendingCall<io::GetSettlementResult, Self::Env> {
             self.pending_call((basket_id,))
         }
         fn is_vara_enabled(&self) -> sails_rs::client::PendingCall<io::IsVaraEnabled, Self::Env> {
@@ -219,9 +243,11 @@ pub mod basket_market {
         sails_rs::io_struct_impl!(GetAllAgents () -> Vec<super::AgentInfo>);
         sails_rs::io_struct_impl!(GetBasket (basket_id: u64) -> Result<super::Basket, super::BasketMarketError>);
         sails_rs::io_struct_impl!(GetBasketCount () -> u64);
+        sails_rs::io_struct_impl!(GetBasketStatus (basket_id: u64) -> Result<(super::BasketStatus,super::BasketAssetKind,), super::BasketMarketError>);
         sails_rs::io_struct_impl!(GetConfig () -> super::BasketMarketConfig);
         sails_rs::io_struct_impl!(GetPositions (user: ActorId) -> Vec<super::Position>);
         sails_rs::io_struct_impl!(GetSettlement (basket_id: u64) -> Result<super::Settlement, super::BasketMarketError>);
+        sails_rs::io_struct_impl!(GetSettlementResult (basket_id: u64) -> Result<(super::SettlementStatus,u128,), super::BasketMarketError>);
         sails_rs::io_struct_impl!(IsVaraEnabled () -> bool);
     }
 

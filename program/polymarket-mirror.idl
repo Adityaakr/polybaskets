@@ -147,9 +147,15 @@ service BasketMarket {
   query GetAllAgents : () -> vec AgentInfo;
   query GetBasket : (basket_id: u64) -> result (Basket, BasketMarketError);
   query GetBasketCount : () -> u64;
+  /// Lightweight query returning only status and asset_kind (avoids serializing
+  /// the full Basket struct with name, description, and Vec<BasketItem>).
+  query GetBasketStatus : (basket_id: u64) -> result (struct { BasketStatus, BasketAssetKind }, BasketMarketError);
   query GetConfig : () -> BasketMarketConfig;
   query GetPositions : (user: actor_id) -> vec Position;
   query GetSettlement : (basket_id: u64) -> result (Settlement, BasketMarketError);
+  /// Lightweight query returning only settlement status and payout_per_share
+  /// (avoids serializing Vec<ItemResolution>, payload string, etc.).
+  query GetSettlementResult : (basket_id: u64) -> result (struct { SettlementStatus, u128 }, BasketMarketError);
   query IsVaraEnabled : () -> bool;
 
   events {
