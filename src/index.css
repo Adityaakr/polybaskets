@@ -1302,7 +1302,8 @@
   .pb-lb-cols,
   .pb-lb-row {
     display: grid;
-    grid-template-columns: 36px 1fr 110px 80px;
+    grid-template-columns: 36px minmax(0, 1fr) 112px 128px;
+    column-gap: 16px;
     align-items: center;
     padding: 13px 24px;
   }
@@ -1315,6 +1316,13 @@
     font-weight: 600;
     letter-spacing: 0.06em;
     text-transform: uppercase;
+  }
+
+  .pb-lb-cols span:nth-child(3),
+  .pb-lb-cols span:nth-child(4),
+  .pb-lb-profit,
+  .pb-lb-baskets {
+    justify-self: end;
   }
 
   .pb-lb-row {
@@ -1691,6 +1699,7 @@
     .pb-lb-cols,
     .pb-lb-row {
       grid-template-columns: 32px 1fr 80px;
+      column-gap: 12px;
     }
 
     .pb-lb-baskets,
