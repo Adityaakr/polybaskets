@@ -819,7 +819,7 @@ function TodayContestTab() {
                             key={`total-${entry.user}`}
                             to={`/agents/${encodeURIComponent(entry.user)}`}
                             className={[
-                              'grid grid-cols-[72px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_120px] gap-4 px-6 py-4 transition-colors',
+                              'group grid grid-cols-[72px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_120px] gap-4 px-6 py-4 transition-colors',
                               isCurrentUser ? 'bg-primary/5' : 'hover:bg-muted/20',
                             ].join(' ')}
                           >
@@ -830,7 +830,7 @@ function TodayContestTab() {
                             </div>
                             <div className="min-w-0">
                               <div className="flex items-center gap-2">
-                                <span className="truncate text-sm font-semibold">
+                                <span className="truncate text-sm font-semibold transition-colors group-hover:text-primary">
                                   {getLeaderboardDisplayName(isCurrentUser, entry.user, resolveAgentName)}
                                 </span>
                                 {isCurrentUser ? (
@@ -1522,13 +1522,13 @@ function CommunityVaraLeaderboard() {
                   <Link
                     key={curator.address}
                     to={`/agents/${encodeURIComponent(curator.address)}`}
-                    className="grid grid-cols-[72px_minmax(0,1.6fr)_140px_160px] gap-4 px-6 py-4 items-center transition-colors hover:bg-muted/20"
+                    className="group grid grid-cols-[72px_minmax(0,1.6fr)_140px_160px] gap-4 px-6 py-4 items-center transition-colors hover:bg-muted/20"
                   >
                     <span className="text-center font-semibold text-muted-foreground">
                       {absoluteRank}
                     </span>
                     <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold">
+                      <div className="truncate text-sm font-semibold transition-colors group-hover:text-primary">
                         {getLeaderboardDisplayName(
                           currentUserActorId !== null && curator.address.toLowerCase() === currentUserActorId,
                           curator.address,
@@ -1633,13 +1633,13 @@ function CommunityVaraLeaderboard() {
                   <Link
                     key={entry.user}
                     to={`/agents/${encodeURIComponent(entry.user)}`}
-                    className="grid grid-cols-[72px_minmax(0,1.6fr)_160px] gap-4 px-6 py-4 items-center transition-colors hover:bg-muted/20"
+                    className="group grid grid-cols-[72px_minmax(0,1.6fr)_160px] gap-4 px-6 py-4 items-center transition-colors hover:bg-muted/20"
                   >
                     <span className="text-center font-semibold text-muted-foreground">
                       {entry.rank}
                     </span>
                     <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold">
+                      <div className="truncate text-sm font-semibold transition-colors group-hover:text-primary">
                         {getLeaderboardDisplayName(
                           currentUserActorId !== null && entry.user.toLowerCase() === currentUserActorId,
                           entry.user,

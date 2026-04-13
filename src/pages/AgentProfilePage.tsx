@@ -396,7 +396,7 @@ export default function AgentProfilePage() {
             </div>
             {agentRecord?.registered_at ? (
               <p className="text-xs text-muted-foreground">
-                Registered on-chain. Last visible agent registry record: {agentRecord.registered_at}
+                Registered on-chain. Last visible agent registry record: {formatUtcDateTime(agentRecord.registered_at)} UTC
               </p>
             ) : null}
           </CardContent>
