@@ -346,6 +346,37 @@ type AgentActivityHistoryQuery = {
   };
 };
 
+type AgentProfileDailyAggregatesQuery = {
+  allDailyUserAggregates: {
+    nodes: Array<{
+      dayId: string;
+      realizedProfit: string;
+      basketCount: number;
+      updatedAt: string;
+    }>;
+  };
+};
+
+type AgentProfileWinnersQuery = {
+  allContestDayWinners: {
+    nodes: Array<{
+      dayId: string;
+      realizedProfit: string;
+      reward: string | null;
+    }>;
+  };
+};
+
+type AgentProfileActivityQuery = {
+  allDailyUserActivityAggregates: {
+    nodes: Array<{
+      dayId: string;
+      txCount: number;
+      lastTxAt: string | null;
+    }>;
+  };
+};
+
 const AGENT_ACTIVITY_HISTORY_QUERY = `
   query AgentActivityHistory($user: String!, $offset: Int!, $first: Int!) {
     allDailyUserActivityAggregates(
@@ -357,6 +388,58 @@ const AGENT_ACTIVITY_HISTORY_QUERY = `
       nodes {
         dayId
         txCount
+      }
+    }
+  }
+`;
+
+const AGENT_PROFILE_DAILY_AGGREGATES_QUERY = `
+  query AgentProfileDailyAggregates($user: String!, $offset: Int!, $first: Int!) {
+    allDailyUserAggregates(
+      filter: { user: { equalTo: $user } }
+      orderBy: [DAY_ID_DESC]
+      offset: $offset
+      first: $first
+    ) {
+      nodes {
+        dayId
+        realizedProfit
+        basketCount
+        updatedAt
+      }
+    }
+  }
+`;
+
+const AGENT_PROFILE_WINNERS_QUERY = `
+  query AgentProfileWinners($user: String!, $offset: Int!, $first: Int!) {
+    allContestDayWinners(
+      filter: { user: { equalTo: $user } }
+      orderBy: [DAY_ID_DESC]
+      offset: $offset
+      first: $first
+    ) {
+      nodes {
+        dayId
+        realizedProfit
+        reward
+      }
+    }
+  }
+`;
+
+const AGENT_PROFILE_ACTIVITY_QUERY = `
+  query AgentProfileActivity($user: String!, $offset: Int!, $first: Int!) {
+    allDailyUserActivityAggregates(
+      filter: { user: { equalTo: $user } }
+      orderBy: [DAY_ID_DESC]
+      offset: $offset
+      first: $first
+    ) {
+      nodes {
+        dayId
+        txCount
+        lastTxAt
       }
     }
   }
@@ -718,6 +801,127 @@ export const fetchAgentActivityStreak = async (
   }
 
   return streak;
+};
+
+export type AgentProfileSummary = {
+  user: string;
+  activeDays: number;
+  totalTxCount: number;
+  bestDailyTxCount: number;
+  finalizedBasketCount: number;
+  totalRealizedProfit: string;
+  winningDays: number;
+  totalRewards: string;
+  lastIndexedActivityAt: string | null;
+};
+
+export const fetchAgentProfileSummary = async (
+  user: string,
+): Promise<AgentProfileSummary> => {
+  let activeDays = 0;
+  let totalTxCount = 0;
+  let bestDailyTxCount = 0;
+  let lastIndexedActivityAt: string | null = null;
+
+  for (let offset = 0; ; offset += ALL_TIME_TRADING_BATCH_SIZE) {
+    const data = await graphQLRequest<AgentProfileActivityQuery>(
+      AGENT_PROFILE_ACTIVITY_QUERY,
+      {
+        user,
+        offset,
+        first: ALL_TIME_TRADING_BATCH_SIZE,
+      },
+    );
+
+    const nodes = data.allDailyUserActivityAggregates.nodes;
+    if (nodes.length === 0) {
+      break;
+    }
+
+    for (const node of nodes) {
+      if (node.txCount > 0) {
+        activeDays += 1;
+        totalTxCount += node.txCount;
+        bestDailyTxCount = Math.max(bestDailyTxCount, node.txCount);
+      }
+
+      if (!lastIndexedActivityAt && node.lastTxAt) {
+        lastIndexedActivityAt = node.lastTxAt;
+      }
+    }
+
+    if (nodes.length < ALL_TIME_TRADING_BATCH_SIZE) {
+      break;
+    }
+  }
+
+  let finalizedBasketCount = 0;
+  let totalRealizedProfit = 0n;
+
+  for (let offset = 0; ; offset += ALL_TIME_TRADING_BATCH_SIZE) {
+    const data = await graphQLRequest<AgentProfileDailyAggregatesQuery>(
+      AGENT_PROFILE_DAILY_AGGREGATES_QUERY,
+      {
+        user,
+        offset,
+        first: ALL_TIME_TRADING_BATCH_SIZE,
+      },
+    );
+
+    const nodes = data.allDailyUserAggregates.nodes;
+    if (nodes.length === 0) {
+      break;
+    }
+
+    for (const node of nodes) {
+      finalizedBasketCount += node.basketCount;
+      totalRealizedProfit += BigInt(node.realizedProfit);
+    }
+
+    if (nodes.length < ALL_TIME_TRADING_BATCH_SIZE) {
+      break;
+    }
+  }
+
+  let winningDays = 0;
+  let totalRewards = 0n;
+
+  for (let offset = 0; ; offset += ALL_TIME_TRADING_BATCH_SIZE) {
+    const data = await graphQLRequest<AgentProfileWinnersQuery>(
+      AGENT_PROFILE_WINNERS_QUERY,
+      {
+        user,
+        offset,
+        first: ALL_TIME_TRADING_BATCH_SIZE,
+      },
+    );
+
+    const nodes = data.allContestDayWinners.nodes;
+    if (nodes.length === 0) {
+      break;
+    }
+
+    for (const node of nodes) {
+      winningDays += 1;
+      totalRewards += BigInt(node.reward ?? "0");
+    }
+
+    if (nodes.length < ALL_TIME_TRADING_BATCH_SIZE) {
+      break;
+    }
+  }
+
+  return {
+    user,
+    activeDays,
+    totalTxCount,
+    bestDailyTxCount,
+    finalizedBasketCount,
+    totalRealizedProfit: totalRealizedProfit.toString(),
+    winningDays,
+    totalRewards: totalRewards.toString(),
+    lastIndexedActivityAt,
+  };
 };
 
 export const fetchAllTimeTradingPnl = async (): Promise<AllTimeTradingPnlEntry[]> => {

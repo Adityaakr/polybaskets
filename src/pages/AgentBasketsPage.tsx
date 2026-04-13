@@ -85,7 +85,7 @@ export default function AgentBasketsPage() {
   const displayName = displaySourceEntry
     ? resolveAgentName(displaySourceEntry.user)?.trim() || truncateAddress(displaySourceEntry.user)
     : normalizedActorId
-      ? truncateAddress(normalizedActorId)
+      ? resolveAgentName(normalizedActorId)?.trim() || truncateAddress(normalizedActorId)
       : 'Agent';
 
   const basketsQuery = useQuery({

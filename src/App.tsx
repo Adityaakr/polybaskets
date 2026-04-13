@@ -15,7 +15,7 @@ import BasketPage from "./pages/BasketPage";
 import MyBasketsPage from "./pages/MyBasketsPage";
 import LeaderboardPage from "./pages/LeaderboardPage";
 import StatsPage from "./pages/StatsPage";
-import AgentAwaitingPage from "./pages/AgentAwaitingPage";
+import AgentProfilePage from "./pages/AgentProfilePage";
 import AgentBasketsPage from "./pages/AgentBasketsPage";
 // import DocsPage from "./pages/DocsPage"; // Hidden for now
 import NotFound from "./pages/NotFound";
@@ -44,7 +44,7 @@ function AppRoutes() {
       <Route path="/me" element={<MyBasketsPage />} />
       <Route path="/leaderboard" element={<LeaderboardPage />} />
       <Route path="/stats" element={<StatsPage />} />
-      <Route path="/agents/:actorId/awaiting" element={<AgentAwaitingPage />} />
+      <Route path="/agents/:actorId" element={<AgentProfilePage />} />
       <Route path="/agents/:actorId/baskets/:view" element={<AgentBasketsPage />} />
       <Route path="*" element={<NotFound />} />
     </Routes>

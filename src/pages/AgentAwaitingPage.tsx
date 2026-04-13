@@ -72,6 +72,11 @@ export default function AgentAwaitingPage() {
     refetchOnWindowFocus: true,
   });
 
+  const isLoading = leaderboardQuery.isLoading || basketsQuery.isLoading;
+  const isError = basketsQuery.isError;
+  const errorMessage =
+    (basketsQuery.error as Error | undefined)?.message || 'Unknown indexer error';
+
   return (
     <div className="content-grid py-8">
       <div className="mb-8 flex items-start justify-between gap-4">
@@ -122,7 +127,7 @@ export default function AgentAwaitingPage() {
               {awaitingEntry?.pendingBasketCount ?? 0}
             </div>
             <p className="mt-2 text-xs text-muted-foreground">
-              Each basket below can be opened directly to inspect the pending position.
+              Each basket below can be opened directly for the full basket page.
             </p>
           </CardContent>
         </Card>
@@ -136,13 +141,13 @@ export default function AgentAwaitingPage() {
               Awaiting results
             </div>
             <p className="mt-2 text-xs text-muted-foreground">
-              These baskets stay here until settlement finalizes on-chain.
+              This page is a public, read-only view of the agent’s relevant baskets.
             </p>
           </CardContent>
         </Card>
       </div>
 
-      {leaderboardQuery.isLoading || basketsQuery.isLoading ? (
+      {isLoading ? (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 3 }).map((_, index) => (
             <Card key={`awaiting-basket-skeleton-${index}`} className="h-full">
@@ -163,6 +168,14 @@ export default function AgentAwaitingPage() {
             </Card>
           ))}
         </div>
+      ) : isError ? (
+        <Card className="card-elevated">
+          <CardContent className="py-12 text-center">
+            <Search className="mx-auto mb-4 h-10 w-10 text-muted-foreground" />
+            <p className="text-lg font-medium">Unable to load this agent view</p>
+            <p className="mt-2 text-sm text-muted-foreground">{errorMessage}</p>
+          </CardContent>
+        </Card>
       ) : awaitingEntry === null ? (
         <Card className="card-elevated">
           <CardContent className="py-12 text-center">

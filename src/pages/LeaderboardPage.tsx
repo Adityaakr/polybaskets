@@ -198,9 +198,16 @@ function ActivityLeaderboardRow({
 
   return (
     <div className={cn('transition-colors', isCurrentUser ? 'bg-primary/10' : 'bg-transparent')}>
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         onClick={onToggle}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            onToggle();
+          }
+        }}
         className={cn(
           'grid w-full grid-cols-[72px_minmax(0,1.5fr)_140px_140px] gap-4 px-6 py-4 text-left transition-colors',
           isCurrentUser ? 'hover:bg-primary/5' : 'hover:bg-muted/20',
@@ -232,9 +239,13 @@ function ActivityLeaderboardRow({
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <span className="truncate text-sm font-semibold">
+                <Link
+                  to={`/agents/${encodeURIComponent(entry.user)}`}
+                  onClick={(event) => event.stopPropagation()}
+                  className="truncate text-sm font-semibold transition-colors hover:text-primary"
+                >
                   {getLeaderboardDisplayName(isCurrentUser, entry.user, resolveAgentName)}
-                </span>
+                </Link>
                 {entry.isCurrentWinner ? (
                   <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-amber-300">
                     Leader
@@ -263,7 +274,7 @@ function ActivityLeaderboardRow({
         <div className="text-right font-mono text-sm tabular-nums text-muted-foreground">
           {entry.txCount} tx
         </div>
-      </button>
+      </div>
       {isExpanded ? (
         <div className="border-t border-primary/10 bg-muted/10 px-6 py-4">
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -806,7 +817,7 @@ function TodayContestTab() {
                         return (
                           <Link
                             key={`total-${entry.user}`}
-                            to={`/agents/${encodeURIComponent(entry.user)}/baskets/total`}
+                            to={`/agents/${encodeURIComponent(entry.user)}`}
                             className={[
                               'grid grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_120px] gap-4 px-6 py-4 transition-colors',
                               isCurrentUser ? 'bg-primary/5' : 'hover:bg-muted/20',
@@ -900,6 +911,7 @@ function CommunityVaraLeaderboard() {
   const { api, isApiReady } = useApi();
   const { network } = useNetwork();
   const { address, connect } = useWallet();
+  const { resolveAgentName } = useAgentNames();
   const { toast } = useToast();
   const [onChainBaskets, setOnChainBaskets] = useState<Basket[]>([]);
   const [loading, setLoading] = useState(false);
@@ -1113,6 +1125,11 @@ function CommunityVaraLeaderboard() {
     [allTimeWinnersQuery.data],
   );
 
+  const currentUserActorId = useMemo(
+    () => (address ? actorIdFromAddress(address).toLowerCase() : null),
+    [address],
+  );
+
   const allTimeProfitTotal = useMemo(
     () =>
       (allTimeWinnersQuery.data ?? []).reduce(
@@ -1163,20 +1180,30 @@ function CommunityVaraLeaderboard() {
           ) : (
             <div className="grid gap-4 md:grid-cols-3">
               {topAllTimeWinners.slice(0, 3).map((entry) => (
-                <div
+                <Link
                   key={entry.user}
-                  className="rounded-md border border-primary/10 bg-background/60 p-4"
+                  to={`/agents/${encodeURIComponent(entry.user)}`}
+                  className="rounded-md border border-primary/10 bg-background/60 p-4 transition-colors hover:bg-muted/20"
                 >
                   <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     #{entry.rank} all-time
                   </div>
-                  <div className="mt-2 font-mono text-sm text-muted-foreground">
-                    {truncateAddress(entry.user)}
+                  <div className="mt-2 truncate text-sm font-semibold">
+                    {getLeaderboardDisplayName(
+                      currentUserActorId !== null && entry.user.toLowerCase() === currentUserActorId,
+                      entry.user,
+                      resolveAgentName,
+                    )}
+                  </div>
+                  <div className="mt-1 truncate font-mono text-xs text-muted-foreground">
+                    {currentUserActorId !== null && entry.user.toLowerCase() === currentUserActorId
+                      ? 'Connected wallet'
+                      : truncateAddress(entry.user)}
                   </div>
                   <div className="mt-3 text-2xl font-semibold tabular-nums">
                     {formatCompactChipAmount(entry.totalRealizedProfit)}
                   </div>
-                </div>
+                </Link>
               ))}
             </div>
           )}
@@ -1330,7 +1357,7 @@ function CommunityVaraLeaderboard() {
               <div className="border-b">
                 <div className="grid grid-cols-4 gap-4 px-6 py-3 text-xs font-medium text-muted-foreground bg-muted/50">
                   <span className="text-center">#</span>
-                  <span>Address</span>
+                  <span>Agent</span>
                   <span className="text-right">Baskets</span>
                   <span className="text-right">Total Followers</span>
                 </div>
@@ -1339,15 +1366,26 @@ function CommunityVaraLeaderboard() {
                 {topCurators.map((curator, index) => (
                   <Link
                     key={curator.address}
-                    to={`/agents/${encodeURIComponent(curator.address)}/baskets/created`}
-                    className="grid grid-cols-4 gap-4 px-6 py-4 items-center"
+                    to={`/agents/${encodeURIComponent(curator.address)}`}
+                    className="grid grid-cols-4 gap-4 px-6 py-4 items-center transition-colors hover:bg-muted/20"
                   >
                     <span className="text-center font-semibold text-muted-foreground">
                       {index + 1}
                     </span>
-                    <span className="font-mono text-sm">
-                      {truncateAddress(curator.address)}
-                    </span>
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold">
+                        {getLeaderboardDisplayName(
+                          currentUserActorId !== null && curator.address.toLowerCase() === currentUserActorId,
+                          curator.address,
+                          resolveAgentName,
+                        )}
+                      </div>
+                      <div className="mt-1 truncate font-mono text-xs text-muted-foreground">
+                        {currentUserActorId !== null && curator.address.toLowerCase() === currentUserActorId
+                          ? 'Connected wallet'
+                          : truncateAddress(curator.address)}
+                      </div>
+                    </div>
                     <span className="text-right flex items-center justify-end gap-1.5">
                       <Layers className="w-3.5 h-3.5 text-muted-foreground" />
                       <span className="tabular-nums">{curator.basketCount}</span>
@@ -1401,7 +1439,7 @@ function CommunityVaraLeaderboard() {
               <div className="border-b">
                 <div className="grid grid-cols-3 gap-4 px-6 py-3 text-xs font-medium text-muted-foreground bg-muted/50">
                   <span className="text-center">#</span>
-                  <span>Address</span>
+                  <span>Agent</span>
                   <span className="text-right">All-Time PnL</span>
                 </div>
               </div>
@@ -1409,15 +1447,26 @@ function CommunityVaraLeaderboard() {
                 {topAllTimeWinners.map((entry) => (
                   <Link
                     key={entry.user}
-                    to={`/agents/${encodeURIComponent(entry.user)}/baskets/total`}
-                    className="grid grid-cols-3 gap-4 px-6 py-4 items-center"
+                    to={`/agents/${encodeURIComponent(entry.user)}`}
+                    className="grid grid-cols-3 gap-4 px-6 py-4 items-center transition-colors hover:bg-muted/20"
                   >
                     <span className="text-center font-semibold text-muted-foreground">
                       {entry.rank}
                     </span>
-                    <span className="font-mono text-sm">
-                      {truncateAddress(entry.user)}
-                    </span>
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold">
+                        {getLeaderboardDisplayName(
+                          currentUserActorId !== null && entry.user.toLowerCase() === currentUserActorId,
+                          entry.user,
+                          resolveAgentName,
+                        )}
+                      </div>
+                      <div className="mt-1 truncate font-mono text-xs text-muted-foreground">
+                        {currentUserActorId !== null && entry.user.toLowerCase() === currentUserActorId
+                          ? 'Connected wallet'
+                          : truncateAddress(entry.user)}
+                      </div>
+                    </div>
                     <span className="text-right font-semibold tabular-nums">
                       {formatCompactChipAmount(entry.totalRealizedProfit)}
                     </span>
