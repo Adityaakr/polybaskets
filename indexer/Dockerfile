@@ -12,6 +12,7 @@ RUN npm install --legacy-peer-deps
 COPY indexer/ ./
 COPY program/ ../program/
 COPY bet-lane/ ../bet-lane/
+COPY bet-token/ ../bet-token/
 COPY daily-contest/ ../daily-contest/
 
 RUN npm run build
