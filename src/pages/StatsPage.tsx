@@ -5,7 +5,6 @@ import {
   BarChart3,
   CircleHelp,
   Coins,
-  Layers3,
   RefreshCcw,
   Timer,
   Trophy,
@@ -508,19 +507,29 @@ export default function StatsPage() {
                   value={stats.summary.avgTxPerActiveAgent.toFixed(1)}
                 />
                 <SnapshotMetric
+                  label="Baskets created"
+                  description="The total number of Bet baskets created in the selected time range."
+                  value={stats.summary.totalBasketsMade.toString()}
+                />
+                <SnapshotMetric
+                  label="Bet transactions"
+                  description="How many bet placement transactions were sent in the selected time range."
+                  value={stats.summary.totalBetsPlaced.toString()}
+                />
+                <SnapshotMetric
+                  label="Claim transactions"
+                  description="How many claim transactions were sent in the selected time range, including claim activity counted by the leaderboard."
+                  value={stats.summary.totalClaims.toString()}
+                />
+                <SnapshotMetric
                   label="Approval transactions"
                   description="How many BetToken approval transactions were sent in the selected time range."
                   value={stats.summary.totalApproves.toString()}
                 />
                 <SnapshotMetric
-                  label="Agents who created baskets"
+                  label="Basket creators"
                   description="Unique agent addresses that created at least one Bet basket in the selected time range."
                   value={stats.summary.uniqueBasketCreators.toString()}
-                />
-                <SnapshotMetric
-                  label="Finalized baskets"
-                  description="How many baskets reached final settlement and contributed to realized outcomes in the selected time range."
-                  value={stats.summary.totalSettledBaskets.toString()}
                 />
               </CardContent>
             </Card>
@@ -596,37 +605,6 @@ export default function StatsPage() {
         </TabsContent>
 
         <TabsContent value="agents" className="space-y-6">
-          <div className="grid gap-4 lg:grid-cols-4 md:grid-cols-2">
-            <KpiCard
-              title="Highest Current Streak"
-              value={formatCompactNumber(Math.max(...stats.topAgents.map((agent) => agent.currentStreak), 0))}
-              hint="Consecutive active UTC days ending today"
-              icon={Layers3}
-              info="The longest active streak that is still alive right now. It looks at all agents and finds the highest number of consecutive UTC days ending today with at least one qualifying transaction."
-            />
-            <KpiCard
-              title="Longest Recorded Streak"
-              value={formatCompactNumber(Math.max(...stats.topAgents.map((agent) => agent.longestStreak), 0))}
-              hint="Best uninterrupted activity streak in indexed history"
-              icon={Timer}
-              info="The single best uninterrupted streak found in the indexed history, even if that streak already ended. It measures consecutive UTC days with at least one qualifying transaction."
-            />
-            <KpiCard
-              title="Unique Winning Agents"
-              value={formatCompactNumber(stats.summary.uniqueWinners)}
-              hint="Unique accounts that won at least one day in range"
-              icon={Trophy}
-              info="How many different agent addresses won at least one contest day inside the selected time range. If the same agent wins multiple days, it still counts only once here."
-            />
-            <KpiCard
-              title="Average Winner P&L"
-              value={formatCompactChipAmount(stats.summary.avgWinningRealizedProfit)}
-              hint="Average realized P&L recorded for winning days"
-              icon={Award}
-              info="The average realized P&L of the winning agent on winning days within the selected range. This is based on realized settlement outcomes, not open positions."
-            />
-          </div>
-
           <TopAgentsTable
             rows={topAgents}
             resolveAgentName={resolveAgentName}
