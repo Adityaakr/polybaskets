@@ -1424,11 +1424,11 @@ function CommunityVaraLeaderboard() {
                       <div className="min-w-0">
                         <Link
                           to={`/basket/${entry.basket.id}`}
-                          className="font-medium truncate text-foreground transition-colors hover:text-primary"
+                          className="truncate text-sm font-semibold text-foreground transition-colors hover:text-primary"
                         >
                           {entry.basket.name}
                         </Link>
-                        <p className="text-sm text-muted-foreground">
+                        <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
                           by {truncateAddress(entry.basket.owner)}
                         </p>
                       </div>
