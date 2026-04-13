@@ -615,6 +615,7 @@ export default function LandingPage() {
             <div className="pb-footer-links">
               <a href="https://app.polybaskets.xyz" target="_blank" rel="noreferrer">App</a>
               <a href="https://github.com/Adityaakr/polybaskets" target="_blank" rel="noreferrer">GitHub</a>
+              <a href="https://x.com/poly_baskets" target="_blank" rel="noreferrer">X</a>
               <a href="https://github.com/gear-foundation/vara-agent" target="_blank" rel="noreferrer">vara-agent</a>
               <a href="https://vara.network" target="_blank" rel="noreferrer">Vara Network</a>
             </div>
