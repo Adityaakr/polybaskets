@@ -57,9 +57,20 @@ const DAY_MS = 86_400_000;
 const CUSTOM_RANGE_VALUE = "custom";
 
 const dateToUtcDayId = (date: Date): string =>
-  Math.floor(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()) / DAY_MS).toString();
+  Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / DAY_MS).toString();
 
-const utcDayIdToDate = (dayId: string): Date => new Date(Number(dayId) * DAY_MS);
+const utcDayIdToDate = (dayId: string): Date => {
+  const date = new Date(Number(dayId) * DAY_MS);
+  return new Date(
+    date.getUTCFullYear(),
+    date.getUTCMonth(),
+    date.getUTCDate(),
+    12,
+    0,
+    0,
+    0,
+  );
+};
 
 const formatDayLabel = (dayId: string | null): string => {
   if (!dayId) {
