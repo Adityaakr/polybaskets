@@ -22,27 +22,87 @@
 
 ---
 
-### P0 — Merge BetToken + BetLane into one program (saves ~8-10B gas per bet AND per claim, ~1.0-2.0 VARA per cycle)
+### P0 — Internal balance ledger with auto-deposit (saves ~8-10B gas per bet AND per claim, ~1.0-2.0 VARA per cycle)
 
-**What:** `place_bet()` calls BetToken via cross-program `transfer_from()` (~10B gas). `claim()` calls BetToken via cross-program `transfer()` (~10B gas). If the token ledger lives inside BetLane, both become local storage writes (~1-2B gas).
+**What:** `place_bet()` calls BetToken via cross-program `transfer_from()` (~10B gas). `claim()` calls BetToken via cross-program `transfer()` (~10B gas). Add an internal balance ledger to BetLane so tokens stay inside after the first deposit. Subsequent bets and claim payouts are local storage writes (~1-2B gas) with zero cross-program calls.
 
 **Why:** This is the single biggest remaining optimization. A full bet cycle (bet + claim) saves ~16-20B gas (~1.6-2.0 VARA). Combined with the status cache above, PlaceBet drops from ~35B to ~15-17B gas (~1.5-1.7 VARA). That's ~53 bets per 80 VARA daily voucher budget instead of ~23.
 
-**How:**
-1. Move the VFT (fungible token) logic into BetLane as an internal service
-2. BetLane mints/burns tokens internally instead of cross-program transfer
-3. Keep BetToken as a standalone program for non-betting token operations (claim CHIP, approve for other contracts)
-4. Or: merge completely, BetLane IS the token contract with betting extensions
+**Recommended approach: auto-deposit model (NOT full merge)**
 
-**Risks:**
-- Architecture change affects the entire frontend token flow
-- Other contracts that interact with BetToken need updating
-- Token approval/allowance model changes
-- Audit surface increases (one program does two jobs)
+BetToken stays as standalone VFT. BetLane gets an internal `BTreeMap<ActorId, U256>` balance ledger.
 
-**Effort:** ~1-2 weeks. This is a protocol-level redesign, not a code tweak.
+**How PlaceBet works with auto-deposit:**
+```
+place_bet(basket_id, amount, signed_quote):
+  1. Check internal BetLane balance for caller
+  2. If sufficient → debit internal balance (local write, ~1B gas)
+  3. If insufficient → auto-pull deficit from BetToken via transfer_from
+     (one cross-program call, ~10B gas, only on first bet after claiming new CHIP)
+  4. Rest of place_bet logic unchanged
+```
 
-**Depends on:** Decision on whether BetToken needs to exist as a standalone contract for any other purpose (e.g., DEX listing, external integrations, governance).
+**How Claim works with internal balance:**
+```
+claim(basket_id):
+  1. Compute payout as before
+  2. Credit payout to caller's internal balance (local write, ~1B gas)
+  3. User can immediately re-bet from internal balance on any basket
+  4. User calls withdraw() explicitly when they want tokens back in wallet
+```
+
+**New BetLane methods:**
+- `deposit(amount)` — explicit deposit from BetToken (optional, auto-deposit covers this)
+- `withdraw(amount)` — pull tokens from BetLane back to BetToken/wallet
+- `balance_of(user)` — query internal BetLane balance
+
+**Typical agent flow across multiple baskets and days:**
+```
+Day 1: Claim 100 CHIP → Approve BetLane → PlaceBet on Basket A for 50
+        (auto-deposits 50 from BetToken, 1 cross-program call)
+        PlaceBet on Basket B for 30 ← uses internal balance (FREE)
+        20 CHIP remains in internal balance
+
+Day 2: Claim 100 CHIP → PlaceBet on Basket C for 100
+        (auto-deposits 100 from BetToken, 1 cross-program call)
+        Basket A settles → Claim payout → 80 CHIP added to internal balance
+        PlaceBet on Basket D for 80 ← uses payout balance (FREE)
+
+Day N: Withdraw remaining balance to wallet (1 cross-program call)
+```
+
+**Why NOT full merge:**
+- BetToken has 19 call sites across 7 frontend files — massive blast radius
+- The claim system (daily CHIP, streaks) is independent of betting
+- BetToken is a VFT standard — wallets and explorers expect standalone token contracts
+- Auto-deposit achieves same gas savings with ~10% of the code change
+- BetToken stays unchanged — zero risk to existing token functionality
+
+**Files to modify:**
+- `bet-lane/app/src/lib.rs` — add `BalanceLedger` storage, `deposit()`, `withdraw()`, `balance_of()`. Update `place_bet()` to check internal balance first (auto-deposit on deficit). Update `claim()` to credit internal balance.
+- `bet-lane/tests/bet_lane_gtest.rs` — add deposit/withdraw/auto-deposit tests, update existing tests
+- `src/components/BetLanePanel.tsx` — add withdraw button after claim
+- `src/components/SaveBasketButton.tsx` — show BetLane balance, optionally deposit before bet
+- Generated IDL/client — auto-regenerated
+- BetToken: **NO CHANGES**
+
+**Frontend UX change:**
+- For betting: NONE. Auto-deposit is invisible. Same Approve → PlaceBet flow.
+- For claiming: payout goes to BetLane internal balance (not wallet). Add a "Withdraw" button to move tokens to wallet when user wants them out.
+- New: show "BetLane Balance" alongside "Wallet Balance" in the betting UI.
+
+**Gas savings (agent placing 5 bets/day across different baskets):**
+
+| Metric | Before | After | Change |
+|--------|--------|-------|--------|
+| First bet of day | ~35B | ~25B | -10B (still 1 cross-program for auto-deposit) |
+| Bets 2-5 of day | ~35B each | ~15B each | -20B each (internal balance + cache) |
+| Daily total (5 bets) | 175B | 85B | -51% |
+| Claim payout | ~25B | ~15B | -10B (internal credit) |
+
+**Effort:** ~3-5 days. Contract changes are contained to BetLane. Frontend needs withdraw UX.
+
+**Depends on:** Decision on how to surface internal balance in the UI (inline vs separate tab).
 
 ---
 
