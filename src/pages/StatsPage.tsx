@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import {
   Activity,
   Award,
+  CalendarDays,
   BarChart3,
   CircleHelp,
   Coins,
@@ -9,6 +10,7 @@ import {
   Timer,
   Trophy,
   Users,
+  ArrowRight,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -19,6 +21,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -34,9 +39,11 @@ import {
   type ProjectStatsAgentRow,
   type ProjectStatsDailyRow,
   type ProjectStatsRange,
+  type ProjectStatsSelection,
   type TopAgentsSortKey,
 } from "@/lib/projectStats";
 import { truncateAddress } from "@/lib/basket-utils";
+import { cn } from "@/lib/utils";
 
 const RANGE_OPTIONS: Array<{ value: ProjectStatsRange; label: string }> = [
   { value: "today", label: "Today" },
@@ -45,6 +52,27 @@ const RANGE_OPTIONS: Array<{ value: ProjectStatsRange; label: string }> = [
   { value: "90d", label: "Last 90 days" },
   { value: "all", label: "All time" },
 ];
+
+const DAY_MS = 86_400_000;
+const CUSTOM_RANGE_VALUE = "custom";
+
+const dateToUtcDayId = (date: Date): string =>
+  Math.floor(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()) / DAY_MS).toString();
+
+const utcDayIdToDate = (dayId: string): Date => new Date(Number(dayId) * DAY_MS);
+
+const formatDayLabel = (dayId: string | null): string => {
+  if (!dayId) {
+    return "Select date";
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    timeZone: "UTC",
+  }).format(utcDayIdToDate(dayId));
+};
 
 const TOP_AGENT_SORT_OPTIONS: Array<{ value: TopAgentsSortKey; label: string }> = [
   { value: "transactions", label: "Transactions" },
@@ -312,7 +340,14 @@ function TopAgentsTable({
 }
 
 export default function StatsPage() {
-  const [range, setRange] = useState<ProjectStatsRange>("30d");
+  const [presetRange, setPresetRange] = useState<ProjectStatsRange>("30d");
+  const [rangeMode, setRangeMode] = useState<ProjectStatsRange | typeof CUSTOM_RANGE_VALUE>("30d");
+  const [customFromDayId, setCustomFromDayId] = useState<string | null>(null);
+  const [customToDayId, setCustomToDayId] = useState<string | null>(null);
+  const [appliedSelection, setAppliedSelection] = useState<ProjectStatsSelection>({
+    mode: "preset",
+    range: "30d",
+  });
   const [topAgentsSort, setTopAgentsSort] = useState<TopAgentsSortKey>("transactions");
   const statsQuery = useProjectStats();
   const { resolveAgentName } = useAgentNames();
@@ -322,8 +357,41 @@ export default function StatsPage() {
       return null;
     }
 
-    return buildProjectStatsView(statsQuery.data, range);
-  }, [range, statsQuery.data]);
+    return buildProjectStatsView(statsQuery.data, appliedSelection);
+  }, [appliedSelection, statsQuery.data]);
+
+  const canApplyCustomRange = Boolean(customFromDayId && customToDayId);
+  const customRangeLabel =
+    customFromDayId && customToDayId
+      ? `${formatDayLabel(customFromDayId)} - ${formatDayLabel(customToDayId)}`
+      : "Choose UTC dates";
+
+  const handleRangeModeChange = (value: ProjectStatsRange | typeof CUSTOM_RANGE_VALUE) => {
+    setRangeMode(value);
+
+    if (value === CUSTOM_RANGE_VALUE) {
+      return;
+    }
+
+    setPresetRange(value);
+    setAppliedSelection({
+      mode: "preset",
+      range: value,
+    });
+  };
+
+  const applyCustomRange = () => {
+    if (!customFromDayId || !customToDayId) {
+      return;
+    }
+
+    setAppliedSelection({
+      mode: "custom",
+      fromDayId: customFromDayId,
+      toDayId: customToDayId,
+    });
+    setRangeMode(CUSTOM_RANGE_VALUE);
+  };
 
   const topAgents = useMemo(() => {
     if (!stats) {
@@ -424,23 +492,103 @@ export default function StatsPage() {
           </p>
         </div>
 
-        <div className="w-full sm:max-w-[220px]">
-          <div className="min-w-0">
-            <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Time range
+        <div className="w-full max-w-[720px]">
+          <div className="rounded-2xl border border-primary/10 bg-card/70 p-4 shadow-[0_0_24px_rgba(132,255,0,0.06)] backdrop-blur-sm">
+            <div className="mb-3 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              <CalendarDays className="h-3.5 w-3.5" />
+              <span>Time range</span>
             </div>
-            <Select value={range} onValueChange={(value) => setRange(value as ProjectStatsRange)}>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {RANGE_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+
+            <div className="grid gap-3 lg:grid-cols-[220px_minmax(0,1fr)]">
+              <Select value={rangeMode} onValueChange={(value) => handleRangeModeChange(value as ProjectStatsRange | typeof CUSTOM_RANGE_VALUE)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {RANGE_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                  <SelectItem value={CUSTOM_RANGE_VALUE}>Custom range</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <div className={cn(
+                "grid gap-3 md:grid-cols-[minmax(0,1fr)_24px_minmax(0,1fr)_auto]",
+                rangeMode !== CUSTOM_RANGE_VALUE && "opacity-60",
+              )}>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="justify-start text-left font-normal"
+                    >
+                      <CalendarDays className="mr-2 h-4 w-4 text-muted-foreground" />
+                      {formatDayLabel(customFromDayId)}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={customFromDayId ? utcDayIdToDate(customFromDayId) : undefined}
+                      onSelect={(date) => {
+                        if (!date) return;
+                        setCustomFromDayId(dateToUtcDayId(date));
+                      }}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+
+                <div className="hidden items-center justify-center text-muted-foreground md:flex">
+                  <ArrowRight className="h-4 w-4" />
+                </div>
+
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="justify-start text-left font-normal"
+                    >
+                      <CalendarDays className="mr-2 h-4 w-4 text-muted-foreground" />
+                      {formatDayLabel(customToDayId)}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={customToDayId ? utcDayIdToDate(customToDayId) : undefined}
+                      onSelect={(date) => {
+                        if (!date) return;
+                        setCustomToDayId(dateToUtcDayId(date));
+                      }}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+
+                <Button
+                  type="button"
+                  onClick={applyCustomRange}
+                  disabled={!canApplyCustomRange}
+                  className="min-w-[110px]"
+                >
+                  Apply
+                </Button>
+              </div>
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <Badge variant="outline" className="border-primary/20 bg-primary/5 text-foreground">
+                {appliedSelection.mode === "preset"
+                  ? RANGE_OPTIONS.find((option) => option.value === appliedSelection.range)?.label ?? "Preset"
+                  : customRangeLabel}
+              </Badge>
+              <span>All dates are interpreted in UTC.</span>
+            </div>
           </div>
         </div>
       </div>

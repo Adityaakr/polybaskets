@@ -73,6 +73,9 @@ type ProjectStatsDatasetQuery = {
 };
 
 export type ProjectStatsRange = "today" | "7d" | "30d" | "90d" | "all";
+export type ProjectStatsSelection =
+  | { mode: "preset"; range: ProjectStatsRange }
+  | { mode: "custom"; fromDayId: string; toDayId: string };
 export type TopAgentsSortKey =
   | "transactions"
   | "realizedProfit"
@@ -155,7 +158,7 @@ export type ProjectStatsAgentRow = {
 };
 
 export type ProjectStatsView = {
-  range: ProjectStatsRange;
+  range: ProjectStatsRange | "custom";
   fromDayId: string | null;
   toDayId: string;
   coverage: {
@@ -320,6 +323,14 @@ const getRangeStartDayId = (
   }
 };
 
+const normalizeCustomRange = (
+  fromDayId: bigint,
+  toDayId: bigint,
+): { fromDayId: bigint; toDayId: bigint } =>
+  fromDayId <= toDayId
+    ? { fromDayId, toDayId }
+    : { fromDayId: toDayId, toDayId: fromDayId };
+
 const isDayInRange = (
   dayId: bigint,
   currentDayId: bigint,
@@ -481,11 +492,23 @@ export const fetchProjectStatsDataset = async (): Promise<ProjectStatsDataset> =
 
 export const buildProjectStatsView = (
   dataset: ProjectStatsDataset,
-  range: ProjectStatsRange,
+  selection: ProjectStatsSelection,
   now = Date.now(),
 ): ProjectStatsView => {
   const currentDayId = BigInt(getCurrentUtcDayId(now));
-  const startDayId = getRangeStartDayId(range, currentDayId);
+  const presetRange = selection.mode === "preset" ? selection.range : null;
+  const customRange =
+    selection.mode === "custom"
+      ? normalizeCustomRange(BigInt(selection.fromDayId), BigInt(selection.toDayId))
+      : null;
+  const startDayId =
+    selection.mode === "preset"
+      ? getRangeStartDayId(selection.range, currentDayId)
+      : customRange?.fromDayId ?? null;
+  const endDayId =
+    selection.mode === "preset"
+      ? currentDayId
+      : customRange?.toDayId ?? currentDayId;
 
   const allActivityDayIds = dataset.activities.map((item) => BigInt(item.dayId));
   const sortedActivityDayIds = allActivityDayIds.length
@@ -616,7 +639,7 @@ export const buildProjectStatsView = (
 
   for (const projection of dataset.projections) {
     const dayId = BigInt(projection.dayId);
-    if (!isDayInRange(dayId, currentDayId, startDayId)) {
+    if (!isDayInRange(dayId, endDayId, startDayId)) {
       continue;
     }
 
@@ -625,7 +648,7 @@ export const buildProjectStatsView = (
 
   for (const activity of dataset.activities) {
     const dayId = BigInt(activity.dayId);
-    if (!isDayInRange(dayId, currentDayId, startDayId)) {
+    if (!isDayInRange(dayId, endDayId, startDayId)) {
       continue;
     }
 
@@ -656,7 +679,7 @@ export const buildProjectStatsView = (
 
   for (const aggregate of dataset.aggregates) {
     const dayId = BigInt(aggregate.dayId);
-    if (!isDayInRange(dayId, currentDayId, startDayId)) {
+    if (!isDayInRange(dayId, endDayId, startDayId)) {
       continue;
     }
 
@@ -670,7 +693,7 @@ export const buildProjectStatsView = (
 
   for (const winner of dataset.winners) {
     const dayId = BigInt(winner.dayId);
-    if (!isDayInRange(dayId, currentDayId, startDayId)) {
+    if (!isDayInRange(dayId, endDayId, startDayId)) {
       continue;
     }
 
@@ -693,7 +716,7 @@ export const buildProjectStatsView = (
 
   for (const contribution of dataset.contributions) {
     const dayId = BigInt(contribution.dayId);
-    if (!isDayInRange(dayId, currentDayId, startDayId)) {
+    if (!isDayInRange(dayId, endDayId, startDayId)) {
       continue;
     }
 
@@ -749,7 +772,7 @@ export const buildProjectStatsView = (
         }
 
         const firstDayId = BigInt(agent.firstActiveDayId);
-        return isDayInRange(firstDayId, currentDayId, startDayId) && agent.txCount > 0;
+        return isDayInRange(firstDayId, endDayId, startDayId) && agent.txCount > 0;
       })
       .map((agent) => agent.user.toLowerCase()),
   );
@@ -800,9 +823,9 @@ export const buildProjectStatsView = (
   };
 
   return {
-    range,
+    range: presetRange ?? "custom",
     fromDayId: startDayId?.toString() ?? null,
-    toDayId: currentDayId.toString(),
+    toDayId: endDayId.toString(),
     coverage: {
       firstActivityDayId: coverageFirstDayId,
       lastActivityDayId: coverageLastDayId,
