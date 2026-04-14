@@ -30,6 +30,7 @@ const normalizeUrl = (value: string): string => value.replace(/\/+$/, '');
 
 export const ENV = {
   ENABLE_VARA: parseBooleanEnv(import.meta.env.VITE_ENABLE_VARA, false),
+  ENABLE_MANUAL_BETTING: parseBooleanEnv(import.meta.env.VITE_ENABLE_MANUAL_BETTING, true),
   EXPLORER_HOLD_ENABLED: parseBooleanEnv(import.meta.env.VITE_EXPLORER_HOLD_ENABLED, false),
   NODE_ADDRESS: import.meta.env.VITE_NODE_ADDRESS || 'wss://testnet.vara.network',
   PROGRAM_ID: import.meta.env.VITE_PROGRAM_ID || '0x702395d43248eaa5f1fd4d9eadadc75b0fb1c7c5ae9ea20bf31375fd4358f403',
@@ -75,6 +76,7 @@ export const getLaunchAppUrl = (): string => {
 };
 
 export const isVaraEnabled = () => ENV.ENABLE_VARA;
+export const isManualBettingEnabled = () => ENV.ENABLE_MANUAL_BETTING;
 
 export const getDefaultBasketAssetKind = (): BasketAssetKind =>
   ENV.ENABLE_VARA ? 'Vara' : 'FT';

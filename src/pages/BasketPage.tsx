@@ -12,7 +12,7 @@ import { useApi, useAccount } from '@gear-js/react-hooks';
 import { NETWORKS } from '@/lib/network.ts';
 import { basketMarketProgramFromApi, toVara, fromVara, actorIdFromAddress } from '@/lib/varaClient.ts';
 import { extractOnChainBasketId, fetchOnChainBasket, fetchOnChainPositions, fetchOnChainSettlement, getUserPositionForBasket, calculatePayout, onChainBasketToFrontend } from '@/lib/basket-onchain.ts';
-import { ENV, isBasketAssetKindEnabled, isVaraEnabled } from '@/env';
+import { ENV, isBasketAssetKindEnabled, isManualBettingEnabled, isVaraEnabled } from '@/env';
 import { isFtAssetKind, normalizeAssetKind, type ContractBasketAssetKind } from '@/lib/assetKind.ts';
 import { betLaneProgramFromApi, isBetProgramsConfigured, readSailsQuery } from '@/lib/betPrograms.ts';
 import { useVaraEthBasketMarket } from '@/hooks/useVaraEthBasketMarket';
@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { PayoutCelebration } from '@/components/PayoutCelebration';
 import { BetLanePanel } from '@/components/BetLanePanel';
+import { AgentTradingNotice } from '@/components/AgentTradingNotice';
 import { useMarketsLivePrices } from '@/hooks/useMarketLivePrices';
 
 const LOW_BASE_PROBABILITY_THRESHOLD = 0.05;
@@ -216,6 +217,7 @@ export default function BasketPage() {
   const { basketMarket: varaEthBasketMarket, isLoading: isLoadingVaraEth } = useVaraEthBasketMarket();
   const [copied, setCopied] = useState(false);
   const varaEnabled = isVaraEnabled();
+  const manualBettingEnabled = isManualBettingEnabled();
   
   const isVaraEth = network === 'varaeth';
   
@@ -1158,6 +1160,15 @@ export default function BasketPage() {
 
   // Handle betting
   const handleBet = async () => {
+    if (!manualBettingEnabled) {
+      toast({
+        title: 'Agent-Only Execution',
+        description: 'Manual bets are disabled in the web UI for this deployment. Use your agent workflow instead.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     if (!varaEnabled) {
       toast({
         title: 'CHIP-Only Mode',
@@ -2171,6 +2182,7 @@ export default function BasketPage() {
         <div className="space-y-4">
           {/* Betting UI (on-chain only) */}
           {isOnChain && canBet && (
+            manualBettingEnabled ? (
             <Card className="card-elevated">
               <CardHeader>
                 <CardTitle className="text-base">Bet on Basket</CardTitle>
@@ -2213,6 +2225,9 @@ export default function BasketPage() {
                 </Button>
               </CardContent>
             </Card>
+            ) : (
+              <AgentTradingNotice description="Manual native-asset bets are disabled in the web UI. Use your agent, curl requests, or automation scripts to open and manage positions." />
+            )
           )}
 
           {isOnChain && isFtAssetBasket && (

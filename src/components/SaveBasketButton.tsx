@@ -25,7 +25,7 @@ import {
   waitForQueryMatch,
   withRateLimitRetry,
 } from '@/lib/betPrograms.ts';
-import { ENV, getDefaultBasketAssetKind, isVaraEnabled } from '@/env';
+import { ENV, getDefaultBasketAssetKind, isManualBettingEnabled, isVaraEnabled } from '@/env';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -55,6 +55,7 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
   const { toast } = useToast();
   const { basketMarket: varaEthBasketMarket, isLoading: isLoadingVaraEth } = useVaraEthBasketMarket();
   const varaEnabled = isVaraEnabled();
+  const manualBettingEnabled = isManualBettingEnabled();
   const didAutofillDefaultBetRef = useRef(false);
   
   const [status, setStatus] = useState<TxStatus>('idle');
@@ -172,6 +173,7 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
   // Validate bet amount if provided
   const isValidBetAmount = !betAmount || (betAmountNum > 0 && !isNaN(betAmountNum));
   const disabledReason =
+    !manualBettingEnabled ? 'Manual basket creation is disabled in this deployment.' :
     !isValid ? errors[0] :
     isMissingRequiredFtAmount ? `${tokenSymbol} amount is required.` :
     !isValidBetAmount ? 'Enter a valid bet amount.' :
@@ -179,9 +181,23 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
     status !== 'idle' ? 'Wait for the current transaction to finish.' :
     null;
   const isSaveDisabled =
-    !isValid || isMissingRequiredFtAmount || !isValidBetAmount || hasInsufficientFtBalance || status !== 'idle';
+    !manualBettingEnabled ||
+    !isValid ||
+    isMissingRequiredFtAmount ||
+    !isValidBetAmount ||
+    hasInsufficientFtBalance ||
+    status !== 'idle';
 
   const handleSave = async () => {
+    if (!manualBettingEnabled) {
+      toast({
+        title: 'Agent-Only Execution',
+        description: 'Manual basket creation is disabled in this deployment. Use your agent or automation workflow instead.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     if (!address) {
       await connect();
       return;
@@ -870,14 +886,24 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
       )}
 
       {/* Save Button */}
-      <Button
-        onClick={handleSave}
-        disabled={isSaveDisabled}
+        <Button
+          onClick={handleSave}
+          disabled={isSaveDisabled}
         className="w-full gap-2"
         size="lg"
       >
-        {getStatusDisplay()}
-      </Button>
+          {manualBettingEnabled ? getStatusDisplay() : (
+            <>
+              <Circle className="w-4 h-4" />
+              Agent Only
+            </>
+          )}
+        </Button>
+        {!manualBettingEnabled && (
+          <p className="text-xs text-muted-foreground">
+            Basket creation from the web UI is disabled. Send the create-and-bet flow through your agent.
+          </p>
+        )}
       {disabledReason && (
         <p className="text-sm text-muted-foreground">{disabledReason}</p>
       )}

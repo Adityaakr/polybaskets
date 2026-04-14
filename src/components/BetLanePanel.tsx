@@ -13,6 +13,8 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useWallet } from '@/contexts/WalletContext';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { useToast } from '@/hooks/use-toast';
+import { AgentTradingNotice } from '@/components/AgentTradingNotice';
+import { isManualBettingEnabled } from '@/env';
 import { actorIdFromAddress } from '@/lib/varaClient';
 import { requestBetQuote } from '@/lib/betQuoteService';
 import {
@@ -52,6 +54,7 @@ export function BetLanePanel({
   const { network } = useNetwork();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const manualBettingEnabled = isManualBettingEnabled();
   const [betAmount, setBetAmount] = useState('');
   const [bettingPhase, setBettingPhase] = useState<BettingPhase>('idle');
   const [claimingPayout, setClaimingPayout] = useState(false);
@@ -253,6 +256,15 @@ export function BetLanePanel({
   };
 
   const handlePlaceBet = async () => {
+    if (!manualBettingEnabled) {
+      toast({
+        title: 'Agent-Only Execution',
+        description: `${tokenSymbol} bets are disabled in the web UI for this deployment. Use your agent workflow instead.`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
     if (!(await requireWallet()) || !betTokenProgram || !betLaneProgram || basketId === null) {
       return;
     }
@@ -433,6 +445,7 @@ export function BetLanePanel({
   }
 
   const actionDisabled =
+    !manualBettingEnabled ||
     isVaraEth ||
     !isConfigured ||
     !betTokenProgram ||
@@ -463,6 +476,7 @@ export function BetLanePanel({
   return (
     <>
       {basketStatus === 'Active' && (
+        manualBettingEnabled ? (
         <Card className="card-elevated border-border/60">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
@@ -529,6 +543,9 @@ export function BetLanePanel({
             )}
           </CardContent>
         </Card>
+        ) : (
+          <AgentTradingNotice description={`Manual ${tokenSymbol} bets are disabled in the web UI. Use your agent, curl requests, or automation scripts to place the position.`} />
+        )
       )}
 
       <Card className={`card-elevated ${canClaimPayout ? 'border-accent' : 'border-border/60'}`}>

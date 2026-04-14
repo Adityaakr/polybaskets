@@ -6,13 +6,16 @@ import { searchMarkets, getOutcomeProbabilities, getOutcomePrices, getMarketDeta
 import { OutcomeProbabilities, PolymarketMarket } from '@/types/polymarket.ts';
 import { BasketBuilder } from '@/components/BasketBuilder';
 import { BasketIndex } from '@/components/BasketIndex';
+import { AgentTradingNotice } from '@/components/AgentTradingNotice';
 import { SaveBasketButton } from '@/components/SaveBasketButton';
 import { Button } from '@/components/ui/button';
+import { isManualBettingEnabled } from '@/env';
 import { ArrowLeft } from 'lucide-react';
 
 export default function BuilderPage() {
   const { items, updateProbabilities } = useBasket();
   const [previousIndex, setPreviousIndex] = useState<number | undefined>();
+  const manualBettingEnabled = isManualBettingEnabled();
   
   // Track previous probabilities to avoid infinite update loop
   const lastProbUpdateRef = useRef<string>('');
@@ -140,7 +143,9 @@ export default function BuilderPage() {
         <div>
           <h1 className="text-5xl font-display font-bold mb-2 tracking-tight gradient-text reveal">Basket Builder</h1>
           <p className="text-muted-foreground text-base reveal reveal-delay-1">
-            Configure weights and save your basket onchain
+            {manualBettingEnabled
+              ? 'Configure weights and save your basket onchain'
+              : 'Configure basket ideas here and execute onchain through your agent'}
           </p>
         </div>
       </div>
@@ -163,11 +168,14 @@ export default function BuilderPage() {
             previousIndex={previousIndex}
           />
           
-          {items.length > 0 && (
+          {items.length > 0 && manualBettingEnabled && (
             <SaveBasketButton 
               marketProbabilities={marketProbabilities}
               marketPrices={marketPrices}
             />
+          )}
+          {items.length > 0 && !manualBettingEnabled && (
+            <AgentTradingNotice description="This builder remains available for planning and reviewing basket composition, but on-chain basket creation and the initial stake must be sent through your agent workflow." />
           )}
         </div>
       </div>
