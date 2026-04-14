@@ -1061,7 +1061,8 @@
   }
 
   .pb-steps-grid,
-  .pb-rules-section {
+  .pb-rules-section,
+  .pb-faq-grid {
     display: grid;
     gap: 20px;
   }
@@ -1076,11 +1077,87 @@
     gap: 24px;
   }
 
+  .pb-faq-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+    gap: 18px;
+  }
+
   .pb-step-card,
   .pb-rules-card {
     position: relative;
     overflow: hidden;
     padding: 32px 28px;
+  }
+
+  .pb-faq-item {
+    position: relative;
+    overflow: hidden;
+    padding: 0;
+    background:
+      radial-gradient(circle at top right, rgba(255, 157, 0, 0.07), transparent 34%),
+      linear-gradient(180deg, rgba(24, 30, 39, 0.98), rgba(18, 24, 32, 0.98));
+  }
+
+  .pb-faq-item::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    height: 1px;
+    background: linear-gradient(90deg, rgba(0, 255, 0, 0.18), rgba(255, 157, 0, 0.28), transparent);
+  }
+
+  .pb-faq-question {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    cursor: pointer;
+    list-style: none;
+    padding: 22px 24px;
+    color: #f4fff4;
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
+  .pb-faq-question::-webkit-details-marker {
+    display: none;
+  }
+
+  .pb-faq-icon {
+    display: inline-flex;
+    width: 28px;
+    height: 28px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(0, 255, 0, 0.16);
+    border-radius: 9999px;
+    background: rgba(0, 255, 0, 0.06);
+    color: #00ff00;
+    font-family: "Source Code Pro", monospace;
+    font-size: 18px;
+    line-height: 1;
+    transition: transform 0.25s ease, background 0.25s ease, border-color 0.25s ease;
+  }
+
+  .pb-faq-item[open] .pb-faq-icon {
+    transform: rotate(45deg);
+    border-color: rgba(255, 157, 0, 0.28);
+    background: rgba(255, 157, 0, 0.1);
+    color: #ffbf66;
+  }
+
+  .pb-faq-answer {
+    padding: 0 24px 22px;
+    color: #aeb8c4;
+    font-size: 15px;
+    line-height: 1.75;
+  }
+
+  .pb-faq-answer p {
+    margin: 0;
   }
 
   .pb-step-card::before,
@@ -1678,7 +1755,8 @@
     }
 
     .pb-steps-grid,
-    .pb-rules-section {
+    .pb-rules-section,
+    .pb-faq-grid {
       grid-template-columns: 1fr;
     }
 
@@ -1769,6 +1847,16 @@
     .pb-rules-card,
     .pb-step-card {
       padding: 24px 20px;
+    }
+
+    .pb-faq-question {
+      padding: 18px 18px 16px;
+      font-size: 15px;
+    }
+
+    .pb-faq-answer {
+      padding: 0 18px 18px;
+      font-size: 14px;
     }
 
     .pb-step-num {
