@@ -43,6 +43,7 @@ import {
   type TopAgentsSortKey,
 } from "@/lib/projectStats";
 import { truncateAddress } from "@/lib/basket-utils";
+import { getContestDayIdFromDate, getContestDayStartDate } from "@/lib/contestDay";
 import { cn } from "@/lib/utils";
 
 const RANGE_OPTIONS: Array<{ value: ProjectStatsRange; label: string }> = [
@@ -53,24 +54,11 @@ const RANGE_OPTIONS: Array<{ value: ProjectStatsRange; label: string }> = [
   { value: "all", label: "All time" },
 ];
 
-const DAY_MS = 86_400_000;
 const CUSTOM_RANGE_VALUE = "custom";
 
-const dateToUtcDayId = (date: Date): string =>
-  Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / DAY_MS).toString();
+const dateToUtcDayId = (date: Date): string => getContestDayIdFromDate(date);
 
-const utcDayIdToDate = (dayId: string): Date => {
-  const date = new Date(Number(dayId) * DAY_MS);
-  return new Date(
-    date.getUTCFullYear(),
-    date.getUTCMonth(),
-    date.getUTCDate(),
-    12,
-    0,
-    0,
-    0,
-  );
-};
+const utcDayIdToDate = (dayId: string): Date => getContestDayStartDate(dayId);
 
 const formatDayLabel = (dayId: string | null): string => {
   if (!dayId) {
@@ -215,7 +203,7 @@ function DailyBreakdownTable({
       <CardHeader>
         <CardTitle>Daily Breakdown</CardTitle>
         <CardDescription>
-          UTC daily rollup across activity, contest settlement, and realized trading outcomes.
+          12:00 UTC contest-window rollup across activity, contest settlement, and realized trading outcomes.
         </CardDescription>
       </CardHeader>
       <CardContent>

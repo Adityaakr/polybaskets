@@ -5,7 +5,7 @@ Sails contract for fixed-reward daily CHIP competition settlement.
 ## Responsibilities
 
 - hold the native VARA reward pool
-- settle previous UTC contest days
+- settle previous 12:00 UTC contest windows
 - split reward across tied winners deterministically
 - transfer payouts immediately during settlement
 - persist settled day history for frontend reads

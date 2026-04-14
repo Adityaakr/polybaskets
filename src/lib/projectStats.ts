@@ -1,8 +1,8 @@
 import { ENV } from "@/env";
+import { getContestDayStartDate } from "@/lib/contestDay";
 import { getCurrentUtcDayId } from "@/lib/contestLeaderboard";
 
 const GRAPHQL_ENDPOINT = ENV.INDEXER_GRAPHQL_ENDPOINT;
-const DAY_MS = 86_400_000;
 const CHIP_DECIMALS = 12;
 const VARA_DECIMALS = 12;
 const BATCH_SIZE = 500;
@@ -353,7 +353,7 @@ const getUtcDayLabel = (dayId: string): string =>
     month: "short",
     day: "2-digit",
     timeZone: "UTC",
-  }).format(new Date(Number(dayId) * DAY_MS));
+  }).format(getContestDayStartDate(dayId));
 
 const uniqueSortedBigInts = (values: Iterable<bigint>): bigint[] =>
   Array.from(new Set(Array.from(values, (value) => value.toString()))).map(BigInt).sort(

@@ -112,7 +112,8 @@ const basketSettlementId = (basketId: number | string | bigint): string =>
 const chipPositionId = (basketId: string, user: string): string =>
   `${basketId}:${user}`;
 
-const dayIdFromTimestamp = (timestampMs: bigint): bigint => timestampMs / DAY_MS;
+const dayIdFromTimestamp = (timestampMs: bigint): bigint =>
+  (timestampMs - config.contestDayBoundaryOffsetMs) / DAY_MS;
 
 const dailyContributionId = (
   dayId: bigint,
@@ -131,7 +132,8 @@ const contestDayId = (dayId: bigint): string => dayId.toString();
 const contestWinnerId = (dayId: bigint, user: string): string =>
   `${dayId.toString()}:${user}`;
 
-const dayStartMs = (dayId: bigint): bigint => dayId * DAY_MS;
+const dayStartMs = (dayId: bigint): bigint =>
+  dayId * DAY_MS + config.contestDayBoundaryOffsetMs;
 
 const nextDayStartMs = (dayId: bigint): bigint => dayStartMs(dayId + 1n);
 
@@ -142,7 +144,8 @@ const settlementAllowedAtDate = (dayId: bigint): Date =>
   new Date(Number(settlementAllowedAtMs(dayId)));
 
 const maxCompleteDayId = (headTimestampMs: bigint): bigint | null => {
-  const shifted = headTimestampMs - config.settlementGracePeriodMs;
+  const shifted =
+    headTimestampMs - config.settlementGracePeriodMs - config.contestDayBoundaryOffsetMs;
   if (shifted <= 0n) {
     return null;
   }

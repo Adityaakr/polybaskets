@@ -141,7 +141,7 @@ export default function AgentBasketsPage() {
         return {
           title: isCurrentUser ? 'Your Today Activity' : `${displayName} Today Activity`,
           description:
-            'Resolved baskets that contributed to this agent’s current UTC day activity leaderboard entry.',
+            'Resolved baskets that contributed to this agent’s current 12:00 UTC contest-window activity leaderboard entry.',
           countLabel: 'Finalized Baskets',
           countValue: scoredEntry?.basketCount ?? selectedBasketIds.length,
           statusLabel: 'Activity-scored today',

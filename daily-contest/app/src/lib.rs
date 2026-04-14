@@ -6,6 +6,7 @@ use scale_info::TypeInfo;
 use sails_rs::collections::BTreeMap;
 
 const DAY_MS: u64 = 86_400_000;
+const DEFAULT_DAY_BOUNDARY_OFFSET_MS: u64 = 43_200_000;
 const MAX_WINNERS_PER_DAY: usize = 128;
 const MAX_PAGE_SIZE: u32 = 100;
 
@@ -17,6 +18,7 @@ pub struct DailyContestConfig {
     pub settler_role: ActorId,
     pub daily_reward: u128,
     pub grace_period_ms: u64,
+    pub day_boundary_offset_ms: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, TypeInfo)]
@@ -157,6 +159,7 @@ impl Default for State {
                 settler_role: ActorId::zero(),
                 daily_reward: 0,
                 grace_period_ms: 0,
+                day_boundary_offset_ms: DEFAULT_DAY_BOUNDARY_OFFSET_MS,
             },
         }
     }
@@ -200,6 +203,7 @@ impl<'a> DailyContestService<'a> {
         if config.admin_role == ActorId::zero()
             || config.settler_role == ActorId::zero()
             || config.daily_reward == 0
+            || config.day_boundary_offset_ms >= DAY_MS
         {
             return Err(DailyContestError::InvalidConfig);
         }
@@ -239,15 +243,22 @@ impl<'a> DailyContestService<'a> {
         Ok(())
     }
 
-    fn day_start_ms(day_id: u64) -> Result<u64, DailyContestError> {
+    fn day_start_ms(
+        day_id: u64,
+        day_boundary_offset_ms: u64,
+    ) -> Result<u64, DailyContestError> {
         day_id
             .checked_mul(DAY_MS)
+            .and_then(|start| start.checked_add(day_boundary_offset_ms))
             .ok_or(DailyContestError::MathOverflow)
     }
 
     #[allow(dead_code)]
-    fn day_end_ms(day_id: u64) -> Result<u64, DailyContestError> {
-        Self::day_start_ms(day_id)?
+    fn day_end_ms(
+        day_id: u64,
+        day_boundary_offset_ms: u64,
+    ) -> Result<u64, DailyContestError> {
+        Self::day_start_ms(day_id, day_boundary_offset_ms)?
             .checked_add(DAY_MS)
             .and_then(|next_day_start| next_day_start.checked_sub(1))
             .ok_or(DailyContestError::MathOverflow)
@@ -255,12 +266,13 @@ impl<'a> DailyContestService<'a> {
 
     fn settlement_allowed_at_ms(
         day_id: u64,
+        day_boundary_offset_ms: u64,
         grace_period_ms: u64,
     ) -> Result<u64, DailyContestError> {
         day_id
             .checked_add(1)
             .ok_or(DailyContestError::MathOverflow)
-            .and_then(Self::day_start_ms)
+            .and_then(|next_day_id| Self::day_start_ms(next_day_id, day_boundary_offset_ms))
             .and_then(|next_day_start| {
                 next_day_start
                     .checked_add(grace_period_ms)
@@ -462,6 +474,28 @@ impl<'a> DailyContestService<'a> {
     }
 
     #[export(unwrap_result)]
+    pub fn set_day_boundary_offset(
+        &mut self,
+        day_boundary_offset_ms: u64,
+    ) -> Result<(), DailyContestError> {
+        self.ensure_zero_value()?;
+        self.ensure_admin()?;
+
+        if day_boundary_offset_ms >= DAY_MS {
+            return Err(DailyContestError::InvalidConfig);
+        }
+
+        self.state.config.day_boundary_offset_ms = day_boundary_offset_ms;
+
+        self.emit_event(Event::ConfigUpdated {
+            config: self.state.config.clone(),
+        })
+        .map_err(|_| DailyContestError::EventEmitFailed)?;
+
+        Ok(())
+    }
+
+    #[export(unwrap_result)]
     pub fn withdraw_funds(
         &mut self,
         to: ActorId,
@@ -514,6 +548,7 @@ impl<'a> DailyContestService<'a> {
         let now = sails_rs::gstd::exec::block_timestamp();
         let settlement_allowed_at = DailyContestService::settlement_allowed_at_ms(
             day_id,
+            self.state.config.day_boundary_offset_ms,
             self.state.config.grace_period_ms,
         )?;
         if now < settlement_allowed_at {

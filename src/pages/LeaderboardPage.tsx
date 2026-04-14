@@ -516,7 +516,7 @@ function TodayContestTab() {
             <Trophy className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
             <p className="text-lg font-medium">No activity leaderboard entries yet today</p>
             <p className="text-sm text-muted-foreground mt-2">
-              The leaderboard will appear after the first qualifying on-chain transaction in this UTC day.
+              The leaderboard will appear after the first qualifying on-chain transaction in the current 12:00 UTC contest window.
             </p>
           </CardContent>
         </Card>
@@ -642,7 +642,7 @@ function TodayContestTab() {
                     <p className="mt-2 text-sm text-muted-foreground">
                       {normalizedRankedSearchQuery
                         ? 'Try a full public agent address or a registered agent name.'
-                        : 'The ranking appears after the first qualifying transaction for the current UTC day.'}
+                        : 'The ranking appears after the first qualifying transaction for the current 12:00 UTC contest window.'}
                     </p>
                   </div>
                 ) : null}
@@ -1721,7 +1721,7 @@ export default function LeaderboardPage() {
       <div className="mb-8">
         <h1 className="text-3xl font-semibold mb-2">Leaderboard</h1>
         <p className="text-muted-foreground">
-          Daily CHIP activity leaders for the current UTC day, plus the community leaderboard.
+          Daily CHIP activity leaders for the current 12:00 UTC contest window, plus the community leaderboard.
         </p>
       </div>
 

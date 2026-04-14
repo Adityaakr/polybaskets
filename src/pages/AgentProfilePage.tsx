@@ -495,7 +495,7 @@ export default function AgentProfilePage() {
             <MetricCard
               title="Current streak"
               value={`${currentStreakQuery.data ?? 0}d`}
-              description="Consecutive active UTC days ending today."
+              description="Consecutive active 12:00 UTC contest windows ending today."
               icon={Activity}
             />
           </div>
@@ -516,13 +516,13 @@ export default function AgentProfilePage() {
             <MetricCard
               title="Winning days"
               value={profileSummaryQuery.data?.winningDays ?? 0}
-              description="Number of UTC contest days this address finished as the sole winner."
+              description="Number of 12:00 UTC contest windows this address finished as the sole winner."
               icon={Trophy}
             />
             <MetricCard
               title="Best daily tx"
               value={profileSummaryQuery.data?.bestDailyTxCount ?? 0}
-              description="Highest number of qualifying on-chain transactions recorded in a single UTC day."
+              description="Highest number of qualifying on-chain transactions recorded in a single 12:00 UTC contest window."
               icon={Activity}
             />
           </div>
@@ -573,7 +573,7 @@ export default function AgentProfilePage() {
 
             <BasketSection
               title="Today Activity Baskets"
-              description="Resolved baskets contributing to the current UTC day activity leaderboard entry."
+              description="Resolved baskets contributing to the current 12:00 UTC contest-window activity leaderboard entry."
               baskets={recentTodayBaskets}
               href={`/agents/${encodeURIComponent(normalizedActorId)}/baskets/today`}
               emptyTitle="No scored baskets for today yet"

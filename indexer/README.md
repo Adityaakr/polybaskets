@@ -23,13 +23,13 @@
 ## Projection Rules
 
 - only CHIP baskets participate
-- contest day is UTC `00:00:00.000` to `23:59:59.999`
+- contest day is UTC `12:00:00.000` to `11:59:59.999`
 - projected activity counts include `BasketCreated`, `BetToken/Approved`, `BetLane/BetPlaced`, `BetLane/Claimed`, and `BetToken/Claimed` when `BET_TOKEN_PROGRAM_ID` is configured
 - realized profit is assigned by `SettlementFinalized.finalized_at`, not by claim day
 - projected winner ranking is activity-first: `txCount DESC`, then `realizedProfit DESC`, then earlier `lastTxAt`, then deterministic technical tie-breakers
 - projected winner is always a single account for a closed day unless the day has no eligible activity
 - empty closed days are materialized as `no_winner` because current policy is `settle_no_winner`
-- empty closed days are materialized only from the UTC day of the first processed block at or after `VARA_FROM_BLOCK`
+- empty closed days are materialized only from the first 12:00 UTC contest window touched by a processed block at or after `VARA_FROM_BLOCK`
 - winners for a day are always fully replaced on recompute; stale winners are not retained
 
 ## Completeness Semantics

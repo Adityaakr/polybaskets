@@ -63,6 +63,15 @@ const parseBoolean = (value: string | undefined, fallback: boolean): boolean => 
   return fallback;
 };
 
+const getNonNegativeBigIntEnv = (key: string, fallback: string): bigint => {
+  const value = BigInt(getEnv(key, fallback));
+  if (value < 0n) {
+    throw new Error(`Environment variable ${key} must be non-negative`);
+  }
+
+  return value;
+};
+
 export const DAY_MS = 86_400_000n;
 
 export const config = {
@@ -108,6 +117,10 @@ export const config = {
   dailyContestIdlPath: getEnv(
     "DAILY_CONTEST_IDL_PATH",
     resolveFromCwd("../daily-contest/daily-contest.idl")
+  ),
+  contestDayBoundaryOffsetMs: getNonNegativeBigIntEnv(
+    "CONTEST_DAY_BOUNDARY_OFFSET_MS",
+    "43200000"
   ),
   settlementGracePeriodMs: BigInt(
     getEnv("CONTEST_GRACE_PERIOD_MS", "1800000")

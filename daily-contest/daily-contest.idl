@@ -3,6 +3,7 @@ type DailyContestConfig = struct {
   settler_role: actor_id,
   daily_reward: u128,
   grace_period_ms: u64,
+  day_boundary_offset_ms: u64,
 };
 
 type WinnerInput = struct {
@@ -65,6 +66,7 @@ service DailyContest {
   SetAdminRole : (admin_role: actor_id) -> null;
   SetConfig : (config: DailyContestConfig) -> null;
   SetDailyReward : (daily_reward: u128) -> null;
+  SetDayBoundaryOffset : (day_boundary_offset_ms: u64) -> null;
   SetGracePeriod : (grace_period_ms: u64) -> null;
   SetRoles : (admin_role: actor_id, settler_role: actor_id) -> null;
   SetSettlerRole : (settler_role: actor_id) -> null;

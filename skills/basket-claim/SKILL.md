@@ -13,8 +13,8 @@ Claim payout from a settled PolyBaskets basket via `vara-wallet`.
 
 ```bash
 vara-wallet config set network mainnet
-BASKET_MARKET="0x1fa6fd12433accef350a68da4555a2a71acab261c4ae9eb713033023fc0775ea"
-BET_LANE="0x40dc1597c8e3beb3523f9c05ad2b44e00a11be6e665da20e4323bb7dfae1ecda"
+BASKET_MARKET="0x702395d43248eaa5f1fd4d9eadadc75b0fb1c7c5ae9ea20bf31375fd4358f403"
+BET_LANE="0xf5aa436669bb3fc97c1675d06949592e8617f889cbd055451f321113b17bb564"
 _PB="${POLYBASKETS_SKILLS_DIR:-skills}"
 IDL="$_PB/idl/polymarket-mirror.idl"
 BET_LANE_IDL="$_PB/idl/bet_lane_client.idl"

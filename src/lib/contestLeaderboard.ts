@@ -1,8 +1,11 @@
 import { ENV } from "@/env";
+import {
+  getContestDayIdFromTimestamp,
+  getContestDayStartDate,
+} from "@/lib/contestDay";
 
 const CHIP_DECIMALS = 12;
 const VARA_DECIMALS = 12;
-const DAY_MS = 86_400_000;
 const GRAPHQL_ENDPOINT = ENV.INDEXER_GRAPHQL_ENDPOINT;
 
 type ContestDayProjectionNode = {
@@ -446,16 +449,15 @@ const AGENT_PROFILE_ACTIVITY_QUERY = `
 `;
 
 export const getCurrentUtcDayId = (now = Date.now()): string =>
-  Math.floor(now / DAY_MS).toString();
+  getContestDayIdFromTimestamp(now);
 
 export const getUtcDayLabel = (dayId: string): string => {
-  const date = new Date(Number(dayId) * DAY_MS);
   return new Intl.DateTimeFormat("en-US", {
     year: "numeric",
     month: "short",
     day: "2-digit",
     timeZone: "UTC",
-  }).format(date);
+  }).format(getContestDayStartDate(dayId));
 };
 
 export const formatUtcDateTime = (value?: string | null): string => {

@@ -378,15 +378,17 @@ npm run dev
 
 ```env
 VITE_ENABLE_VARA=true
-VITE_PROGRAM_ID=0x1fa6fd12433accef350a68da4555a2a71acab261c4ae9eb713033023fc0775ea
+VITE_PROGRAM_ID=0x702395d43248eaa5f1fd4d9eadadc75b0fb1c7c5ae9ea20bf31375fd4358f403
 VITE_NODE_ADDRESS=wss://testnet.vara.network
 VITE_GAMMA_PROXY=/gamma
 VITE_INDEXER_GRAPHQL_ENDPOINT=http://localhost:4350/graphql
 VITE_BET_QUOTE_SERVICE_URL=http://127.0.0.1:4360
+VITE_CONTEST_DAY_BOUNDARY_OFFSET_MS=43200000
 VITE_EXPLORER_HOLD_ENABLED=false
 ```
 
 `VITE_ENABLE_VARA` controls the native VARA asset flow in the frontend.
+`VITE_CONTEST_DAY_BOUNDARY_OFFSET_MS` controls the frontend contest-window start offset in milliseconds from UTC midnight. `43200000` means `12:00 UTC`.
 `VITE_EXPLORER_HOLD_ENABLED` swaps `/explorer` to a launch-soon placeholder page, and the related `VITE_EXPLORER_HOLD_*` vars let you customize the copy and CTA without code changes.
 
 - `true`: current behavior is preserved, including native VARA basket creation, betting, and claim UI.

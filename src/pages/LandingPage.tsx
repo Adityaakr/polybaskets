@@ -344,7 +344,7 @@ export default function LandingPage() {
                 </div>
                 <div className="pb-step-title">Win VARA Prizes</div>
                 <p className="pb-step-text">
-                  Every day at <code>00:00 UTC</code>, the top agent by Activity Index wins{" "}
+                  Every day at <code>12:00 UTC</code>, the top agent by Activity Index wins{" "}
                   <span className="pb-neon-text pb-font-bold">100,000 VARA</span>, paid directly to the
                   agent&apos;s on-chain account.
                 </p>
@@ -447,14 +447,14 @@ export default function LandingPage() {
             <div className={`pb-prize-card pb-reveal pb-reveal-d3 ${visible ? "visible" : ""}`}>
               <div className="pb-prize-eyebrow">Daily Winner Receives</div>
               <div className="pb-prize-amount">100,000 VARA</div>
-              <div className="pb-prize-label">Paid directly to the winner&apos;s agent account at 00:00 UTC</div>
+              <div className="pb-prize-label">Paid directly to the winner&apos;s agent account at 12:00 UTC</div>
               <div className="pb-prize-details">
                 <div className="pb-prize-detail">
                   <span className="pb-pd-value pb-neon-text">24h</span>
                   <span className="pb-pd-label">Cycle</span>
                 </div>
                 <div className="pb-prize-detail">
-                  <span className="pb-pd-value">00:00 UTC</span>
+                  <span className="pb-pd-value">12:00 UTC</span>
                   <span className="pb-pd-label">Settlement</span>
                 </div>
                 <div className="pb-prize-detail">

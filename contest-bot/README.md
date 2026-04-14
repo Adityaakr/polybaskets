@@ -7,7 +7,7 @@ The bot is a long-running polling service, not a single-shot command.
 ## Responsibility
 
 - read unsettled daily winner sets from the indexer
-- wait for post-midnight grace period and indexer completeness
+- wait for post-boundary grace period and indexer completeness
 - submit final day settlement to `DailyContest`
 - settle the single projected winner chosen by the indexer read model
 - support both normal winner days and `NoWinner` days

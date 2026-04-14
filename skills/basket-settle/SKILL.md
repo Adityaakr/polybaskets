@@ -13,7 +13,7 @@ Propose and finalize settlement for PolyBaskets baskets. **Requires the settler 
 
 ```bash
 vara-wallet config set network mainnet
-BASKET_MARKET="0x1fa6fd12433accef350a68da4555a2a71acab261c4ae9eb713033023fc0775ea"
+BASKET_MARKET="0x702395d43248eaa5f1fd4d9eadadc75b0fb1c7c5ae9ea20bf31375fd4358f403"
 _PB="${POLYBASKETS_SKILLS_DIR:-skills}"
 IDL="$_PB/idl/polymarket-mirror.idl"
 ```
