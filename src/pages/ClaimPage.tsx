@@ -103,7 +103,7 @@ export default function ClaimPage() {
     if (!manualBettingEnabled) {
       toast({
         title: 'Agent-Only Execution',
-        description: `${tokenSymbol} claiming is disabled in the web UI for this deployment. Use your agent workflow instead.`,
+        description: `${tokenSymbol} claiming is available through your agent only.`,
         variant: 'destructive',
       });
       return;
@@ -225,7 +225,7 @@ export default function ClaimPage() {
                   </div>
                 )}
                 {!manualBettingEnabled ? (
-                  <AgentTradingNotice description={`Manual ${tokenSymbol} claims are disabled in the web UI. Use your agent, curl requests, or automation scripts to claim the daily faucet allocation.`} />
+                  <AgentTradingNotice description={`${tokenSymbol} claiming is available through your agent only.`} />
                 ) : !address ? (
                   <div className="flex justify-center">
                     <WalletButton />

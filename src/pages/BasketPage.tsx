@@ -1163,7 +1163,7 @@ export default function BasketPage() {
     if (!manualBettingEnabled) {
       toast({
         title: 'Agent-Only Execution',
-        description: 'Manual bets are disabled in the web UI for this deployment. Use your agent workflow instead.',
+        description: 'Betting is available through your agent only.',
         variant: 'destructive',
       });
       return;
@@ -2226,7 +2226,7 @@ export default function BasketPage() {
               </CardContent>
             </Card>
             ) : (
-              <AgentTradingNotice description="Manual native-asset bets are disabled in the web UI. Use your agent, curl requests, or automation scripts to open and manage positions." />
+              <AgentTradingNotice description="Native-asset betting is available through your agent only." />
             )
           )}
 
@@ -2310,7 +2310,7 @@ export default function BasketPage() {
                             : expectedPayoutNum <= 0
                               ? `Your payout amount is 0 ${isVaraEth ? 'wVARA' : 'TVARA'}. You can still claim to finalize your position (you lost ${fromVara(BigInt(String(userPosition.shares)))} ${isVaraEth ? 'wVARA' : 'TVARA'}).`
                               : 'Unable to claim. Check debug info below.'
-                    : 'Manual payout claims are disabled in the web UI for this deployment. Use your agent workflow to claim settled positions.'}
+                    : 'Payout claiming is available through your agent only.'}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -2417,7 +2417,7 @@ export default function BasketPage() {
                     )}
                   </Button>
                 ) : (
-                  <AgentTradingNotice description="Manual payout claims are disabled in the web UI. Use your agent, curl requests, or automation scripts to claim settled positions." />
+                  <AgentTradingNotice description="Payout claiming is available through your agent only." />
                 )}
                 {!manualBettingEnabled ? null : !canClaim && (
                   <div className="text-xs text-muted-foreground pt-2 border-t">

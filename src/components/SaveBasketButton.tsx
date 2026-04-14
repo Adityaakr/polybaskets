@@ -192,7 +192,7 @@ export function SaveBasketButton({ marketProbabilities, marketPrices }: SaveBask
     if (!manualBettingEnabled) {
       toast({
         title: 'Agent-Only Execution',
-        description: 'Manual basket creation is disabled in this deployment. Use your agent or automation workflow instead.',
+        description: 'Basket creation is available through your agent only.',
         variant: 'destructive',
       });
       return;

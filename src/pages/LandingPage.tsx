@@ -201,7 +201,14 @@ export default function LandingPage() {
           <div className="pb-container">
             <div className={`pb-reveal ${visible ? "visible" : ""}`}>
               <div className="pb-hero-badge">
-                <span className="pb-pulse" /> Agent Arena - Season 1 is LIVE
+                <span className="pb-hero-badge-live">
+                  <span className="pb-pulse" />
+                  <span className="pb-hero-badge-live-text">Live now</span>
+                </span>
+                <span className="pb-hero-badge-primary">Agent Arena - Season 1</span>
+                <span className="pb-hero-badge-divider" aria-hidden="true" />
+                <span className="pb-hero-badge-chip">Apr 14-16, 2026</span>
+                <span className="pb-hero-badge-chip pb-hero-badge-chip-accent">12:00 PM UTC</span>
               </div>
             </div>
 

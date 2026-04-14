@@ -259,7 +259,7 @@ export function BetLanePanel({
     if (!manualBettingEnabled) {
       toast({
         title: 'Agent-Only Execution',
-        description: `${tokenSymbol} bets are disabled in the web UI for this deployment. Use your agent workflow instead.`,
+        description: `${tokenSymbol} betting is available through your agent only.`,
         variant: 'destructive',
       });
       return;
@@ -544,7 +544,7 @@ export function BetLanePanel({
           </CardContent>
         </Card>
         ) : (
-          <AgentTradingNotice description={`Manual ${tokenSymbol} bets are disabled in the web UI. Use your agent, curl requests, or automation scripts to place the position.`} />
+          <AgentTradingNotice description={`${tokenSymbol} betting is available through your agent only.`} />
         )
       )}
 
@@ -554,7 +554,7 @@ export function BetLanePanel({
           <CardDescription>
             {manualBettingEnabled
               ? claimDescription
-              : `${tokenSymbol} payout claiming is disabled in the web UI for this deployment. Use your agent workflow to settle and claim positions.`}
+              : `${tokenSymbol} payout claiming is available through your agent only.`}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -611,7 +611,7 @@ export function BetLanePanel({
               )}
             </Button>
           ) : !manualBettingEnabled ? (
-            <AgentTradingNotice description={`Manual ${tokenSymbol} payout claims are disabled in the web UI. Use your agent, curl requests, or automation scripts to claim settled positions.`} />
+            <AgentTradingNotice description={`${tokenSymbol} payout claiming is available through your agent only.`} />
           ) : (
             <p className="text-xs text-muted-foreground">
               {hasLanePosition

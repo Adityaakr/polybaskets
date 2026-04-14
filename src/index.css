@@ -594,17 +594,42 @@
   .pb-hero-badge {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 12px;
     margin-bottom: 28px;
-    border: 1px solid rgba(0, 255, 0, 0.2);
-    border-radius: 9999px;
-    background: rgba(0, 255, 0, 0.1);
-    padding: 6px 16px;
+    border: 1px solid rgba(126, 255, 126, 0.16);
+    border-radius: 24px;
+    background:
+      radial-gradient(circle at top left, rgba(0, 255, 0, 0.12), transparent 42%),
+      linear-gradient(180deg, rgba(11, 20, 14, 0.95), rgba(8, 14, 10, 0.88));
+    padding: 10px 16px;
     color: #00ff00;
     font-size: 13px;
     font-weight: 600;
     letter-spacing: 0.03em;
     text-transform: uppercase;
+    box-shadow:
+      0 18px 40px rgba(0, 0, 0, 0.28),
+      inset 0 1px 0 rgba(255, 255, 255, 0.05),
+      0 0 0 1px rgba(0, 255, 0, 0.04);
+  }
+
+  .pb-hero-badge-live {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border-radius: 9999px;
+    background: linear-gradient(180deg, rgba(0, 255, 0, 0.18), rgba(0, 255, 0, 0.08));
+    padding: 6px 12px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+
+  .pb-hero-badge-live-text {
+    color: #dfffe0;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
   }
 
   .pb-pulse {
@@ -613,6 +638,41 @@
     border-radius: 9999px;
     background: #00ff00;
     animation: pb-pulse-soft 2s ease-in-out infinite;
+  }
+
+  .pb-hero-badge-primary {
+    color: #f4fff4;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-shadow: 0 0 10px rgba(0, 255, 0, 0.18);
+  }
+
+  .pb-hero-badge-divider {
+    width: 1px;
+    height: 14px;
+    background: linear-gradient(180deg, rgba(0, 255, 0, 0.08), rgba(255, 157, 0, 0.65), rgba(0, 255, 0, 0.08));
+  }
+
+  .pb-hero-badge-chip {
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 9999px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03));
+    padding: 5px 11px;
+    color: #d6dde6;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  }
+
+  .pb-hero-badge-chip-accent {
+    border-color: rgba(255, 184, 76, 0.32);
+    background: linear-gradient(180deg, rgba(255, 170, 64, 0.22), rgba(255, 157, 0, 0.1));
+    color: #ffd08a;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.06),
+      0 0 18px rgba(255, 157, 0, 0.08);
   }
 
   .pb-hero-title {
@@ -1620,6 +1680,22 @@
     .pb-steps-grid,
     .pb-rules-section {
       grid-template-columns: 1fr;
+    }
+
+    .pb-hero-badge {
+      gap: 10px;
+      border-radius: 18px;
+      padding: 10px 12px;
+    }
+
+    .pb-hero-badge-live,
+    .pb-hero-badge-chip {
+      width: 100%;
+      justify-content: center;
+    }
+
+    .pb-hero-badge-divider {
+      display: none;
     }
   }
 

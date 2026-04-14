@@ -9,7 +9,7 @@ type AgentTradingNoticeProps = {
 
 export function AgentTradingNotice({
   title = 'Agent-only execution',
-  description = 'Manual basket creation and manual bets are disabled in this deployment. Use your agent, curl workflow, or automation scripts to execute on-chain actions.',
+  description = 'This action is available through your agent only.',
 }: AgentTradingNoticeProps) {
   return (
     <Card className="card-elevated border-primary/20">
