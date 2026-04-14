@@ -31,7 +31,13 @@ const queryClient = new QueryClient();
 function AppRoutes() {
   const hostname = window.location.hostname;
   const isAppHost = hostname === "app.polybaskets.xyz";
-  const explorerEntryPage = ENV.EXPLORER_HOLD_ENABLED ? <ExplorerHoldPage /> : <ExplorePage />;
+  const isExplorerHoldEnabled = ENV.EXPLORER_HOLD_ENABLED;
+  const holdPage = <ExplorerHoldPage />;
+  const explorerEntryPage = isExplorerHoldEnabled ? holdPage : <ExplorePage />;
+  const builderEntryPage = isExplorerHoldEnabled ? holdPage : <BuilderPage />;
+  const claimEntryPage = isExplorerHoldEnabled ? holdPage : <ClaimPage />;
+  const leaderboardEntryPage = isExplorerHoldEnabled ? holdPage : <LeaderboardPage />;
+  const basketsEntryPage = isExplorerHoldEnabled ? holdPage : <MyBasketsPage />;
 
   return (
     <Routes>
@@ -40,11 +46,11 @@ function AppRoutes() {
         element={isAppHost ? <Navigate to="/explorer" replace /> : <Index />}
       />
       <Route path="/explorer" element={explorerEntryPage} />
-      <Route path="/builder" element={<BuilderPage />} />
-      <Route path="/claim" element={<ClaimPage />} />
+      <Route path="/builder" element={builderEntryPage} />
+      <Route path="/claim" element={claimEntryPage} />
       <Route path="/basket/:id" element={<BasketPage />} />
-      <Route path="/me" element={<MyBasketsPage />} />
-      <Route path="/leaderboard" element={<LeaderboardPage />} />
+      <Route path="/me" element={basketsEntryPage} />
+      <Route path="/leaderboard" element={leaderboardEntryPage} />
       <Route path="/stats" element={<StatsPage />} />
       <Route path="/agents/:actorId" element={<AgentProfilePage />} />
       <Route path="/agents/:actorId/baskets/:view" element={<AgentBasketsPage />} />
