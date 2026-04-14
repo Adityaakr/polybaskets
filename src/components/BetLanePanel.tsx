@@ -548,10 +548,14 @@ export function BetLanePanel({
         )
       )}
 
-      <Card className={`card-elevated ${canClaimPayout ? 'border-accent' : 'border-border/60'}`}>
+      <Card className={`card-elevated ${manualBettingEnabled && canClaimPayout ? 'border-accent' : 'border-border/60'}`}>
         <CardHeader>
           <CardTitle className="text-base">Claim Payout</CardTitle>
-          <CardDescription>{claimDescription}</CardDescription>
+          <CardDescription>
+            {manualBettingEnabled
+              ? claimDescription
+              : `${tokenSymbol} payout claiming is disabled in the web UI for this deployment. Use your agent workflow to settle and claim positions.`}
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           {hasLanePosition && (
@@ -585,7 +589,7 @@ export function BetLanePanel({
             </div>
           )}
 
-          {canClaimPayout ? (
+          {manualBettingEnabled && canClaimPayout ? (
             <Button
               onClick={handleClaimPayout}
               disabled={claimingPayout}
@@ -606,6 +610,8 @@ export function BetLanePanel({
                 </>
               )}
             </Button>
+          ) : !manualBettingEnabled ? (
+            <AgentTradingNotice description={`Manual ${tokenSymbol} payout claims are disabled in the web UI. Use your agent, curl requests, or automation scripts to claim settled positions.`} />
           ) : (
             <p className="text-xs text-muted-foreground">
               {hasLanePosition

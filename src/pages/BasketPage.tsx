@@ -2286,11 +2286,12 @@ export default function BasketPage() {
 
           {/* Claim UI (on-chain only) - ALWAYS SHOW WHEN ON-CHAIN */}
           {isOnChain && canUseNativeVaraFlow && (
-            <Card className={`card-elevated ${canClaim ? 'border-accent' : 'border-border/50'}`}>
+            <Card className={`card-elevated ${manualBettingEnabled && canClaim ? 'border-accent' : 'border-border/50'}`}>
               <CardHeader>
                 <CardTitle className="text-base">Claim Payout</CardTitle>
                 <CardDescription>
-                  {canClaim 
+                  {manualBettingEnabled
+                    ? canClaim 
                     ? expectedPayoutNum > 0
                       ? `Settlement is finalized. Claim your winnings (${expectedPayout} ${isVaraEth ? 'wVARA' : 'TVARA'}).`
                       : `Settlement is finalized. Finalize your position (you lost ${fromVara(BigInt(String(userPosition.shares)))} ${isVaraEth ? 'wVARA' : 'TVARA'}).`
@@ -2305,10 +2306,11 @@ export default function BasketPage() {
                             ? 'You don\'t have a position in this basket. You need to place a bet to participate. Creating a basket does not automatically give you a position.'
                             : 'Connect your wallet to check if you have a position in this basket.'
                           : userPosition.claimed
-                            ? 'You have already claimed your payout for this basket.'
+                          ? 'You have already claimed your payout for this basket.'
                             : expectedPayoutNum <= 0
                               ? `Your payout amount is 0 ${isVaraEth ? 'wVARA' : 'TVARA'}. You can still claim to finalize your position (you lost ${fromVara(BigInt(String(userPosition.shares)))} ${isVaraEth ? 'wVARA' : 'TVARA'}).`
-                              : 'Unable to claim. Check debug info below.'}
+                              : 'Unable to claim. Check debug info below.'
+                    : 'Manual payout claims are disabled in the web UI for this deployment. Use your agent workflow to claim settled positions.'}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -2389,31 +2391,35 @@ export default function BasketPage() {
                     
                   </div>
                 )}
-                <Button
-                  onClick={handleClaim}
-                  disabled={!canClaim || claiming}
-                  className="w-full gap-2"
-                  size="lg"
-                  variant={canClaim ? (expectedPayoutNum > 0 ? "default" : "destructive") : "secondary"}
-                >
-                  {claiming ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      {expectedPayoutNum > 0 ? 'Claiming...' : 'Finalizing...'}
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle2 className="w-4 h-4" />
-                      {expectedPayoutNum > 0 
-                        ? `Claim Payout (${expectedPayout} ${isVaraEth ? 'wVARA' : 'TVARA'})`
-                        : expectedPayoutNum === 0
-                          ? 'Finalize Position'
-                          : 'Claim Payout'
-                      }
-                    </>
-                  )}
-                </Button>
-                {!canClaim && (
+                {manualBettingEnabled ? (
+                  <Button
+                    onClick={handleClaim}
+                    disabled={!canClaim || claiming}
+                    className="w-full gap-2"
+                    size="lg"
+                    variant={canClaim ? (expectedPayoutNum > 0 ? "default" : "destructive") : "secondary"}
+                  >
+                    {claiming ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        {expectedPayoutNum > 0 ? 'Claiming...' : 'Finalizing...'}
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-4 h-4" />
+                        {expectedPayoutNum > 0 
+                          ? `Claim Payout (${expectedPayout} ${isVaraEth ? 'wVARA' : 'TVARA'})`
+                          : expectedPayoutNum === 0
+                            ? 'Finalize Position'
+                            : 'Claim Payout'
+                        }
+                      </>
+                    )}
+                  </Button>
+                ) : (
+                  <AgentTradingNotice description="Manual payout claims are disabled in the web UI. Use your agent, curl requests, or automation scripts to claim settled positions." />
+                )}
+                {!manualBettingEnabled ? null : !canClaim && (
                   <div className="text-xs text-muted-foreground pt-2 border-t">
                     <div className="font-semibold mb-1">Why can't I claim?</div>
                     <ul className="list-disc list-inside space-y-0.5">

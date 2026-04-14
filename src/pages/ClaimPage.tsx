@@ -12,6 +12,8 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
 import { WalletButton } from '@/components/WalletButton';
+import { AgentTradingNotice } from '@/components/AgentTradingNotice';
+import { isManualBettingEnabled } from '@/env';
 
 export default function ClaimPage() {
   const { api, isApiReady } = useApi();
@@ -19,6 +21,7 @@ export default function ClaimPage() {
   const { address, connect } = useWallet();
   const { network } = useNetwork();
   const { toast } = useToast();
+  const manualBettingEnabled = isManualBettingEnabled();
   const [claiming, setClaiming] = useState(false);
 
   const isVaraEth = network === 'varaeth';
@@ -97,6 +100,15 @@ export default function ClaimPage() {
       : null;
 
   const handleClaim = async () => {
+    if (!manualBettingEnabled) {
+      toast({
+        title: 'Agent-Only Execution',
+        description: `${tokenSymbol} claiming is disabled in the web UI for this deployment. Use your agent workflow instead.`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
     if (!address) {
       await connect();
       return;
@@ -212,7 +224,9 @@ export default function ClaimPage() {
                     Next claim window opens at {nextClaimAtLabel}
                   </div>
                 )}
-                {!address ? (
+                {!manualBettingEnabled ? (
+                  <AgentTradingNotice description={`Manual ${tokenSymbol} claims are disabled in the web UI. Use your agent, curl requests, or automation scripts to claim the daily faucet allocation.`} />
+                ) : !address ? (
                   <div className="flex justify-center">
                     <WalletButton />
                   </div>
