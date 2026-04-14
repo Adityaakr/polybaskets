@@ -2,144 +2,168 @@
 
 ## BetLane Gas Optimization
 
-### P0 — Local basket status cache (saves ~8-10B gas per repeat bet, ~1.0 VARA)
+### Gas profiling results (baseline)
 
-**What:** BetLane currently queries BasketMarket via cross-program call on every `place_bet()` just to check `basket.status == Active`. This costs ~10B gas per call. Instead, cache basket metadata locally in BetLane.
+```
+PlaceBet total: 40.5B gas (4.05 VARA at 100 value/gas)
 
-**Why:** Cross-program calls are the dominant gas cost. With 2 calls per `place_bet` at ~10B each, they account for ~60% of total gas. Eliminating one drops PlaceBet from ~35B to ~25B gas (2.5 VARA instead of 3.5 VARA). That's ~40% more bets per VARA of voucher budget.
+Component breakdown:
+  Message routing baseline:         2.2B   (5.4%)
+  Payload decode + config read:     2.1B   (5.0%)
+  Quote field validation:           14M    (0.0%)
+  Schnorrkel signature verify:      71M    (0.2%)   ← NOT a bottleneck
+  Cross-program + async overhead:  36.2B   (89.3%)  ← THIS IS THE PROBLEM
 
-**IMPORTANT (Codex review finding):** Do NOT cache `Active` status. If the notify message is delayed or dropped, BetLane would trust stale `Active` and accept bets after settlement is proposed. That's an economic bug. Only cache **terminal/irreversible states** (SettlementPending, Settled) and **immutable fields** (asset_kind).
+Per cross-program round trip: ~12B gas (caller async state machine overhead)
+Receiver cost: ~2.3B each (BasketMarket/BetToken processing is cheap)
 
-**How:**
-1. Add `BTreeMap<u64, BasketAssetKind>` to BetLane state (immutable, cache forever)
-2. Add `BTreeSet<u64>` for closed baskets (SettlementPending or Settled)
-3. On first bet for a basket, query BasketMarket and cache `asset_kind`
-4. On repeat bets, skip the query IF basket is not in the closed set. The `asset_kind` check uses the cache. The `status == Active` check still queries fresh, BUT only for baskets not yet known to be closed.
-5. Add `notify_basket_closed(basket_id)` handler in BetLane. Must authenticate `msg::source == basket_program_id`.
-6. BasketMarket sends notification on `propose_settlement` and `finalize_settlement`
-7. Once a basket is in the closed set, `place_bet` rejects immediately (no cross-program call)
-
-**Cache safety invariant:** Fresh query is the ONLY way to confirm Active. Cache can only add to the closed set, never remove. False negative (cache miss, basket actually closed) = one wasted cross-program call. False positive (cache says closed when not) = impossible (closed states are irreversible).
-
-**Gas savings (revised):**
-- First bet on a new basket: 0 savings (must query)
-- Repeat bets on Active basket: ~0 savings (still query status, but skip asset_kind deserialization — marginal)
-- Bets on closed baskets: saves ~10B (reject from cache, no cross-program call)
-- Real value: fast-reject on settled baskets + cached asset_kind for the lifetime of the basket
-
-**Risks:** `notify_basket_closed` must be auth-gated (`msg::source == basket_program_id`), otherwise anyone can freeze baskets.
-
-**Depends on:** BasketMarket changes to send notification messages.
+Current message flow (3 round trips):
+  BetLane → BasketMarket: get_basket_status()     ~12B
+  BetLane → BetToken: transfer_from()             ~12B
+  BetLane → BasketMarket: get_basket_status()     ~12B  (post-transfer recheck)
+```
 
 ---
 
-### P0 — Internal balance ledger with auto-deposit (saves ~8-10B gas per bet AND per claim, ~1.0-2.0 VARA per cycle)
+### P0 — BetLane Vault + claim_to() (target: ~17-19B funded bets)
 
-**What:** `place_bet()` calls BetToken via cross-program `transfer_from()` (~10B gas). `claim()` calls BetToken via cross-program `transfer()` (~10B gas). Add an internal balance ledger to BetLane so tokens stay inside after the first deposit. Subsequent bets and claim payouts are local storage writes (~1-2B gas) with zero cross-program calls.
+**What:** Redesign BetLane as a vault that holds user balances internally. Fund the vault BEFORE betting, then do basket admission AFTER the last await. This eliminates 2 of 3 cross-program round trips on the funded path and safely removes the post-transfer recheck.
 
-**Why:** This is the single biggest remaining optimization. A full bet cycle (bet + claim) saves ~16-20B gas (~1.6-2.0 VARA). Combined with the status cache above, PlaceBet drops from ~35B to ~15-17B gas (~1.5-1.7 VARA). That's ~53 bets per 80 VARA daily voucher budget instead of ~23.
+**Why:** Cross-program async overhead is 89% of gas. Each round trip costs ~12B in the caller. Reducing from 3 round trips to 1 drops PlaceBet from ~40.5B to ~17-19B for funded bets (55% reduction). With 80 VARA daily voucher budget: ~42-47 bets/day (up from ~20).
 
-**Recommended approach: auto-deposit model (NOT full merge)**
+**Architecture (Codex-designed, cross-model validated):**
 
-BetToken stays as standalone VFT. BetLane gets an internal `BTreeMap<ActorId, U256>` balance ledger.
-
-**How PlaceBet works with auto-deposit:**
 ```
-place_bet(basket_id, amount, signed_quote):
-  1. Check internal BetLane balance for caller
-  2. If sufficient → debit internal balance (local write, ~1B gas)
-  3. If insufficient → auto-pull deficit from BetToken via transfer_from
-     (one cross-program call, ~10B gas, only on first bet after claiming new CHIP)
-  4. Rest of place_bet logic unchanged
-```
+FUNDED place_bet (common path — 1 round trip, ~17-19B):
+  1. Validate quote signature + fields (local, ~4.3B)
+  2. BetLane → BasketMarket.get_basket_status().await  (1 round trip, ~12B)
+  3. Check status == Active, asset_kind == Bet
+  4. Debit free_balance, credit escrow (local storage write)
+  5. Write position (local storage write)
+  Done. No token transfer needed — tokens already in vault.
 
-**How Claim works with internal balance:**
-```
-claim(basket_id):
-  1. Compute payout as before
-  2. Credit payout to caller's internal balance (local write, ~1B gas)
-  3. User can immediately re-bet from internal balance on any basket
-  4. User calls withdraw() explicitly when they want tokens back in wallet
-```
+DEFICIT place_bet (first bet after new claim — 2 round trips, ~28-30B):
+  1. Check free_balance < amount
+  2. BetLane → BetToken.transfer_from(user, lane, deficit).await  (1 round trip)
+  3. Credit free_balance with deposited amount
+  4. BetLane → BasketMarket.get_basket_status().await  (1 round trip)
+  5. Check status, debit/credit, write position (same as funded path)
 
-**New BetLane methods:**
-- `deposit(amount)` — explicit deposit from BetToken (optional, auto-deposit covers this)
-- `withdraw(amount)` — pull tokens from BetLane back to BetToken/wallet
-- `balance_of(user)` — query internal BetLane balance
+claim (1 round trip, ~13-15B):
+  1. BetLane → BasketMarket.get_settlement_result().await  (1 round trip)
+  2. Check finalized, compute payout
+  3. Credit payout to free_balance (local write, NO BetToken call)
 
-**Typical agent flow across multiple baskets and days:**
-```
-Day 1: Claim 100 CHIP → Approve BetLane → PlaceBet on Basket A for 50
-        (auto-deposits 50 from BetToken, 1 cross-program call)
-        PlaceBet on Basket B for 30 ← uses internal balance (FREE)
-        20 CHIP remains in internal balance
-
-Day 2: Claim 100 CHIP → PlaceBet on Basket C for 100
-        (auto-deposits 100 from BetToken, 1 cross-program call)
-        Basket A settles → Claim payout → 80 CHIP added to internal balance
-        PlaceBet on Basket D for 80 ← uses payout balance (FREE)
-
-Day N: Withdraw remaining balance to wallet (1 cross-program call)
+withdraw (1 round trip):
+  1. Debit free_balance
+  2. BetLane → BetToken.transfer(user, amount).await  (1 round trip)
 ```
 
-**Why NOT full merge:**
-- BetToken has 19 call sites across 7 frontend files — massive blast radius
-- The claim system (daily CHIP, streaks) is independent of betting
-- BetToken is a VFT standard — wallets and explorers expect standalone token contracts
-- Auto-deposit achieves same gas savings with ~10% of the code change
-- BetToken stays unchanged — zero risk to existing token functionality
+**Key insight (from Codex):** The post-transfer basket recheck is eliminated safely. In the funded path, there's only ONE await (get_basket_status), and the basket check happens AFTER it. No interleaving between status check and position write. In the deficit path, the token transfer happens FIRST, then the basket check happens LAST. If the basket closed during the transfer await, the status check catches it and refunds from vault balance (local write, no cross-program refund call needed).
+
+**New BetToken method: `claim_to(recipient)`**
+
+Add to `bet-token/app/src/lib.rs`. Same as current `claim()` but mints to `recipient` instead of `msg::source()`. Auth: caller must be the claimer (msg::source), recipient can be any ActorId. This lets agents claim CHIP directly into BetLane vault in one step.
+
+```
+Agent daily flow:
+  BetToken.claim_to(BetLane)  → CHIP minted directly into vault (1 tx)
+  BetLane.place_bet(A, ...)   → funded path, 1 round trip (~17-19B)
+  BetLane.place_bet(B, ...)   → funded path, 1 round trip (~17-19B)
+  BetLane.place_bet(C, ...)   → funded path, 1 round trip (~17-19B)
+  ... basket settles ...
+  BetLane.claim(A)            → payout to vault balance (1 round trip, ~13-15B)
+  BetLane.place_bet(D, ...)   → funded from payout, 1 round trip (~17-19B)
+  BetLane.withdraw(50)        → pull to wallet when done (1 round trip)
+```
+
+**Internal accounting (Codex-mandated safety):**
+
+```rust
+pub struct UserBalance {
+    free: U256,       // available to bet or withdraw
+    escrow: U256,     // locked in active positions
+}
+
+pub struct BalanceLedger {
+    balances: BTreeMap<ActorId, UserBalance>,
+}
+```
+
+Rules:
+- `deposit/claim_to/claim_payout` → credit `free`
+- `place_bet` → debit `free`, credit `escrow`
+- `claim` (settlement) → compute payout, debit `escrow` by original shares, credit `free` by payout
+- `withdraw` → debit `free`, cross-program transfer to user
+- Solvency invariant: `sum(all free) + sum(all escrow) <= BetToken.balanceOf(BetLane)`
+
+**User-level locking (Codex-mandated):**
+
+Current locks are per `(basket_id, user)`. With shared balance, concurrent `place_bet(A)` and `place_bet(B)` during awaits can both read the same `free` balance and overspend.
+
+Fix: add `pending_users: BTreeSet<ActorId>` to PendingOperations. Any balance-mutating op (place_bet, claim, withdraw, deposit) inserts the user. If already present, reject with `OperationInProgress`. Clear after the op completes.
 
 **Files to modify:**
-- `bet-lane/app/src/lib.rs` — add `BalanceLedger` storage, `deposit()`, `withdraw()`, `balance_of()`. Update `place_bet()` to check internal balance first (auto-deposit on deficit). Update `claim()` to credit internal balance.
-- `bet-lane/tests/bet_lane_gtest.rs` — add deposit/withdraw/auto-deposit tests, update existing tests
-- `src/components/BetLanePanel.tsx` — add withdraw button after claim
-- `src/components/SaveBasketButton.tsx` — show BetLane balance, optionally deposit before bet
-- Generated IDL/client — auto-regenerated
-- BetToken: **NO CHANGES**
 
-**Frontend UX change:**
-- For betting: NONE. Auto-deposit is invisible. Same Approve → PlaceBet flow.
-- For claiming: payout goes to BetLane internal balance (not wallet). Add a "Withdraw" button to move tokens to wallet when user wants them out.
-- New: show "BetLane Balance" alongside "Wallet Balance" in the betting UI.
+| File | Changes |
+|------|---------|
+| `bet-lane/app/src/lib.rs` | Add `BalanceLedger`, `UserBalance`. Add `deposit()`, `withdraw()`, `balance_of()`. Rewrite `place_bet()` flow (check vault first, auto-deposit on deficit, basket check after last await). Rewrite `claim()` to credit vault. Add user-level locking. |
+| `bet-token/app/src/lib.rs` | Add `claim_to(recipient)` method (additive, non-breaking) |
+| `bet-lane/tests/bet_lane_gtest.rs` | Add vault tests: deposit, withdraw, funded bet, deficit bet, claim-to-vault, concurrent op rejection, solvency checks |
+| `src/components/BetLanePanel.tsx` | Show vault balance, add Withdraw button |
+| `src/components/SaveBasketButton.tsx` | Show vault balance |
+| `src/pages/ClaimPage.tsx` | Add "Claim to Betting Balance" option |
+| Generated IDL/client | Auto-regenerated for both programs |
 
-**IMPORTANT (Codex review findings):**
-
-1. **Concurrency hazard.** Today locks are per `(basket_id, user)`. With internal balance, `place_bet(A)`, `place_bet(B)`, `claim(C)`, and `withdraw()` all mutate the same user balance. Cross-message interleaving during `.await` can overspend. **Fix:** add a user-level pending flag to the existing `PendingOperations` that blocks ALL balance-mutating ops for a user while any is in flight.
-
-2. **Hidden insolvency.** Tests already mint extra tokens to BetLane before claim (line 283, 349). With internal crediting, underfunding surfaces as a withdraw failure (user can't get tokens out) instead of a claim failure (user sees error immediately). Harder to detect. **Fix:** keep separate `free_balance` (deposited, available to bet) and `escrow` (locked in positions) accounting. Enforce solvency: `sum(free_balance) + sum(escrow) <= BetToken.balanceOf(BetLane)` checked on withdraw.
-
-3. **Claim still needs settlement query.** The `get_settlement_result` cross-program call (~10B) remains in `claim()`. The "free" path only applies once the user already has internal balance for betting.
-
-**Gas savings (agent placing 5 bets/day across different baskets):**
+**Gas savings (agent placing 5 bets/day with claim_to):**
 
 | Metric | Before | After | Change |
 |--------|--------|-------|--------|
-| First bet of day | ~35B | ~25B | -10B (still 1 cross-program for auto-deposit) |
-| Bets 2-5 of day | ~35B each | ~15B each | -20B each (internal balance + cache) |
-| Daily total (5 bets) | 175B | 85B | -51% |
-| Claim payout | ~25B | ~15B | -10B (internal credit, but settlement query remains) |
+| Daily claim to vault | N/A (new) | ~12B (1 BetToken tx) | — |
+| First bet (funded) | ~40.5B | ~17-19B | -53% |
+| Bets 2-5 (funded) | ~40.5B each | ~17-19B each | -53% |
+| Daily total (5 bets) | 202.5B | ~97-107B | -49-52% |
+| Claim payout | ~25B | ~13-15B | -40-48% |
 
-**Effort:** ~3-5 days. Contract changes are contained to BetLane. Frontend needs withdraw UX. Extra complexity for escrow accounting and user-level locking.
+**Effort:** L (1-2 weeks). BetLane rewrite + BetToken additive method + frontend UX for vault balance + tests.
 
-**Depends on:** Decision on how to surface internal balance in the UI (inline vs separate tab).
+**Depends on:** Nothing external. Can be built as a single PR.
 
 ---
 
-### P1 — Host-level signature verification (savings unknown, needs benchmarking)
+### P3 (future V2) — Merge CHIP betting into BasketMarket (target: ~5-8B funded bets)
 
-**What:** BetLane uses `schnorrkel::PublicKey::verify_simple()` in WASM for quote signature verification (~3-5B gas). Gear/Substrate may expose a host function (`sr25519_verify`) that runs natively instead of in WASM, which would be significantly cheaper.
+**What:** Retire BetLane as a stateful program. Move CHIP vault + betting into BasketMarket. Funded bets have ZERO cross-program calls.
 
-**Why:** Crypto in WASM is ~10-100x slower than native. If Gear exposes `sr25519_verify` as a syscall, the 3-5B gas cost could drop to ~0.1-0.5B.
+**Why:** Even with the P0 vault, funded bets still need 1 round trip to BasketMarket for status check (~12B). If BasketMarket owns both the basket lifecycle AND the CHIP positions, the status check is a local read. Funded PlaceBet drops to ~5-8B gas.
 
 **How:**
-1. Check Gear SDK docs for available host functions (`gstd::ext` or `gsys`)
-2. Benchmark `schnorrkel::verify_simple` in WASM vs a host-level verify
-3. If available, replace the WASM verification with the host call
-4. If not available, propose it as a Gear runtime feature request
+- BasketMarket gets `place_bet_chip()`, `claim_chip()`, `withdraw_chip()`, `deposit_chip()`
+- Same vault accounting as P0 but inside BasketMarket
+- Funded bet: local status check + local balance debit + local position write = zero awaits
+- Deficit bet: 1 await (BetToken.transfer_from)
+- Claim: fully local (BasketMarket owns settlement data)
 
-**Risks:** Host function may not exist yet. Gear's gas model may not discount host calls as much as expected.
+**Breaking changes:**
+- Quote `target_program_id` changes from BetLane to BasketMarket
+- Frontend approve spender changes from BetLane to BasketMarket
+- All BetLane PlaceBet/Claim/GetPosition consumers migrate
+- Live migration of existing BetLane positions needed
+- IDL/client complete regeneration
 
-**Depends on:** Gear runtime capabilities. Check `gstd` and `gsys` crate docs.
+**Effort:** XL (3-4 weeks). Protocol-level redesign.
+
+**Depends on:** P0 vault shipping first (proves the accounting model). No rush — P0 gets 53% gas reduction already.
+
+---
+
+### P1 — Host-level signature verification (BLOCKED)
+
+**What:** Replace `schnorrkel::verify_simple()` in WASM with a Gear host function.
+
+**Status:** Codex confirmed no `sr25519_verify` wrapper exists in Gear SDK 1.10.x (`gstd`, `gcore`, `gsys`). Blocked until runtime adds it.
+
+**Actual cost (measured):** 71M gas (0.2% of PlaceBet). NOT a bottleneck. The 3-5B estimate was wrong by 50x. Deprioritized.
 
 ---
 
@@ -149,19 +173,18 @@ Day N: Withdraw remaining balance to wallet (1 cross-program call)
 
 **Why:** BTreeSet serialization is O(n). At scale, this becomes a measurable gas regression that compounds with every bet.
 
-**IMPORTANT (Codex review finding):** The quote service generates **random** 128-bit nonces (`bet-quote-service/src/quote.ts:62`), NOT monotonic. A per-user high-watermark would break replay protection (allow reusing older random nonces above the watermark, reject legitimate lower ones). The watermark approach is INVALID for this system.
+**IMPORTANT (Codex finding):** Nonces are **random** (`bet-quote-service/src/quote.ts:62`), NOT monotonic. High-watermark is INVALID.
 
-**How (revised — expiry-bucket pruning):**
-Quotes already have a `deadline_ms` expiry (30 seconds). A nonce only needs replay protection until its quote expires. After that, the quote can't be submitted anyway (`QuoteExpired` check at `bet-lane/app/src/lib.rs:357`).
+**How (expiry-bucket pruning):**
+Quotes have `deadline_ms` expiry (30 seconds). Nonces only need replay protection until expiry.
 
-1. Replace `BTreeSet<(ActorId, u128)>` with `BTreeMap<u64, BTreeSet<(ActorId, u128)>>` keyed by expiry bucket (e.g., round `deadline_ms` down to nearest minute)
-2. On each `place_bet`, prune all buckets where `bucket_key < current_block_timestamp`
-3. Insert the new nonce into its expiry bucket
-4. Replay check: only scan the non-expired buckets
+1. Replace `BTreeSet<(ActorId, u128)>` with `BTreeMap<u64, BTreeSet<(ActorId, u128)>>` keyed by expiry bucket (round `deadline_ms` to nearest minute)
+2. On each `place_bet`, prune expired buckets
+3. Storage bounded to `O(active_quotes)` instead of `O(all_bets_ever)`
 
-This bounds storage to `O(active_quotes)` instead of `O(all_bets_ever)`. With 30-second quote expiry and 1-minute buckets, the set never holds more than ~2 minutes of nonces.
+**Effort:** S. Independent of other changes.
 
-**Depends on:** Nothing. Can be implemented independently.
+---
 
 ## Completed
 
