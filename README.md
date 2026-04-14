@@ -383,9 +383,11 @@ VITE_NODE_ADDRESS=wss://testnet.vara.network
 VITE_GAMMA_PROXY=/gamma
 VITE_INDEXER_GRAPHQL_ENDPOINT=http://localhost:4350/graphql
 VITE_BET_QUOTE_SERVICE_URL=http://127.0.0.1:4360
+VITE_EXPLORER_HOLD_ENABLED=false
 ```
 
 `VITE_ENABLE_VARA` controls the native VARA asset flow in the frontend.
+`VITE_EXPLORER_HOLD_ENABLED` swaps `/explorer` to a launch-soon placeholder page, and the related `VITE_EXPLORER_HOLD_*` vars let you customize the copy and CTA without code changes.
 
 - `true`: current behavior is preserved, including native VARA basket creation, betting, and claim UI.
 - `false`: the app runs in CHIP-only mode. Native VARA asset UI is hidden, native VARA actions are unavailable, and the builder defaults to the CHIP lane only.

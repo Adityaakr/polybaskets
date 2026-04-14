@@ -21,12 +21,23 @@ const normalizeUrl = (value: string): string => value.replace(/\/+$/, '');
 
 export const ENV = {
   ENABLE_VARA: parseBooleanEnv(import.meta.env.VITE_ENABLE_VARA, false),
+  EXPLORER_HOLD_ENABLED: parseBooleanEnv(import.meta.env.VITE_EXPLORER_HOLD_ENABLED, false),
   NODE_ADDRESS: import.meta.env.VITE_NODE_ADDRESS || 'wss://testnet.vara.network',
   PROGRAM_ID: import.meta.env.VITE_PROGRAM_ID || '0x1fa6fd12433accef350a68da4555a2a71acab261c4ae9eb713033023fc0775ea',
   BET_TOKEN_PROGRAM_ID: import.meta.env.VITE_BET_TOKEN_PROGRAM_ID || '0xad1a120f24f62eb68537791fe94c3b381e81677e9bd73d811c319838846c27dd',
   BET_LANE_PROGRAM_ID: import.meta.env.VITE_BET_LANE_PROGRAM_ID || '0x40dc1597c8e3beb3523f9c05ad2b44e00a11be6e665da20e4323bb7dfae1ecda',
   INDEXER_GRAPHQL_ENDPOINT: import.meta.env.VITE_INDEXER_GRAPHQL_ENDPOINT || 'http://localhost:4350/graphql',
   BET_QUOTE_SERVICE_URL: import.meta.env.VITE_BET_QUOTE_SERVICE_URL || 'http://127.0.0.1:4360',
+  EXPLORER_HOLD_BADGE: import.meta.env.VITE_EXPLORER_HOLD_BADGE || 'Temporary pause',
+  EXPLORER_HOLD_TITLE:
+    import.meta.env.VITE_EXPLORER_HOLD_TITLE || 'PolyBaskets is taking a short pause',
+  EXPLORER_HOLD_MESSAGE:
+    import.meta.env.VITE_EXPLORER_HOLD_MESSAGE ||
+    'We are polishing the next launch experience. Stay close, the app will reopen soon and we would love to have you there on day one.',
+  EXPLORER_HOLD_PRIMARY_CTA_LABEL:
+    import.meta.env.VITE_EXPLORER_HOLD_PRIMARY_CTA_LABEL || 'Get launch updates',
+  EXPLORER_HOLD_PRIMARY_CTA_URL:
+    import.meta.env.VITE_EXPLORER_HOLD_PRIMARY_CTA_URL || 'https://t.me/polybaskets',
   // Vara.eth (EVM) configuration
   VARAETH_RPC: import.meta.env.VITE_VARAETH_RPC || 'https://hoodi-reth-rpc.gear-tech.io',
   VARAETH_WS: import.meta.env.VITE_VARAETH_WS || 'wss://hoodi-reth-rpc.gear-tech.io/ws',

@@ -9,6 +9,7 @@ import { BasketProvider } from "@/contexts/BasketContext";
 import { Header } from "@/components/layout/Header";
 import Index from "./pages/Index";
 import ExplorePage from "./pages/ExplorePage";
+import ExplorerHoldPage from "./pages/ExplorerHoldPage";
 import BuilderPage from "./pages/BuilderPage";
 import ClaimPage from "./pages/ClaimPage";
 import BasketPage from "./pages/BasketPage";
@@ -30,6 +31,7 @@ const queryClient = new QueryClient();
 function AppRoutes() {
   const hostname = window.location.hostname;
   const isAppHost = hostname === "app.polybaskets.xyz";
+  const explorerEntryPage = ENV.EXPLORER_HOLD_ENABLED ? <ExplorerHoldPage /> : <ExplorePage />;
 
   return (
     <Routes>
@@ -37,7 +39,7 @@ function AppRoutes() {
         path="/"
         element={isAppHost ? <Navigate to="/explorer" replace /> : <Index />}
       />
-      <Route path="/explorer" element={<ExplorePage />} />
+      <Route path="/explorer" element={explorerEntryPage} />
       <Route path="/builder" element={<BuilderPage />} />
       <Route path="/claim" element={<ClaimPage />} />
       <Route path="/basket/:id" element={<BasketPage />} />
