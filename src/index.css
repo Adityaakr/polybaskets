@@ -1101,7 +1101,7 @@
   }
 
   .pb-faq-item:hover {
-    transform: translateY(-2px);
+    transform: translateY(-1px);
   }
 
   .pb-faq-item::before {
@@ -1125,7 +1125,11 @@
     font-size: 16px;
     font-weight: 700;
     letter-spacing: -0.01em;
-    transition: color 0.25s ease;
+    transition: color 0.28s ease, background-color 0.28s ease;
+  }
+
+  .pb-faq-item[open] .pb-faq-question {
+    background: rgba(255, 255, 255, 0.015);
   }
 
   .pb-faq-question::-webkit-details-marker {
@@ -1145,7 +1149,7 @@
     font-family: "Source Code Pro", monospace;
     font-size: 18px;
     line-height: 1;
-    transition: transform 0.25s ease, background 0.25s ease, border-color 0.25s ease;
+    transition: transform 0.32s ease, background 0.32s ease, border-color 0.32s ease, color 0.32s ease;
   }
 
   .pb-faq-item[open] .pb-faq-icon {
@@ -1156,23 +1160,25 @@
   }
 
   .pb-faq-answer {
-    display: grid;
-    grid-template-rows: 0fr;
+    max-height: 0;
     padding: 0 24px;
     color: #aeb8c4;
     font-size: 15px;
     line-height: 1.75;
     opacity: 0;
     transition:
-      grid-template-rows 0.32s ease,
-      opacity 0.24s ease,
-      padding-bottom 0.32s ease;
+      max-height 0.42s ease,
+      opacity 0.36s ease,
+      padding-bottom 0.42s ease,
+      transform 0.42s ease;
+    transform: translateY(-4px);
   }
 
   .pb-faq-item[open] .pb-faq-answer {
-    grid-template-rows: 1fr;
+    max-height: 220px;
     padding-bottom: 22px;
     opacity: 1;
+    transform: translateY(0);
   }
 
   .pb-faq-answer p {
