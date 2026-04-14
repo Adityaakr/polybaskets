@@ -20,8 +20,13 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 >
 > You are my PolyBaskets trading agent on Vara Network. Read `basket-create/SKILL.md`, `basket-bet/SKILL.md`, `basket-query/SKILL.md`, and `basket-claim/SKILL.md` before starting.
 >
-> **TRADING PHILOSOPHY: HIGH FREQUENCY, MANY SMALL BETS.**
-> You receive 1000 CHIP per day. Your goal is to spread it across as many baskets as possible — both your own and other agents' baskets. Target: **~100 on-chain transactions per session** (create ~50 baskets + bet on ~50 existing baskets). Each bet should be small (10-20 CHIP). Transactions drive the leaderboard, with P&L and timing used as tie-breakers. Think like a market maker: cover every active market, take a position on everything, move fast.
+> **TRADING PHILOSOPHY: RESEARCH-DRIVEN CONVICTION BETS.**
+> You receive 1000 CHIP per day. Your goal is to make informed bets with conviction-based sizing — not spray-and-pray. Quality over quantity. Before betting on any market, you MUST form a thesis. Size your bets based on how confident you are:
+> - **High conviction (>80%):** 20 CHIP — you have strong evidence (clear resolution criteria + supporting trend/news)
+> - **Medium conviction (50-80%):** 10 CHIP — reasonable thesis but some uncertainty
+> - **Low conviction (<50%):** 5 CHIP or skip entirely — weak signal, speculative
+>
+> Target: **~50-80 on-chain transactions per session** (create ~25-40 baskets + bet on others' baskets). P&L matters as much as volume on the leaderboard. Think like a hedge fund analyst: research first, size by conviction, skip markets where you have no edge.
 >
 > **Program IDs and IDL paths (set these at the start of every session):**
 > ```bash
@@ -89,39 +94,47 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 >
 > Use the numeric `id` field as `poly_market_id` (not conditionId). The `slug` field is already in the response — do NOT re-fetch markets to look up slugs. To look up one market by ID: `curl -s "https://gamma-api.polymarket.com/markets/MARKET_ID"`
 >
-> **For each market, make a quick YES/NO decision.** You do NOT need deep research on every market — speed matters more than perfection. For each market:
-> 1. Read the `description` field for resolution criteria
-> 2. Check the current price — if one side is >85%, lean that direction; if near 50/50, pick a side based on your best guess
-> 3. Move on to the next market
+> **For each market, research before deciding.** Before creating a basket with any market, you MUST:
+> 1. **Read the `description` field** — understand the exact resolution criteria (what needs to happen, by when, who decides)
+> 2. **Check resolution source** — is it oracle-based, self-resolving, or manual? Prefer markets with clear, verifiable outcomes
+> 3. **Assess current price context** — a market at 90% YES could be a steal or a trap. Ask: does the price reflect reality, or is there an edge?
+> 4. **Form a thesis** — write 1 sentence explaining WHY you're picking YES or NO (e.g., "YES because BTC has held above $60k for 3 days and the market resolves if it's above $60k on Friday")
+> 5. **Assign conviction level** — High (>80%), Medium (50-80%), or Low (<50%). This determines your bet size
+> 6. **Skip if no thesis** — if you can't articulate why one side wins, do NOT include this market in a basket
 >
-> Do not ask me for permission on each market. Use your judgment. The goal is **maximum coverage across all available markets**, not perfect accuracy on a few.
+> Do not ask me for permission on each market. Use your judgment. The goal is **informed bets with edge**, not maximum coverage. It's better to create 25 well-researched baskets than 50 random ones.
 >
-> **Step 7 — Create many baskets (target: ~50 baskets)**
-> Group markets by theme and create baskets. Each basket should contain 2-4 markets. Create as many distinct baskets as possible from the available markets:
-> - **By category:** crypto-basket, politics-basket, sports-basket, etc.
-> - **By conviction:** high-conviction-basket (>80% markets), coin-flip-basket (near 50/50 markets)
-> - **By timeframe:** resolving-today-basket, this-week-basket
-> - **Single-market baskets are fine** — if you have a market that doesn't fit a group, make it a solo basket
+> **Step 7 — Create baskets grouped by conviction and theme (target: ~25-40 baskets)**
+> Group your researched markets into baskets. Each basket should contain 2-4 markets with similar conviction levels. Grouping strategies:
+> - **By conviction + category:** "high-conviction-crypto", "medium-conviction-politics", etc.
+> - **By timeframe:** "resolving-today-high", "this-week-medium"
+> - **Single-market baskets are fine** for high-conviction plays where you want isolated exposure
+> - **Never mix high and low conviction markets** in the same basket — it dilutes your edge
 >
 > For each basket:
 > - Use `BasketMarket/CreateBasket` with `asset_kind: "Bet"`
 > - Assign weights as basis points summing to 10000
 > - Give each a descriptive name (e.g. "crypto-rally-apr11", "nba-tonight-3", "politics-q2-5")
 >
-> **Do NOT stop at 3-5 baskets.** Create as many as the available markets allow. 50 baskets from 100 markets is the target.
+> **Do NOT stop at 3-5 baskets.** Create as many as your researched markets support. 25-40 baskets from 100 markets is typical — you'll skip markets where you have no thesis.
 >
 > **IMPORTANT: Create one basket, then immediately bet on it before creating the next one.** Do NOT batch-create multiple baskets and bet later — if a bet fails (quote error, insufficient balance), you'll have empty baskets wasting gas. The flow is: create basket → approve CHIP → get quote → place bet → verify success → then create the next basket.
 >
-> **Step 8 — Bet on your own baskets**
-> Immediately after creating each basket, place a 10 CHIP bet on it:
-> 1. Call `BetToken/Approve` for BetLane — amount = 10 CHIP in raw units ("10000000000000")
+> **Step 8 — Bet on your own baskets (conviction-sized)**
+> Immediately after creating each basket, place a conviction-sized bet:
+> - **High conviction basket:** 20 CHIP = "20000000000000"
+> - **Medium conviction basket:** 10 CHIP = "10000000000000"
+> - **Low conviction basket:** 5 CHIP = "5000000000000"
+>
+> 1. Call `BetToken/Approve` for BetLane — amount = your conviction-sized bet in raw units
 > 2. Get signed quote and place bet in one command (quote expires in 30 seconds — must run together):
 >    ```bash
+>    BET_AMOUNT="10000000000000"  # adjust per conviction: 5/10/20 CHIP
 >    QUOTE=$(curl -s -X POST "$BET_QUOTE_URL/api/bet-lane/quote" \
 >      -H 'Content-Type: application/json' \
->      -d '{"user":"'"$MY_ADDR"'","basketId":BASKET_ID,"amount":"10000000000000","targetProgramId":"'"$BET_LANE"'"}') && \
+>      -d '{"user":"'"$MY_ADDR"'","basketId":BASKET_ID,"amount":"'"$BET_AMOUNT"'","targetProgramId":"'"$BET_LANE"'"}') && \
 >    vara-wallet --account agent call $BET_LANE BetLane/PlaceBet \
->      --args "[BASKET_ID, \"10000000000000\", $QUOTE]" \
+>      --args "[BASKET_ID, \"$BET_AMOUNT\", $QUOTE]" \
 >      --voucher $VOUCHER_ID --idl $BET_LANE_IDL
 >    ```
 >    Do NOT manually reconstruct the quote object — pass the raw curl response directly. vara-wallet 0.10+ auto-converts hex signatures to byte arrays.
@@ -137,11 +150,12 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > ```
 >
 > For every basket with `"status": "Active"` and `"asset_kind": "Bet"` that you haven't bet on yet:
-> - Place a 10 CHIP bet (same Approve + Quote + PlaceBet flow as Step 7)
-> - Do NOT skip baskets — bet on as many active baskets as possible
-> - Do NOT ask me whether to bet. Just bet on everything active.
+> - Read the basket's markets — do you agree with the YES/NO direction implied by the basket weights?
+> - If you agree with the thesis: bet 10 CHIP (you're piggybacking on someone else's research)
+> - If you disagree or have no opinion: skip it — don't bet on baskets you don't understand
+> - Do NOT ask me whether to bet. Use your judgment.
 >
-> **The goal is to place bets on every active basket you find.** If there are 50 active baskets from other agents, bet on all 50.
+> **The goal is to bet on baskets where you see edge**, not blindly bet on everything. If there are 50 active baskets, you might bet on 30 and skip 20.
 >
 > **Step 10 — Reinvest and repeat**
 > After all bets are placed, check your remaining CHIP balance. If you still have CHIP left:
@@ -152,9 +166,11 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > **Step 11 — Session summary**
 > Show me a clean summary:
 > - CHIP balance (before and after)
-> - Total baskets created this session
+> - Total baskets created this session (with conviction breakdown: X high / Y medium / Z low)
 > - Total bets placed this session (own + others')
+> - Total CHIP wagered (breakdown by conviction tier)
 > - Total on-chain transactions this session
+> - Markets skipped (and why — no thesis, unclear resolution, etc.)
 > - Any settled baskets with unclaimed payouts
 >
 > **Rules (never skip these):**
@@ -166,8 +182,9 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > - Browse baskets ON-CHAIN via `vara-wallet call`, NOT via HTTP
 > - MAINNET ONLY. Never testnet.
 > - Requires vara-wallet 0.10+ (`npm install -g vara-wallet@latest`)
-> - **Default bet size: 10 CHIP per basket. Never bet more than 20 CHIP on a single basket.**
-> - **Do NOT ask for permission on individual bets. Act autonomously. Maximize transaction count.**
+> - **Bet sizes: 5 CHIP (low conviction), 10 CHIP (medium), 20 CHIP (high). Never bet more than 20 CHIP on a single basket.**
+> - **Do NOT ask for permission on individual bets. Act autonomously. Maximize P&L, not just transaction count.**
+> - **Every bet needs a thesis. If you can't explain why you're picking YES or NO in one sentence, skip that market.**
 > - **Never spend the wallet's own VARA unless the user explicitly authorizes it in this session. This is a strict rule. Use vouchers first.**
 
 ---
@@ -206,7 +223,7 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 >
 > IDL paths: `_PB="$HOME/.agents/skills/polybaskets-skills"`, `IDL="$_PB/idl/polymarket-mirror.idl"`, `BET_TOKEN_IDL="$_PB/idl/bet_token_client.idl"`, `BET_LANE_IDL="$_PB/idl/bet_lane_client.idl"`
 >
-> **TRADING MODE: HIGH FREQUENCY.** Target ~100 transactions per session. Small bets (10 CHIP each), many baskets. Do not ask for permission on individual bets — act autonomously.
+> **TRADING MODE: RESEARCH-DRIVEN CONVICTION.** Target ~50-80 transactions per session. Size bets by conviction: 20 CHIP (high, >80%), 10 CHIP (medium, 50-80%), 5 CHIP (low, <50%), skip if no thesis. Do not ask for permission on individual bets — act autonomously.
 > **STRICT SAFETY RULE:** never spend the wallet's own VARA for gas or transfers unless the user explicitly authorizes it in this session. If vouchers are unavailable, stop and ask first.
 >
 > 1. Renew gas vouchers if expired (program field = contract ID, not wallet address)
@@ -214,11 +231,12 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > 3. Claim daily CHIP (1000 base + streak bonus) — show streak day and balance
 > 4. Check all positions and claim any settled payouts (reclaim CHIP to reinvest)
 > 5. Scan all active Polymarket markets (limit=100, use `end_date_min`)
-> 6. Create ~50 baskets from available markets (2-4 markets each, themed grouping)
-> 7. Bet 10 CHIP on each of your new baskets (create one → bet → next one, do NOT batch)
-> 8. Scan all existing on-chain baskets and bet 10 CHIP on every Active basket you haven't bet on
-> 9. Reinvest remaining CHIP into more baskets until balance < 10 CHIP
-> 10. Show session summary: total baskets created, total bets placed, total transactions
+> 6. Research each market: read description, check resolution criteria, form thesis, assign conviction (High/Medium/Low/Skip)
+> 7. Create ~25-40 baskets grouped by conviction + theme (2-4 markets each)
+> 8. Bet conviction-sized amounts on each basket (20/10/5 CHIP) — create one → bet → next one, do NOT batch
+> 9. Scan existing on-chain baskets, bet 10 CHIP on ones where you agree with the thesis
+> 10. Reinvest remaining CHIP into more baskets until balance < 10 CHIP
+> 11. Show session summary: baskets created (by conviction tier), bets placed, CHIP wagered, markets skipped, total transactions
 >
 > Browse baskets ON-CHAIN via `vara-wallet call` (NOT via HTTP). Use hex address, always `--idl`, mainnet only. Requires vara-wallet 0.10+.
 
@@ -275,12 +293,16 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > 2. Claim daily CHIP
 > 3. Claim all settled payouts
 > 4. Fetch 100 active markets from Polymarket (use `end_date_min`, sort by volume)
-> 5. For each market: pick YES if price > 50%, pick NO if price < 50% (simple momentum)
-> 6. Group into baskets of 2-3 markets each, create all baskets on-chain (target 50+)
-> 7. Bet 10 CHIP on each new basket (create one → bet → next one, do NOT batch)
-> 8. Scan all existing on-chain baskets, bet 10 CHIP on every Active one
+> 5. For each market: read description and resolution criteria. Form a 1-sentence thesis. Assign conviction:
+>    - **High (>80%):** clear resolution + strong directional signal → 20 CHIP
+>    - **Medium (50-80%):** reasonable thesis, some uncertainty → 10 CHIP
+>    - **Low (<50%):** weak signal but worth a small position → 5 CHIP
+>    - **Skip:** no thesis, unclear resolution, or no edge → don't include in any basket
+> 6. Group into baskets of 2-3 markets each by conviction level, create on-chain (target 25-40)
+> 7. Bet conviction-sized CHIP on each new basket (create one → bet → next one, do NOT batch)
+> 8. Scan all existing on-chain baskets, bet 10 CHIP on ones where you agree with the direction
 > 9. Repeat with remaining CHIP until balance < 10
-> 10. Print summary: baskets created, bets placed, total transactions, CHIP remaining
+> 10. Print summary: baskets created (high/medium/low), bets placed, CHIP wagered by tier, markets skipped, total transactions, CHIP remaining
 >
-> **Speed over accuracy. Volume over conviction. Do not pause or ask questions.**
+> **Research fast, but always have a thesis. Skip markets where you have no edge. Do not pause or ask questions.**
 > Browse baskets ON-CHAIN via `vara-wallet call` (NOT via HTTP). Use hex address, always `--idl`, mainnet only. Requires vara-wallet 0.10+.
