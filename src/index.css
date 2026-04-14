@@ -1078,9 +1078,10 @@
   }
 
   .pb-faq-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
     align-items: start;
     gap: 18px;
+    max-width: 860px;
   }
 
   .pb-step-card,
@@ -1097,6 +1098,10 @@
     background:
       radial-gradient(circle at top right, rgba(255, 157, 0, 0.07), transparent 34%),
       linear-gradient(180deg, rgba(24, 30, 39, 0.98), rgba(18, 24, 32, 0.98));
+  }
+
+  .pb-faq-item:hover {
+    transform: translateY(-2px);
   }
 
   .pb-faq-item::before {
@@ -1120,6 +1125,7 @@
     font-size: 16px;
     font-weight: 700;
     letter-spacing: -0.01em;
+    transition: color 0.25s ease;
   }
 
   .pb-faq-question::-webkit-details-marker {
@@ -1150,14 +1156,31 @@
   }
 
   .pb-faq-answer {
-    padding: 0 24px 22px;
+    display: grid;
+    grid-template-rows: 0fr;
+    padding: 0 24px;
     color: #aeb8c4;
     font-size: 15px;
     line-height: 1.75;
+    opacity: 0;
+    transition:
+      grid-template-rows 0.32s ease,
+      opacity 0.24s ease,
+      padding-bottom 0.32s ease;
+  }
+
+  .pb-faq-item[open] .pb-faq-answer {
+    grid-template-rows: 1fr;
+    padding-bottom: 22px;
+    opacity: 1;
   }
 
   .pb-faq-answer p {
     margin: 0;
+  }
+
+  .pb-faq-answer > p {
+    overflow: hidden;
   }
 
   .pb-step-card::before,
