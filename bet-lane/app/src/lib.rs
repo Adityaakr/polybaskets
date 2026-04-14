@@ -436,12 +436,33 @@ impl<'a> BetLaneService<'a> {
             .map_err(|_| BetLaneError::BetTokenTransferFromFailed)
             .inspect_err(|_| self.clear_pending_bet(basket_id, caller))?;
 
-        // Note: we intentionally skip re-querying the basket after token transfer.
-        // Gear's actor model allows other programs to process messages during the
-        // transfer_from await (e.g., propose_settlement could change basket status).
-        // This is benign: a bet placed just before settlement is still valid — the
-        // index_at_creation_bps is locked in from the signed quote, and the user
-        // can claim payout normally when settlement finalizes.
+        // Re-check basket status after transfer_from. The await above is a yield
+        // point where propose_settlement could move the basket to SettlementPending.
+        // Uses lightweight get_basket_status (~4 bytes) instead of full get_basket (~500+).
+        let (post_status, _) = self
+            .mirror_actor()
+            .basket_market()
+            .get_basket_status(basket_id)
+            .await
+            .map_err(|_| {
+                self.clear_pending_bet(basket_id, caller);
+                BetLaneError::BasketQueryFailed
+            })?
+            .map_err(|_| {
+                self.clear_pending_bet(basket_id, caller);
+                BetLaneError::BasketNotFound
+            })?;
+
+        if post_status != MirrorBasketStatus::Active {
+            // Basket closed during transfer — refund the tokens
+            let _ = self
+                .bet_token_actor()
+                .bet_token()
+                .transfer(caller, amount)
+                .await;
+            self.clear_pending_bet(basket_id, caller);
+            return Err(BetLaneError::BasketNotActive);
+        }
 
         InfallibleStorageMut::get_mut(&mut self.positions).positions.insert(
             (basket_id, caller),
