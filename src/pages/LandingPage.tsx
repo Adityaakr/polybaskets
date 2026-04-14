@@ -172,6 +172,7 @@ export default function LandingPage() {
   const [statsStarted, setStatsStarted] = useState(false);
   const [prizeStat, setPrizeStat] = useState("0");
   const [chipStat, setChipStat] = useState("0");
+  const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(0);
 
   useEffect(() => {
     const revealTimer = window.setTimeout(() => setVisible(true), 60);
@@ -659,20 +660,27 @@ export default function LandingPage() {
 
             <div className="pb-faq-grid">
               {faqItems.map((item, index) => (
-                <details
+                <div
                   key={item.question}
-                  className={`pb-faq-item pb-card-elevated pb-reveal pb-reveal-d${Math.min(index + 3, 8)} ${visible ? "visible" : ""}`}
+                  className={`pb-faq-item pb-card-elevated pb-reveal pb-reveal-d${Math.min(index + 3, 8)} ${visible ? "visible" : ""}${openFaqIndex === index ? " is-open" : ""}`}
                 >
-                  <summary className="pb-faq-question">
+                  <button
+                    type="button"
+                    className="pb-faq-question"
+                    onClick={() => setOpenFaqIndex((current) => (current === index ? null : index))}
+                    aria-expanded={openFaqIndex === index}
+                  >
                     <span>{item.question}</span>
                     <span className="pb-faq-icon" aria-hidden="true">
                       +
                     </span>
-                  </summary>
+                  </button>
                   <div className="pb-faq-answer">
-                    <p>{item.answer}</p>
+                    <div className="pb-faq-answer-inner">
+                      <p>{item.answer}</p>
+                    </div>
                   </div>
-                </details>
+                </div>
               ))}
             </div>
           </div>

@@ -1118,17 +1118,20 @@
     align-items: center;
     justify-content: space-between;
     gap: 20px;
+    width: 100%;
     cursor: pointer;
-    list-style: none;
+    border: 0;
+    background: transparent;
     padding: 22px 24px;
     color: #f4fff4;
+    text-align: left;
     font-size: 16px;
     font-weight: 700;
     letter-spacing: -0.01em;
     transition: color 0.28s ease, background-color 0.28s ease;
   }
 
-  .pb-faq-item[open] .pb-faq-question {
+  .pb-faq-item.is-open .pb-faq-question {
     background: rgba(255, 255, 255, 0.015);
   }
 
@@ -1152,7 +1155,7 @@
     transition: transform 0.32s ease, background 0.32s ease, border-color 0.32s ease, color 0.32s ease;
   }
 
-  .pb-faq-item[open] .pb-faq-icon {
+  .pb-faq-item.is-open .pb-faq-icon {
     transform: rotate(45deg);
     border-color: rgba(255, 157, 0, 0.28);
     background: rgba(255, 157, 0, 0.1);
@@ -1160,33 +1163,34 @@
   }
 
   .pb-faq-answer {
-    max-height: 0;
+    display: grid;
+    grid-template-rows: 0fr;
     padding: 0 24px;
     color: #aeb8c4;
     font-size: 15px;
     line-height: 1.75;
     opacity: 0;
     transition:
-      max-height 0.42s ease,
-      opacity 0.36s ease,
+      grid-template-rows 0.42s ease,
+      opacity 0.34s ease,
       padding-bottom 0.42s ease,
       transform 0.42s ease;
     transform: translateY(-4px);
   }
 
-  .pb-faq-item[open] .pb-faq-answer {
-    max-height: 220px;
+  .pb-faq-item.is-open .pb-faq-answer {
+    grid-template-rows: 1fr;
     padding-bottom: 22px;
     opacity: 1;
     transform: translateY(0);
   }
 
-  .pb-faq-answer p {
-    margin: 0;
+  .pb-faq-answer-inner {
+    overflow: hidden;
   }
 
-  .pb-faq-answer > p {
-    overflow: hidden;
+  .pb-faq-answer p {
+    margin: 0;
   }
 
   .pb-step-card::before,
