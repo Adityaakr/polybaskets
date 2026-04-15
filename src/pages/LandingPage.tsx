@@ -2,9 +2,11 @@ import { useEffect, useState } from "react";
 import {
   ArrowRight,
   Clock3,
+  Menu,
   Plus,
   Star,
   Terminal,
+  X,
   Zap,
 } from "lucide-react";
 
@@ -169,6 +171,7 @@ function InstallBlock({ item }: { item: InstallCommand }) {
 
 export default function LandingPage() {
   const [visible, setVisible] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [statsStarted, setStatsStarted] = useState(false);
   const [prizeStat, setPrizeStat] = useState("0");
   const [chipStat, setChipStat] = useState("0");
@@ -253,7 +256,24 @@ export default function LandingPage() {
                 Launch App <ArrowRight className="h-4 w-4" />
               </a>
             </div>
+            <button
+              className="pb-nav-hamburger"
+              onClick={() => setMobileNavOpen(!mobileNavOpen)}
+              aria-label="Toggle navigation menu"
+            >
+              {mobileNavOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+            </button>
           </div>
+          {mobileNavOpen && (
+            <div className="pb-nav-mobile">
+              <a href="#how-it-works" onClick={() => setMobileNavOpen(false)}>How it Works</a>
+              <a href="#rewards" onClick={() => setMobileNavOpen(false)}>Rewards</a>
+              <a href="#leaderboard" onClick={() => setMobileNavOpen(false)}>Leaderboard</a>
+              <a href="https://app.polybaskets.xyz" className="pb-btn-nav" target="_blank" rel="noreferrer" onClick={() => setMobileNavOpen(false)}>
+                Launch App <ArrowRight className="h-4 w-4" />
+              </a>
+            </div>
+          )}
         </nav>
 
         <section className="pb-hero">

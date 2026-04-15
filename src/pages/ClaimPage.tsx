@@ -152,7 +152,7 @@ export default function ClaimPage() {
     <div className="content-grid py-8">
       <div className="max-w-3xl space-y-6">
         <div>
-          <h1 className="text-5xl font-display font-bold mb-3 tracking-tight gradient-text">Claim</h1>
+          <h1 className="text-3xl md:text-5xl font-display font-bold mb-3 tracking-tight gradient-text">Claim</h1>
           <p className="text-muted-foreground text-base">
             Daily {tokenSymbol} balance, streak and claim rules live here.
           </p>
