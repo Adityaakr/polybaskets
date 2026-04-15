@@ -133,6 +133,21 @@ type AllTimeBasketWinningsQuery = {
   };
 };
 
+type CommunityAgentAddressesQuery = {
+  allDailyUserActivityAggregates: {
+    nodes: Array<{ user: string }>;
+  };
+  allDailyUserAggregates: {
+    nodes: Array<{ user: string }>;
+  };
+  allContestDayWinners: {
+    nodes: Array<{ user: string }>;
+  };
+  allBaskets: {
+    nodes: Array<{ creator: string }>;
+  };
+};
+
 export type ContestLeaderboardDay = ContestDayProjectionNode | null;
 
 export type ContestLeaderboardEntry = DailyUserAggregateNode & {
@@ -333,6 +348,47 @@ const ALL_TIME_BASKET_WINNINGS_QUERY = `
         realizedProfit
         payout
         principal
+      }
+    }
+  }
+`;
+
+const COMMUNITY_AGENT_ADDRESSES_QUERY = `
+  query CommunityAgentAddresses($offset: Int!, $first: Int!) {
+    allDailyUserActivityAggregates(
+      orderBy: [USER_ASC, DAY_ID_ASC]
+      offset: $offset
+      first: $first
+    ) {
+      nodes {
+        user
+      }
+    }
+    allDailyUserAggregates(
+      orderBy: [USER_ASC, DAY_ID_ASC]
+      offset: $offset
+      first: $first
+    ) {
+      nodes {
+        user
+      }
+    }
+    allContestDayWinners(
+      orderBy: [USER_ASC]
+      offset: $offset
+      first: $first
+    ) {
+      nodes {
+        user
+      }
+    }
+    allBaskets(
+      orderBy: [CREATOR_ASC]
+      offset: $offset
+      first: $first
+    ) {
+      nodes {
+        creator
       }
     }
   }
@@ -1020,6 +1076,52 @@ export const fetchAllTimeTradingPnl = async (): Promise<AllTimeTradingPnlEntry[]
       totalRewards: entry.totalRewards.toString(),
       basketCount: entry.basketCount,
     }));
+};
+
+export const fetchCommunityAgentAddresses = async (): Promise<string[]> => {
+  const addressesByKey = new Map<string, string>();
+
+  for (let offset = 0; ; offset += ALL_TIME_TRADING_BATCH_SIZE) {
+    const data = await graphQLRequest<CommunityAgentAddressesQuery>(
+      COMMUNITY_AGENT_ADDRESSES_QUERY,
+      {
+        offset,
+        first: ALL_TIME_TRADING_BATCH_SIZE,
+      },
+    );
+
+    const activityNodes = data.allDailyUserActivityAggregates.nodes;
+    const aggregateNodes = data.allDailyUserAggregates.nodes;
+    const winnerNodes = data.allContestDayWinners.nodes;
+    const basketNodes = data.allBaskets.nodes;
+
+    for (const node of activityNodes) {
+      addressesByKey.set(node.user.toLowerCase(), node.user);
+    }
+
+    for (const node of aggregateNodes) {
+      addressesByKey.set(node.user.toLowerCase(), node.user);
+    }
+
+    for (const node of winnerNodes) {
+      addressesByKey.set(node.user.toLowerCase(), node.user);
+    }
+
+    for (const node of basketNodes) {
+      addressesByKey.set(node.creator.toLowerCase(), node.creator);
+    }
+
+    if (
+      activityNodes.length < ALL_TIME_TRADING_BATCH_SIZE &&
+      aggregateNodes.length < ALL_TIME_TRADING_BATCH_SIZE &&
+      winnerNodes.length < ALL_TIME_TRADING_BATCH_SIZE &&
+      basketNodes.length < ALL_TIME_TRADING_BATCH_SIZE
+    ) {
+      break;
+    }
+  }
+
+  return Array.from(addressesByKey.values()).sort((left, right) => left.localeCompare(right));
 };
 
 export const fetchAllTimeBasketWinnings = async (): Promise<AllTimeBasketWinningsEntry[]> => {
