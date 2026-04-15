@@ -592,8 +592,9 @@ export const formatCompactChipAmount = (value: string | null): string => {
     compactDisplay: "short",
     maximumFractionDigits: scaled >= 100 ? 0 : 1,
   });
+  const formatted = formatter.format(scaled);
 
-  return `${sign}${formatter.format(scaled)} CHIP`;
+  return `${formatted === "0" ? "" : sign}${formatted} CHIP`;
 };
 
 const chipUnitsToNumber = (value: string): number =>
