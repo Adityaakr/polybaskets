@@ -265,7 +265,7 @@ export default function MyBasketsPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-5xl font-display font-normal mb-3 tracking-tight gradient-text reveal">My Baskets</h1>
+          <h1 className="text-3xl md:text-5xl font-display font-normal mb-3 tracking-tight gradient-text reveal">My Baskets</h1>
           <p className="text-muted-foreground text-base reveal reveal-delay-1">
             Manage your created baskets and follows
             <span className="ml-2 text-xs opacity-75">(Live updates)</span>

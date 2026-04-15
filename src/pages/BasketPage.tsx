@@ -1773,7 +1773,7 @@ export default function BasketPage() {
       )}
 
       {/* Main Content */}
-      <div className="grid lg:grid-cols-3 gap-8">
+      <div className="grid lg:grid-cols-3 gap-4 lg:gap-8">
         {/* Left: Main Info */}
         <div className="lg:col-span-2 space-y-6">
           {/* Index Card */}
@@ -1914,7 +1914,8 @@ export default function BasketPage() {
             </CardHeader>
             <CardContent>
                 <div className={`border rounded-lg divide-y transition-opacity ${isBasketItemsRefreshing ? 'opacity-80' : 'opacity-100'}`}>
-                  <div className="grid grid-cols-9 gap-2 px-4 py-2.5 text-xs font-medium text-muted-foreground bg-muted/50">
+                  {/* Desktop header */}
+                  <div className="hidden md:grid grid-cols-9 gap-2 px-4 py-2.5 text-xs font-medium text-muted-foreground bg-muted/50">
                     <span className="col-span-2">Market</span>
                     <span className="text-center">Position</span>
                     <span className="text-right">Status</span>
@@ -1926,11 +1927,12 @@ export default function BasketPage() {
                   </div>
                 {deferredBasketItemRows.map((row) => {
                   return (
-                    <div 
+                    <div
                       key={row.key}
-                      className="grid grid-cols-9 gap-2 px-4 py-3 items-center hover:bg-muted/30 transition-colors group"
+                      className="flex flex-col gap-1 px-4 py-3 md:grid md:grid-cols-9 md:gap-2 md:items-center hover:bg-muted/30 transition-colors group"
                     >
-                      <div className="col-span-2 flex items-center gap-2 min-w-0">
+                      {/* Mobile: Row 1 - Market + Position */}
+                      <div className="flex items-center justify-between gap-2 md:col-span-2 md:justify-start min-w-0">
                         <span className="text-sm break-words flex-1" title={row.item.question}>
                           {row.item.question}
                         </span>
@@ -1940,27 +1942,39 @@ export default function BasketPage() {
                             target="_blank"
                             rel="noopener noreferrer"
                             onClick={(e) => e.stopPropagation()}
-                            className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                            className="flex-shrink-0 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
                             title="Verify on Polymarket"
                           >
                             <ExternalLink className="w-3.5 h-3.5 text-muted-foreground hover:text-foreground" />
                           </a>
                         )}
+                        {/* Mobile position badge inline */}
+                        <span className={`md:hidden text-xs font-medium px-2 py-0.5 rounded shrink-0 ${
+                          row.item.outcome === 'YES'
+                            ? 'bg-accent/10 text-accent'
+                            : 'bg-muted text-muted-foreground'
+                        }`}>
+                          {row.item.outcome}
+                        </span>
                       </div>
-                      <span className="text-center">
+
+                      {/* Desktop: Position column */}
+                      <span className="hidden md:block text-center">
                         <span className={`text-xs font-medium px-2 py-0.5 rounded ${
-                          row.item.outcome === 'YES' 
-                            ? 'bg-accent/10 text-accent' 
+                          row.item.outcome === 'YES'
+                            ? 'bg-accent/10 text-accent'
                             : 'bg-muted text-muted-foreground'
                         }`}>
                           {row.item.outcome}
                         </span>
                       </span>
-                      <span className="text-right">
+
+                      {/* Desktop: Status column */}
+                      <span className="hidden md:block text-right">
                         {row.marketStatus ? (
                           <div className="flex flex-col items-end gap-0.5">
                             {row.isResolved ? (
-                              <Badge 
+                              <Badge
                                 variant={row.resolvedOutcome === row.item.outcome ? "default" : "secondary"}
                                 className="text-[10px] px-1.5 py-0"
                               >
@@ -1983,35 +1997,67 @@ export default function BasketPage() {
                           <span className="text-xs text-muted-foreground">-</span>
                         )}
                       </span>
-                      <span className="text-right text-sm tabular-nums" title={`Weight: ${(row.item.weightBps / 100).toFixed(2)}%`}>
+
+                      {/* Mobile: Row 2 - Status + Weight + Price + Change */}
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground md:hidden">
+                        {row.marketStatus && (
+                          row.isResolved ? (
+                            <span className={`font-medium ${row.resolvedOutcome === row.item.outcome ? 'text-green-400' : 'text-red-400'}`}>
+                              {row.resolvedOutcome}
+                            </span>
+                          ) : row.isClosed ? (
+                            <span className="text-muted-foreground">Closed</span>
+                          ) : (
+                            <span className="text-green-400">Open</span>
+                          )
+                        )}
+                        <span className="tabular-nums" title={`Weight: ${(row.item.weightBps / 100).toFixed(2)}%`}>
+                          W: {formatWeight(row.item.weightBps)}
+                        </span>
+                        <span className="tabular-nums font-medium text-foreground">
+                          {row.price !== null ? formatPrice(row.price) : '-'}
+                        </span>
+                        {row.change ? (
+                          <span className={`font-medium ${
+                            row.isPositive
+                              ? 'text-green-600 dark:text-green-400'
+                              : 'text-red-600 dark:text-red-400'
+                          }`}>
+                            {row.isPositive ? '+' : ''}{(row.change.change * 100).toFixed(1)}%
+                          </span>
+                        ) : null}
+                      </div>
+
+                      {/* Desktop: remaining columns */}
+                      <span className="hidden md:block text-right text-sm tabular-nums" title={`Weight: ${(row.item.weightBps / 100).toFixed(2)}%`}>
                         {formatWeight(row.item.weightBps)}
                       </span>
-                      <span 
-                        className="text-right text-sm tabular-nums font-medium" 
+                      <span
+                        className="hidden md:block text-right text-sm tabular-nums font-medium"
                         title={row.price !== null ? `Live price from Polymarket: $${row.price.toFixed(4)}` : 'Price not available'}
                       >
                         {row.price !== null ? formatPrice(row.price) : '-'}
                       </span>
-                      <span 
-                        className="text-right text-sm tabular-nums font-medium"
+                      <span
+                        className="hidden md:block text-right text-sm tabular-nums font-medium"
                         title={row.currentProb !== null ? `Current probability: ${(row.currentProb * 100).toFixed(2)}% (from Polymarket)` : 'Live probability unavailable'}
                       >
                         {row.currentProb !== null ? formatProbability(row.currentProb) : '-'}
                       </span>
-                      <span 
-                        className="text-right text-sm tabular-nums text-muted-foreground"
+                      <span
+                        className="hidden md:block text-right text-sm tabular-nums text-muted-foreground"
                         title={row.change ? `Original probability at creation: ${(row.change.originalProb * 100).toFixed(2)}%` : 'Original data not available'}
                       >
                         {row.change ? formatProbability(row.change.originalProb) : '-'}
                       </span>
-                      <span className="text-right text-sm tabular-nums">
+                      <span className="hidden md:block text-right text-sm tabular-nums">
                         {row.change ? (
-                          <div 
+                          <div
                             className="flex flex-col items-end cursor-help"
                           >
                             <span className={`font-medium ${
                               row.isPositive
-                                ? 'text-green-600 dark:text-green-400' 
+                                ? 'text-green-600 dark:text-green-400'
                                 : 'text-red-600 dark:text-red-400'
                             }`}>
                               {row.isPositive ? '+' : ''}{(row.change.change * 100).toFixed(1)}%

@@ -326,7 +326,7 @@ export default function AgentProfilePage() {
           </Link>
           <div>
             <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-5xl font-display font-normal tracking-tight gradient-text reveal">
+              <h1 className="text-3xl md:text-5xl font-display font-normal tracking-tight gradient-text reveal">
                 {isCurrentUser ? 'Your Agent Profile' : displayName}
               </h1>
               {isCurrentUser ? <Badge>You</Badge> : null}

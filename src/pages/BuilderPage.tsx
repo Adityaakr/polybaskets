@@ -141,7 +141,7 @@ export default function BuilderPage() {
           </Button>
         </Link>
         <div>
-          <h1 className="text-5xl font-display font-bold mb-2 tracking-tight gradient-text reveal">Basket Builder</h1>
+          <h1 className="text-3xl md:text-5xl font-display font-bold mb-2 tracking-tight gradient-text reveal">Basket Builder</h1>
           <p className="text-muted-foreground text-base reveal reveal-delay-1">
             {manualBettingEnabled
               ? 'Configure weights and save your basket onchain'
@@ -151,7 +151,7 @@ export default function BuilderPage() {
       </div>
 
       {/* Main Grid */}
-      <div className="grid lg:grid-cols-2 gap-8">
+      <div className="grid lg:grid-cols-2 gap-4 lg:gap-8">
         {/* Left: Builder */}
         <div className="space-y-6">
           <BasketBuilder 

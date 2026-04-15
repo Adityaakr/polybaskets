@@ -135,13 +135,13 @@ export function BasketBuilder({ marketPrices, marketProbabilities }: BasketBuild
                   </Button>
                 </div>
 
-                <div className="flex items-center gap-4">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-4">
                   <Slider
                     value={[item.weightBps]}
                     onValueChange={([value]) => updateWeight(item.marketId, item.outcome, value)}
                     max={10000}
                     step={100}
-                    className="flex-1"
+                    className="flex-1 min-h-[44px] flex items-center"
                   />
                   <div className="flex items-center gap-2">
                     <Input
