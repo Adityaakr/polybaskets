@@ -403,6 +403,11 @@ export const formatCompactNumber = (value: number): string =>
     maximumFractionDigits: value >= 100 ? 0 : 1,
   }).format(value);
 
+export const formatWholeNumber = (value: number): string =>
+  new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: 0,
+  }).format(value);
+
 export const formatPercentage = (value: number): string =>
   `${new Intl.NumberFormat("en-US", {
     minimumFractionDigits: 0,

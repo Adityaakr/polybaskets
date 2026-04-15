@@ -36,6 +36,7 @@ import {
   formatCompactVaraAmount,
   formatPreciseChipAmount,
   formatPercentage,
+  formatWholeNumber,
   type ProjectStatsAgentRow,
   type ProjectStatsDailyRow,
   type ProjectStatsRange,
@@ -601,7 +602,7 @@ export default function StatsPage() {
         />
         <KpiCard
           title="Transactions"
-          value={formatCompactNumber(stats.summary.totalTransactions)}
+          value={formatWholeNumber(stats.summary.totalTransactions)}
           hint={`${stats.summary.totalBetsPlaced} bets, ${stats.summary.totalBasketsMade} baskets, ${stats.summary.totalClaims} claims`}
           icon={Activity}
         />
