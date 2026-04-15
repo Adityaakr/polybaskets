@@ -914,7 +914,7 @@ function CommunityVaraLeaderboard() {
   const { api, isApiReady } = useApi();
   const { network } = useNetwork();
   const { address, connect } = useWallet();
-  const { resolveAgentName } = useAgentNames();
+  const { agents, resolveAgentName } = useAgentNames();
   const { toast } = useToast();
   const [onChainBaskets, setOnChainBaskets] = useState<Basket[]>([]);
   const [loading, setLoading] = useState(false);
@@ -1075,6 +1075,10 @@ function CommunityVaraLeaderboard() {
   const topCurators = useMemo(() => {
     const curatorMap: Record<string, { totalFollowers: number; basketCount: number }> = {};
 
+    agents.forEach((agent) => {
+      curatorMap[agent.address.toLowerCase()] = { totalFollowers: 0, basketCount: 0 };
+    });
+
     onChainBaskets.forEach((basket) => {
       const owner = basket.owner.toLowerCase();
       const followers = (() => {
@@ -1102,7 +1106,7 @@ function CommunityVaraLeaderboard() {
 
         return right.basketCount - left.basketCount;
       });
-  }, [followVersion, onChainBaskets]);
+  }, [agents, followVersion, onChainBaskets]);
 
   const handleToggleFollow = async (basket: Basket) => {
     if (!address) {
@@ -1128,10 +1132,45 @@ function CommunityVaraLeaderboard() {
     }
   };
 
-  const topAllTimeWinners = useMemo(
-    () => allTimeWinnersQuery.data ?? [],
-    [allTimeWinnersQuery.data],
-  );
+  const topAllTimeWinners = useMemo<AllTimeTradingPnlEntry[]>(() => {
+    const entriesByUser = new Map<string, Omit<AllTimeTradingPnlEntry, 'rank'>>();
+
+    for (const entry of allTimeWinnersQuery.data ?? []) {
+      entriesByUser.set(entry.user.toLowerCase(), {
+        user: entry.user,
+        totalRealizedProfit: entry.totalRealizedProfit,
+        totalRewards: entry.totalRewards,
+        basketCount: entry.basketCount,
+      });
+    }
+
+    for (const agent of agents) {
+      const key = agent.address.toLowerCase();
+      if (entriesByUser.has(key)) {
+        continue;
+      }
+
+      entriesByUser.set(key, {
+        user: agent.address,
+        totalRealizedProfit: '0',
+        totalRewards: '0',
+        basketCount: 0,
+      });
+    }
+
+    return Array.from(entriesByUser.values())
+      .sort((left, right) => {
+        const leftProfit = BigInt(left.totalRealizedProfit);
+        const rightProfit = BigInt(right.totalRealizedProfit);
+
+        if (leftProfit !== rightProfit) {
+          return rightProfit > leftProfit ? 1 : -1;
+        }
+
+        return left.user.localeCompare(right.user);
+      })
+      .map((entry, index) => ({ ...entry, rank: index + 1 }));
+  }, [agents, allTimeWinnersQuery.data]);
 
   const currentUserActorId = useMemo(
     () => (address ? actorIdFromAddress(address).toLowerCase() : null),
