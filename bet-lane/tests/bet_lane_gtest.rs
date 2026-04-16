@@ -10,7 +10,7 @@ use bet_token_client::{
     bet_token::BetToken,
     vft_admin::VftAdmin,
 };
-use gtest::System;
+use gtest::{BlockRunResult, System};
 use gtest::constants::{DEFAULT_USER_ALICE, DEFAULT_USER_BOB, DEFAULT_USER_CHARLIE};
 use polymarket_mirror::WASM_BINARY as POLYMARKET_MIRROR_WASM_BINARY;
 use polymarket_mirror_client::{
@@ -25,6 +25,14 @@ const TOKEN_NAME: &str = "Bet Token";
 const TOKEN_SYMBOL: &str = "BET";
 const TOKEN_DECIMALS: u8 = 12;
 const VALID_QUOTE_DEADLINE_MS: u64 = 9_999_999_999_999;
+const BET_LANE_ROUTE: &str = "BetLane";
+
+#[derive(Debug, Clone)]
+struct GasMeasurement {
+    total_spent_value: u128,
+    total_burned_gas: u64,
+    blocks: u32,
+}
 
 struct Harness {
     env: GtestEnv,
@@ -134,6 +142,37 @@ impl Harness {
     fn advance_blocks(&self, blocks: u32) {
         let next_block = self.env.system().block_height().saturating_add(blocks);
         self.env.system().run_to_block(next_block);
+    }
+
+    fn run_until_reply(&self, origin_message_id: sails_rs::prelude::MessageId) -> GasMeasurement {
+        let mut total_spent_value = 0u128;
+        let mut total_burned_gas = 0u64;
+        let mut blocks = 0u32;
+
+        loop {
+            let result: BlockRunResult = self.env.system().run_next_block();
+            blocks = blocks.saturating_add(1);
+            total_spent_value = total_spent_value.saturating_add(result.spent_value());
+            total_burned_gas = total_burned_gas.saturating_add(
+                result
+                    .gas_burned
+                    .values()
+                    .copied()
+                    .fold(0u64, |acc, value| acc.saturating_add(value)),
+            );
+
+            let has_origin_reply = result
+                .log()
+                .iter()
+                .any(|entry| entry.reply_to() == Some(origin_message_id));
+            if has_origin_reply {
+                return GasMeasurement {
+                    total_spent_value,
+                    total_burned_gas,
+                    blocks,
+                };
+            }
+        }
     }
 
     async fn mint(&self, to: ActorId, amount: u32) {
@@ -643,4 +682,159 @@ fn keypair_from_seed(seed: [u8; 32]) -> Keypair {
     MiniSecretKey::from_bytes(&seed)
         .expect("seed should be valid")
         .expand_to_keypair(ExpansionMode::Ed25519)
+}
+
+#[test]
+fn gas_baseline_place_bet_is_reported() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime should build");
+
+    runtime.block_on(async {
+        let harness = Harness::new().await;
+        let basket_id = harness.create_basket(BasketAssetKind::Bet).await;
+
+        harness.mint(harness.alice, 100).await;
+        harness.approve_lane(harness.alice, 100).await;
+
+        let quote = harness.signed_quote(
+            harness.alice,
+            basket_id,
+            U256::from(100u32),
+            5_000,
+            VALID_QUOTE_DEADLINE_MS,
+            1,
+        );
+        let payload = bet_lane_client::bet_lane::io::PlaceBet::encode_params_with_prefix(
+            BET_LANE_ROUTE,
+            basket_id,
+            U256::from(100u32),
+            quote,
+        );
+
+        let message_id = harness
+            .env
+            .send_one_way(
+                harness.bet_lane.id(),
+                payload,
+                Default::default(),
+            )
+            .expect("manual place_bet dispatch should be queued");
+
+        let measurement = harness.run_until_reply(message_id);
+
+        println!(
+            "GAS_BASELINE place_bet blocks={} burned={} spent_value={}",
+            measurement.blocks, measurement.total_burned_gas, measurement.total_spent_value
+        );
+
+        assert!(measurement.total_burned_gas > 0);
+    });
+}
+
+#[test]
+fn gas_baseline_claim_is_reported() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime should build");
+
+    runtime.block_on(async {
+        let harness = Harness::new().await;
+        let basket_id = harness.create_basket(BasketAssetKind::Bet).await;
+
+        harness.mint(harness.alice, 100).await;
+        harness.approve_lane(harness.alice, 100).await;
+
+        let mut lane = harness.bet_lane.bet_lane();
+        let quote = harness.signed_quote(
+            harness.alice,
+            basket_id,
+            U256::from(100u32),
+            5_000,
+            VALID_QUOTE_DEADLINE_MS,
+            1,
+        );
+        lane
+            .place_bet(basket_id, U256::from(100u32), quote)
+            .with_actor_id(harness.alice)
+            .await
+            .expect("setup bet should succeed");
+
+        harness.mint(harness.bet_lane.id(), 100).await;
+        harness.finalize_yes_settlement(basket_id).await;
+
+        let payload =
+            bet_lane_client::bet_lane::io::Claim::encode_params_with_prefix(BET_LANE_ROUTE, basket_id);
+
+        let message_id = harness
+            .env
+            .send_one_way(
+                harness.bet_lane.id(),
+                payload,
+                sails_rs::client::GtestParams::default().with_actor_id(harness.alice),
+            )
+            .expect("manual claim dispatch should be queued");
+
+        let measurement = harness.run_until_reply(message_id);
+
+        println!(
+            "GAS_BASELINE claim blocks={} burned={} spent_value={}",
+            measurement.blocks, measurement.total_burned_gas, measurement.total_spent_value
+        );
+
+        assert!(measurement.total_burned_gas > 0);
+    });
+}
+
+#[test]
+fn gas_baseline_place_bet_state_growth_is_reported() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime should build");
+
+    runtime.block_on(async {
+        for extra_baskets in [0u32, 25, 100] {
+            let harness = Harness::new().await;
+            let mut basket_id = harness.create_basket(BasketAssetKind::Bet).await;
+            for _ in 0..extra_baskets {
+                basket_id = harness.create_basket(BasketAssetKind::Bet).await;
+            }
+
+            harness.mint(harness.alice, 100).await;
+            harness.approve_lane(harness.alice, 100).await;
+
+            let quote = harness.signed_quote(
+                harness.alice,
+                basket_id,
+                U256::from(100u32),
+                5_000,
+                VALID_QUOTE_DEADLINE_MS,
+                1,
+            );
+            let payload = bet_lane_client::bet_lane::io::PlaceBet::encode_params_with_prefix(
+                BET_LANE_ROUTE,
+                basket_id,
+                U256::from(100u32),
+                quote,
+            );
+
+            let message_id = harness
+                .env
+                .send_one_way(harness.bet_lane.id(), payload, Default::default())
+                .expect("manual place_bet dispatch should be queued");
+
+            let measurement = harness.run_until_reply(message_id);
+
+            println!(
+                "GAS_STATE_GROWTH place_bet extra_baskets={} blocks={} burned={} spent_value={}",
+                extra_baskets,
+                measurement.blocks,
+                measurement.total_burned_gas,
+                measurement.total_spent_value
+            );
+        }
+    });
 }
