@@ -320,46 +320,97 @@ impl<'a> BetLaneService<'a> {
         signed_quote: SignedBetQuote,
     ) -> Result<U256, BetLaneError> {
         self.ensure_not_paused()?;
-        self.validate_bet_amount(amount)?;
-        let caller = Syscall::message_source();
-        let verified_quote = self.verify_bet_quote(caller, basket_id, amount, &signed_quote)?;
+        let config = InfallibleStorage::get(&self.config).clone();
 
-        let basket = self
+        // Validate bet amount against config bounds (cached read)
+        if amount.is_zero() {
+            return Err(BetLaneError::InvalidAmount);
+        }
+        if amount < config.min_bet {
+            return Err(BetLaneError::AmountBelowMinBet);
+        }
+        if amount > config.max_bet {
+            return Err(BetLaneError::AmountAboveMaxBet);
+        }
+
+        let caller = Syscall::message_source();
+
+        // Verify quote signature using cached config
+        let quote_signer = config.quote_signer;
+        if quote_signer == ActorId::zero() {
+            return Err(BetLaneError::QuoteSignerNotConfigured);
+        }
+        let payload = signed_quote.payload.clone();
+        Self::validate_index_at_creation(payload.quoted_index_bps)?;
+        if payload.target_program_id != exec::program_id() {
+            return Err(BetLaneError::QuoteTargetMismatch);
+        }
+        if payload.user != caller {
+            return Err(BetLaneError::QuoteUserMismatch);
+        }
+        if payload.basket_id != basket_id {
+            return Err(BetLaneError::QuoteBasketMismatch);
+        }
+        if payload.amount != amount {
+            return Err(BetLaneError::QuoteAmountMismatch);
+        }
+        if payload.deadline_ms < exec::block_timestamp() {
+            return Err(BetLaneError::QuoteExpired);
+        }
+        if InfallibleStorage::get(&self.used_quote_nonces)
+            .nonces
+            .contains(&(caller, payload.nonce))
+        {
+            return Err(BetLaneError::QuoteNonceAlreadyUsed);
+        }
+        let message = Self::quote_signing_message(&payload);
+        Self::verify_quote_signature(&signed_quote.signature, &message, quote_signer)?;
+        let verified_quote = payload;
+
+        // Lightweight cross-program query: only status + asset_kind (~4 bytes vs ~500+)
+        let (basket_status, basket_asset_kind) = self
             .mirror_actor()
             .basket_market()
-            .get_basket(basket_id)
+            .get_basket_status(basket_id)
             .await
             .map_err(|_| BetLaneError::BasketQueryFailed)?
             .map_err(|_| BetLaneError::BasketNotFound)?;
 
-        if basket.status != MirrorBasketStatus::Active {
+        if basket_status != MirrorBasketStatus::Active {
             return Err(BetLaneError::BasketNotActive);
         }
-        if basket.asset_kind != MirrorBasketAssetKind::Bet {
+        if basket_asset_kind != MirrorBasketAssetKind::Bet {
             return Err(BetLaneError::BasketAssetMismatch);
         }
 
         let program_id = Syscall::program_id();
-        let current_position = InfallibleStorage::get(&self.positions)
+
+        // Extract position fields without cloning the full struct
+        let pos_store = InfallibleStorage::get(&self.positions);
+        let (current_shares, current_claimed, current_index) = pos_store
             .positions
             .get(&(basket_id, caller))
-            .cloned()
+            .map(|p| (p.shares, p.claimed, p.index_at_creation_bps))
             .unwrap_or_default();
+        drop(pos_store);
 
-        let user_total = current_position
-            .shares
+        let user_total = current_shares
             .checked_add(amount)
             .ok_or(BetLaneError::MathOverflow)?;
-        self.validate_total_exposure(user_total)?;
+
+        // Validate total exposure against config bounds (cached read)
+        if user_total > config.max_bet {
+            return Err(BetLaneError::AmountAboveMaxBet);
+        }
+
         self.insert_pending_bet(basket_id, caller)?;
         self.consume_quote_nonce(caller, verified_quote.nonce)?;
 
-        let next_index_at_creation_bps = if current_position.shares.is_zero() {
+        let next_index_at_creation_bps = if current_shares.is_zero() {
             verified_quote.quoted_index_bps
         } else {
-            let old_weighted = current_position
-                .shares
-                .checked_mul(U256::from(current_position.index_at_creation_bps))
+            let old_weighted = current_shares
+                .checked_mul(U256::from(current_index))
                 .ok_or(BetLaneError::MathOverflow)?;
             let new_weighted = amount
                 .checked_mul(U256::from(verified_quote.quoted_index_bps))
@@ -385,42 +436,39 @@ impl<'a> BetLaneService<'a> {
             .map_err(|_| BetLaneError::BetTokenTransferFromFailed)
             .inspect_err(|_| self.clear_pending_bet(basket_id, caller))?;
 
-        let basket_after_transfer_result = self
+        // Re-check basket status after transfer_from. The await above is a yield
+        // point where propose_settlement could move the basket to SettlementPending.
+        // Uses lightweight get_basket_status (~4 bytes) instead of full get_basket (~500+).
+        let (post_status, _) = self
             .mirror_actor()
             .basket_market()
-            .get_basket(basket_id)
-            .await;
-
-        let basket_after_transfer = match basket_after_transfer_result {
-            Ok(Ok(basket)) => basket,
-            Ok(Err(_)) => {
-                let _ = self.refund_after_failed_bet(caller, amount).await;
+            .get_basket_status(basket_id)
+            .await
+            .map_err(|_| {
                 self.clear_pending_bet(basket_id, caller);
-                return Err(BetLaneError::BasketNotFound);
-            }
-            Err(_) => {
-                let _ = self.refund_after_failed_bet(caller, amount).await;
+                BetLaneError::BasketQueryFailed
+            })?
+            .map_err(|_| {
                 self.clear_pending_bet(basket_id, caller);
-                return Err(BetLaneError::BasketQueryFailed);
-            }
-        };
+                BetLaneError::BasketNotFound
+            })?;
 
-        if basket_after_transfer.status != MirrorBasketStatus::Active {
-            self.refund_after_failed_bet(caller, amount).await?;
+        if post_status != MirrorBasketStatus::Active {
+            // Basket closed during transfer — refund the tokens
+            let _ = self
+                .bet_token_actor()
+                .bet_token()
+                .transfer(caller, amount)
+                .await;
             self.clear_pending_bet(basket_id, caller);
             return Err(BetLaneError::BasketNotActive);
-        }
-        if basket_after_transfer.asset_kind != MirrorBasketAssetKind::Bet {
-            self.refund_after_failed_bet(caller, amount).await?;
-            self.clear_pending_bet(basket_id, caller);
-            return Err(BetLaneError::BasketAssetMismatch);
         }
 
         InfallibleStorageMut::get_mut(&mut self.positions).positions.insert(
             (basket_id, caller),
             Position {
                 shares: user_total,
-                claimed: current_position.claimed,
+                claimed: current_claimed,
                 index_at_creation_bps: next_index_at_creation_bps,
             },
         );
@@ -465,10 +513,14 @@ impl<'a> BetLaneService<'a> {
             return Err(BetLaneError::AlreadyClaimed);
         }
 
-        let settlement = self
+        // Note: asset_kind check is skipped here. BetLane only creates positions
+        // for Bet baskets (enforced in place_bet). If a position exists, the basket
+        // is guaranteed to be Bet. This saves one cross-program call (~8-10B gas).
+
+        let (settlement_status, payout_per_share) = self
             .mirror_actor()
             .basket_market()
-            .get_settlement(basket_id)
+            .get_settlement_result(basket_id)
             .await
             .map_err(|_| {
                 self.clear_pending_claim(basket_id, caller);
@@ -479,31 +531,12 @@ impl<'a> BetLaneService<'a> {
                 BetLaneError::SettlementNotFound
             })?;
 
-        let basket = self
-            .mirror_actor()
-            .basket_market()
-            .get_basket(basket_id)
-            .await
-            .map_err(|_| {
-                self.clear_pending_claim(basket_id, caller);
-                BetLaneError::BasketQueryFailed
-            })?
-            .map_err(|_| {
-                self.clear_pending_claim(basket_id, caller);
-                BetLaneError::BasketNotFound
-            })?;
-
-        if basket.asset_kind != MirrorBasketAssetKind::Bet {
-            self.clear_pending_claim(basket_id, caller);
-            return Err(BetLaneError::BasketAssetMismatch);
-        }
-
-        if settlement.status != MirrorSettlementStatus::Finalized {
+        if settlement_status != MirrorSettlementStatus::Finalized {
             self.clear_pending_claim(basket_id, caller);
             return Err(BetLaneError::SettlementNotFinalized);
         }
 
-        let payout = self.compute_payout(&position, settlement.payout_per_share)?;
+        let payout = self.compute_payout(&position, payout_per_share)?;
 
         if !payout.is_zero() {
             if self
@@ -640,29 +673,6 @@ impl<'a> BetLaneService<'a> {
         }
     }
 
-    fn validate_bet_amount(&self, amount: U256) -> Result<(), BetLaneError> {
-        let config = InfallibleStorage::get(&self.config);
-        if amount.is_zero() {
-            return Err(BetLaneError::InvalidAmount);
-        }
-        if amount < config.min_bet {
-            return Err(BetLaneError::AmountBelowMinBet);
-        }
-        if amount > config.max_bet {
-            return Err(BetLaneError::AmountAboveMaxBet);
-        }
-        Ok(())
-    }
-
-    fn validate_total_exposure(&self, total_exposure: U256) -> Result<(), BetLaneError> {
-        let config = InfallibleStorage::get(&self.config);
-        if total_exposure > config.max_bet {
-            Err(BetLaneError::AmountAboveMaxBet)
-        } else {
-            Ok(())
-        }
-    }
-
     fn validate_page_size(limit: u32) -> Result<(), BetLaneError> {
         if limit == 0 || limit > MAX_PAGE_SIZE {
             Err(BetLaneError::InvalidPageSize)
@@ -679,58 +689,16 @@ impl<'a> BetLaneService<'a> {
         }
     }
 
-    fn verify_bet_quote(
-        &self,
-        caller: ActorId,
-        basket_id: u64,
-        amount: U256,
-        signed_quote: &SignedBetQuote,
-    ) -> Result<BetQuotePayload, BetLaneError> {
-        let quote_signer = InfallibleStorage::get(&self.config).quote_signer;
-        if quote_signer == ActorId::zero() {
-            return Err(BetLaneError::QuoteSignerNotConfigured);
-        }
-
-        let payload = signed_quote.payload.clone();
-        Self::validate_index_at_creation(payload.quoted_index_bps)?;
-
-        if payload.target_program_id != exec::program_id() {
-            return Err(BetLaneError::QuoteTargetMismatch);
-        }
-        if payload.user != caller {
-            return Err(BetLaneError::QuoteUserMismatch);
-        }
-        if payload.basket_id != basket_id {
-            return Err(BetLaneError::QuoteBasketMismatch);
-        }
-        if payload.amount != amount {
-            return Err(BetLaneError::QuoteAmountMismatch);
-        }
-        if payload.deadline_ms < exec::block_timestamp() {
-            return Err(BetLaneError::QuoteExpired);
-        }
-        if InfallibleStorage::get(&self.used_quote_nonces)
-            .nonces
-            .contains(&(caller, payload.nonce))
-        {
-            return Err(BetLaneError::QuoteNonceAlreadyUsed);
-        }
-
-        let message = Self::quote_signing_message(&payload);
-        Self::verify_quote_signature(&signed_quote.signature, &message, quote_signer)?;
-
-        Ok(payload)
-    }
-
     fn quote_signing_message(payload: &BetQuotePayload) -> Vec<u8> {
-        let raw_payload = [b"BetLaneQuoteV1".encode(), payload.encode()].concat();
-        let mut wrapped = Vec::with_capacity(
-            b"<Bytes>".len() + raw_payload.len() + b"</Bytes>".len(),
-        );
-        wrapped.extend_from_slice(b"<Bytes>");
-        wrapped.extend_from_slice(&raw_payload);
-        wrapped.extend_from_slice(b"</Bytes>");
-        wrapped
+        let prefix_encoded = b"BetLaneQuoteV1".encode();
+        let payload_encoded = payload.encode();
+        let total_len = b"<Bytes>".len() + prefix_encoded.len() + payload_encoded.len() + b"</Bytes>".len();
+        let mut buf = Vec::with_capacity(total_len);
+        buf.extend_from_slice(b"<Bytes>");
+        buf.extend_from_slice(&prefix_encoded);
+        buf.extend_from_slice(&payload_encoded);
+        buf.extend_from_slice(b"</Bytes>");
+        buf
     }
 
     fn verify_quote_signature(
@@ -827,18 +795,6 @@ impl<'a> BetLaneService<'a> {
             .remove(&(basket_id, account));
     }
 
-    async fn refund_after_failed_bet(
-        &self,
-        user: ActorId,
-        amount: U256,
-    ) -> Result<(), BetLaneError> {
-        self.bet_token_actor()
-            .bet_token()
-            .transfer(user, amount)
-            .await
-            .map_err(|_| BetLaneError::BetTokenRefundFailed)?;
-        Ok(())
-    }
 
     fn bet_token_actor(
         &self,

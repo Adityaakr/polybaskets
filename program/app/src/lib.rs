@@ -848,6 +848,18 @@ impl<'a> BasketMarketService<'a> {
         Ok(self.state.baskets[basket_index].clone())
     }
 
+    /// Lightweight query returning only status and asset_kind (avoids serializing
+    /// the full Basket struct with name, description, and Vec<BasketItem>).
+    #[export]
+    pub fn get_basket_status(
+        &self,
+        basket_id: u64,
+    ) -> Result<(BasketStatus, BasketAssetKind), BasketMarketError> {
+        let idx = self.basket_index(basket_id)?;
+        let b = &self.state.baskets[idx];
+        Ok((b.status, b.asset_kind))
+    }
+
     #[export]
     pub fn get_positions(&self, user: ActorId) -> Vec<Position> {
         self.state
@@ -862,6 +874,18 @@ impl<'a> BasketMarketService<'a> {
     pub fn get_settlement(&self, basket_id: u64) -> Result<Settlement, BasketMarketError> {
         let settlement_index = self.settlement_index(basket_id)?;
         Ok(self.state.settlements[settlement_index].clone())
+    }
+
+    /// Lightweight query returning only settlement status and payout_per_share
+    /// (avoids serializing Vec<ItemResolution>, payload string, etc.).
+    #[export]
+    pub fn get_settlement_result(
+        &self,
+        basket_id: u64,
+    ) -> Result<(SettlementStatus, u128), BasketMarketError> {
+        let idx = self.settlement_index(basket_id)?;
+        let s = &self.state.settlements[idx];
+        Ok((s.status, s.payout_per_share))
     }
 
     #[export]
