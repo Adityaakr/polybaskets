@@ -101,11 +101,6 @@ type BasketMarketError = enum {
   AgentRenameCooldown,
 };
 
-type BasketAdmission = struct {
-  status: BasketStatus,
-  asset_kind: BasketAssetKind,
-};
-
 type Position = struct {
   basket_id: u64,
   user: actor_id,
@@ -131,12 +126,6 @@ type SettlementStatus = enum {
   Finalized,
 };
 
-type SettlementResult = struct {
-  status: SettlementStatus,
-  payout_per_share: u128,
-  asset_kind: BasketAssetKind,
-};
-
 constructor {
   New : (init: BasketMarketInit);
 };
@@ -157,12 +146,10 @@ service BasketMarket {
   query GetAgentCount : () -> u64;
   query GetAllAgents : () -> vec AgentInfo;
   query GetBasket : (basket_id: u64) -> result (Basket, BasketMarketError);
-  query GetBasketAdmission : (basket_id: u64) -> result (BasketAdmission, BasketMarketError);
   query GetBasketCount : () -> u64;
   query GetConfig : () -> BasketMarketConfig;
   query GetPositions : (user: actor_id) -> vec Position;
   query GetSettlement : (basket_id: u64) -> result (Settlement, BasketMarketError);
-  query GetSettlementResult : (basket_id: u64) -> result (SettlementResult, BasketMarketError);
   query IsVaraEnabled : () -> bool;
 
   events {

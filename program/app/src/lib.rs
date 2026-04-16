@@ -123,23 +123,6 @@ pub struct Settlement {
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, TypeInfo)]
 #[codec(crate = sails_rs::scale_codec)]
 #[scale_info(crate = sails_rs::scale_info)]
-pub struct BasketAdmission {
-    pub status: BasketStatus,
-    pub asset_kind: BasketAssetKind,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, TypeInfo)]
-#[codec(crate = sails_rs::scale_codec)]
-#[scale_info(crate = sails_rs::scale_info)]
-pub struct SettlementResult {
-    pub status: SettlementStatus,
-    pub payout_per_share: u128,
-    pub asset_kind: BasketAssetKind,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, TypeInfo)]
-#[codec(crate = sails_rs::scale_codec)]
-#[scale_info(crate = sails_rs::scale_info)]
 pub struct BasketMarketInit {
     pub admin_role: ActorId,
     pub settler_role: ActorId,
@@ -735,11 +718,9 @@ impl<'a> BasketMarketService<'a> {
             settlement.payout_per_share
         };
 
-        let asset_kind = {
-            let basket = self.basket_mut(basket_id)?;
-            basket.status = BasketStatus::Settled;
-            basket.asset_kind
-        };
+        let basket = self.basket_mut(basket_id)?;
+        basket.status = BasketStatus::Settled;
+        let asset_kind = basket.asset_kind;
 
         self.emit_event(Event::SettlementFinalized {
             basket_id,
@@ -789,9 +770,9 @@ impl<'a> BasketMarketService<'a> {
                 .map_err(|_| BasketMarketError::TransferFailed)?;
         }
 
-        self.position_mut(basket_id, user)
-            .ok_or(BasketMarketError::NothingToClaim)?
-            .claimed = true;
+        if let Some(position) = self.position_mut(basket_id, user) {
+            position.claimed = true;
+        }
         self.emit_event(Event::Claimed {
             basket_id,
             user,
@@ -875,15 +856,6 @@ impl<'a> BasketMarketService<'a> {
     }
 
     #[export]
-    pub fn get_basket_admission(&self, basket_id: u64) -> Result<BasketAdmission, BasketMarketError> {
-        let basket = self.basket(basket_id)?;
-        Ok(BasketAdmission {
-            status: basket.status,
-            asset_kind: basket.asset_kind,
-        })
-    }
-
-    #[export]
     pub fn get_positions(&self, user: ActorId) -> Vec<Position> {
         self.state
             .positions
@@ -896,20 +868,6 @@ impl<'a> BasketMarketService<'a> {
     #[export]
     pub fn get_settlement(&self, basket_id: u64) -> Result<Settlement, BasketMarketError> {
         Ok(self.settlement(basket_id)?.clone())
-    }
-
-    #[export]
-    pub fn get_settlement_result(
-        &self,
-        basket_id: u64,
-    ) -> Result<SettlementResult, BasketMarketError> {
-        let settlement = self.settlement(basket_id)?;
-        let basket = self.basket(basket_id)?;
-        Ok(SettlementResult {
-            status: settlement.status,
-            payout_per_share: settlement.payout_per_share,
-            asset_kind: basket.asset_kind,
-        })
     }
 
     #[export]

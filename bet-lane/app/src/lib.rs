@@ -5,7 +5,7 @@ use awesome_sails_storage::{InfallibleStorage, InfallibleStorageMut, StorageRefC
 use awesome_sails_utils::pause::Pause;
 use bet_token_client::{BetTokenClient, BetTokenClientProgram, bet_token::BetToken};
 use polymarket_mirror_client::{
-    BasketAssetKind as MirrorBasketAssetKind, PolymarketMirror, PolymarketMirrorProgram,
+    BasketAssetKind as MirrorBasketAssetKind, BasketStatus as MirrorBasketStatus, PolymarketMirror, PolymarketMirrorProgram,
     SettlementStatus as MirrorSettlementStatus, basket_market::BasketMarket,
 };
 use schnorrkel::{PublicKey, Signature};
@@ -327,12 +327,12 @@ impl<'a> BetLaneService<'a> {
         let basket = self
             .mirror_actor()
             .basket_market()
-            .get_basket_admission(basket_id)
+            .get_basket(basket_id)
             .await
             .map_err(|_| BetLaneError::BasketQueryFailed)?
             .map_err(|_| BetLaneError::BasketNotFound)?;
 
-        if basket.status != polymarket_mirror_client::BasketStatus::Active {
+        if basket.status != MirrorBasketStatus::Active {
             return Err(BetLaneError::BasketNotActive);
         }
         if basket.asset_kind != MirrorBasketAssetKind::Bet {
@@ -388,7 +388,7 @@ impl<'a> BetLaneService<'a> {
         let basket_after_transfer_result = self
             .mirror_actor()
             .basket_market()
-            .get_basket_admission(basket_id)
+            .get_basket(basket_id)
             .await;
 
         let basket_after_transfer = match basket_after_transfer_result {
@@ -405,7 +405,7 @@ impl<'a> BetLaneService<'a> {
             }
         };
 
-        if basket_after_transfer.status != polymarket_mirror_client::BasketStatus::Active {
+        if basket_after_transfer.status != MirrorBasketStatus::Active {
             self.refund_after_failed_bet(caller, amount).await?;
             self.clear_pending_bet(basket_id, caller);
             return Err(BetLaneError::BasketNotActive);
@@ -468,7 +468,7 @@ impl<'a> BetLaneService<'a> {
         let settlement = self
             .mirror_actor()
             .basket_market()
-            .get_settlement_result(basket_id)
+            .get_settlement(basket_id)
             .await
             .map_err(|_| {
                 self.clear_pending_claim(basket_id, caller);
@@ -479,7 +479,21 @@ impl<'a> BetLaneService<'a> {
                 BetLaneError::SettlementNotFound
             })?;
 
-        if settlement.asset_kind != MirrorBasketAssetKind::Bet {
+        let basket = self
+            .mirror_actor()
+            .basket_market()
+            .get_basket(basket_id)
+            .await
+            .map_err(|_| {
+                self.clear_pending_claim(basket_id, caller);
+                BetLaneError::BasketQueryFailed
+            })?
+            .map_err(|_| {
+                self.clear_pending_claim(basket_id, caller);
+                BetLaneError::BasketNotFound
+            })?;
+
+        if basket.asset_kind != MirrorBasketAssetKind::Bet {
             self.clear_pending_claim(basket_id, caller);
             return Err(BetLaneError::BasketAssetMismatch);
         }

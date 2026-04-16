@@ -97,10 +97,6 @@ pub mod basket_market {
             &self,
             basket_id: u64,
         ) -> sails_rs::client::PendingCall<io::GetBasket, Self::Env>;
-        fn get_basket_admission(
-            &self,
-            basket_id: u64,
-        ) -> sails_rs::client::PendingCall<io::GetBasketAdmission, Self::Env>;
         fn get_basket_count(&self) -> sails_rs::client::PendingCall<io::GetBasketCount, Self::Env>;
         fn get_config(&self) -> sails_rs::client::PendingCall<io::GetConfig, Self::Env>;
         fn get_positions(
@@ -111,10 +107,6 @@ pub mod basket_market {
             &self,
             basket_id: u64,
         ) -> sails_rs::client::PendingCall<io::GetSettlement, Self::Env>;
-        fn get_settlement_result(
-            &self,
-            basket_id: u64,
-        ) -> sails_rs::client::PendingCall<io::GetSettlementResult, Self::Env>;
         fn is_vara_enabled(&self) -> sails_rs::client::PendingCall<io::IsVaraEnabled, Self::Env>;
     }
     pub struct BasketMarketImpl;
@@ -189,12 +181,6 @@ pub mod basket_market {
         ) -> sails_rs::client::PendingCall<io::GetBasket, Self::Env> {
             self.pending_call((basket_id,))
         }
-        fn get_basket_admission(
-            &self,
-            basket_id: u64,
-        ) -> sails_rs::client::PendingCall<io::GetBasketAdmission, Self::Env> {
-            self.pending_call((basket_id,))
-        }
         fn get_basket_count(&self) -> sails_rs::client::PendingCall<io::GetBasketCount, Self::Env> {
             self.pending_call(())
         }
@@ -211,12 +197,6 @@ pub mod basket_market {
             &self,
             basket_id: u64,
         ) -> sails_rs::client::PendingCall<io::GetSettlement, Self::Env> {
-            self.pending_call((basket_id,))
-        }
-        fn get_settlement_result(
-            &self,
-            basket_id: u64,
-        ) -> sails_rs::client::PendingCall<io::GetSettlementResult, Self::Env> {
             self.pending_call((basket_id,))
         }
         fn is_vara_enabled(&self) -> sails_rs::client::PendingCall<io::IsVaraEnabled, Self::Env> {
@@ -238,12 +218,10 @@ pub mod basket_market {
         sails_rs::io_struct_impl!(GetAgentCount () -> u64);
         sails_rs::io_struct_impl!(GetAllAgents () -> Vec<super::AgentInfo>);
         sails_rs::io_struct_impl!(GetBasket (basket_id: u64) -> Result<super::Basket, super::BasketMarketError>);
-        sails_rs::io_struct_impl!(GetBasketAdmission (basket_id: u64) -> Result<super::BasketAdmission, super::BasketMarketError>);
         sails_rs::io_struct_impl!(GetBasketCount () -> u64);
         sails_rs::io_struct_impl!(GetConfig () -> super::BasketMarketConfig);
         sails_rs::io_struct_impl!(GetPositions (user: ActorId) -> Vec<super::Position>);
         sails_rs::io_struct_impl!(GetSettlement (basket_id: u64) -> Result<super::Settlement, super::BasketMarketError>);
-        sails_rs::io_struct_impl!(GetSettlementResult (basket_id: u64) -> Result<super::SettlementResult, super::BasketMarketError>);
         sails_rs::io_struct_impl!(IsVaraEnabled () -> bool);
     }
 
@@ -443,13 +421,6 @@ pub enum BasketMarketError {
 #[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]
 #[codec(crate = sails_rs::scale_codec)]
 #[scale_info(crate = sails_rs::scale_info)]
-pub struct BasketAdmission {
-    pub status: BasketStatus,
-    pub asset_kind: BasketAssetKind,
-}
-#[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]
-#[codec(crate = sails_rs::scale_codec)]
-#[scale_info(crate = sails_rs::scale_info)]
 pub struct Position {
     pub basket_id: u64,
     pub user: ActorId,
@@ -477,12 +448,4 @@ pub struct Settlement {
 pub enum SettlementStatus {
     Proposed,
     Finalized,
-}
-#[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]
-#[codec(crate = sails_rs::scale_codec)]
-#[scale_info(crate = sails_rs::scale_info)]
-pub struct SettlementResult {
-    pub status: SettlementStatus,
-    pub payout_per_share: u128,
-    pub asset_kind: BasketAssetKind,
 }
