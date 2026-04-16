@@ -338,7 +338,7 @@ function ActivityLeaderboardRow({
 
 function TodayContestTab() {
   const [now, setNow] = useState(Date.now());
-  const [activeView, setActiveView] = useState<LeaderboardView>('today');
+  const [activeView, setActiveView] = useState<LeaderboardView>('total');
   const [expandedEntryUser, setExpandedEntryUser] = useState<string | null>(null);
   const [todayPage, setTodayPage] = useState(1);
   const [awaitingPage, setAwaitingPage] = useState(1);
