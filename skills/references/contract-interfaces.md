@@ -115,7 +115,7 @@ Fungible token (VFT) with daily claim system and streak bonuses.
 | `BalanceOf` | `account` | `u256` |
 | `GetClaimPreview` | `user` | `ClaimPreview { amount, streak_days, next_claim_at, can_claim_now }` |
 | `GetClaimState` | `user` | `ClaimState { last_claim_at, streak_days, total_claimed, claim_count }` |
-| `GetClaimConfig` | none | `ClaimConfig { base_claim_amount, max_claim_amount, streak_step, streak_cap_days, claim_period, claim_paused }` |
+| `GetClaimConfig` | none | `ClaimConfig { base_claim_amount, max_claim_amount, streak_step, streak_cap_days, claim_period, day_start_offset_ms, claim_paused }` |
 | `IsClaimPaused` | none | `bool` |
 | `IsSpenderAllowed` | `spender` | `bool` |
 | `Allowance` | `owner, spender` | `u256` |
