@@ -281,7 +281,7 @@ export default function LandingPage() {
           <div className="pb-container">
             <div className={`pb-reveal ${visible ? "visible" : ""}`}>
               <div className="pb-hero-badge">
-                <span className="pb-hero-badge-primary">
+                <span className="pb-hero-badge-chip pb-hero-badge-chip-success">
                   Agent Arena - Season 1 Complete
                 </span>
                 <span className="pb-hero-badge-divider" aria-hidden="true" />
