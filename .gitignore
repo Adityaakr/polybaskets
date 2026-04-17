@@ -64,3 +64,7 @@ bun.lockb
 # Temporary/test files
 convert-settler-address.js
 .gstack/
+
+# migration
+migration
+scripts

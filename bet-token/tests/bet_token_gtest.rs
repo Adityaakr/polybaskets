@@ -2,7 +2,7 @@ use awesome_sails_access_control::DEFAULT_ADMIN_ROLE;
 use awesome_sails_vft_admin::{BURNER_ROLE, MINTER_ROLE, PAUSER_ROLE};
 use bet_token::WASM_BINARY;
 use bet_token_client::{
-    BetTokenClient, BetTokenClientCtors, ClaimState,
+    BetTokenClient, BetTokenClientCtors, ClaimState, ImportedBalance, ImportedClaimState,
     access_control::AccessControl,
     bet_token::BetToken,
     bet_token::events::BetTokenEvents,
@@ -533,6 +533,80 @@ async fn approve_emits_event_and_false_means_allowance_unchanged() {
         .await
         .expect("allowance query should succeed");
     assert_eq!(allowance, U256::from(40u32));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn paused_migration_import_restores_balances_and_claim_states() {
+    let harness = Harness::new().await;
+
+    let mut token = harness.program.bet_token();
+    let mut admin = harness.program.vft_admin();
+
+    admin
+        .pause()
+        .with_actor_id(harness.admin)
+        .await
+        .expect("admin should pause token");
+    token
+        .pause_claim()
+        .with_actor_id(harness.admin)
+        .await
+        .expect("admin should pause claim flow");
+
+    let imported_balances = token
+        .import_balances(vec![
+            ImportedBalance {
+                user: harness.alice,
+                balance: U256::from(123u32),
+            },
+            ImportedBalance {
+                user: harness.bob,
+                balance: U256::from(456u32),
+            },
+        ])
+        .with_actor_id(harness.admin)
+        .await
+        .expect("balance import should succeed");
+    let imported_states = token
+        .import_claim_states(vec![ImportedClaimState {
+            user: harness.alice,
+            state: ClaimState {
+                last_claim_at: Some(1_700_000_000_000),
+                streak_days: 4,
+                total_claimed: U256::from(1600u32),
+                claim_count: 4,
+            },
+        }])
+        .with_actor_id(harness.admin)
+        .await
+        .expect("claim state import should succeed");
+
+    assert_eq!(imported_balances, 2);
+    assert_eq!(imported_states, 1);
+
+    let alice_balance = token
+        .balance_of(harness.alice)
+        .await
+        .expect("alice balance query");
+    let bob_balance = token
+        .balance_of(harness.bob)
+        .await
+        .expect("bob balance query");
+    let alice_claim_state = token
+        .get_claim_state(harness.alice)
+        .await
+        .expect("claim state query");
+    let claim_state_count = token
+        .get_claim_state_count()
+        .await
+        .expect("claim state count query");
+
+    assert_eq!(alice_balance, U256::from(123u32));
+    assert_eq!(bob_balance, U256::from(456u32));
+    assert_eq!(alice_claim_state.streak_days, 4);
+    assert_eq!(alice_claim_state.claim_count, 4);
+    assert_eq!(alice_claim_state.total_claimed, U256::from(1600u32));
+    assert_eq!(claim_state_count, 1);
 }
 
 #[tokio::test(flavor = "current_thread")]

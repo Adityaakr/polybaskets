@@ -1,1 +1,1 @@
-../bet-lane/target/wasm32-gear/debug/bet_token
+target/wasm32-gear/release/bet_token

@@ -5,6 +5,19 @@ type BetLaneConfig = struct {
   quote_signer: actor_id,
 };
 
+type ImportedPosition = struct {
+  basket_id: u64,
+  user: actor_id,
+  shares: u256,
+  claimed: bool,
+  index_at_creation_bps: u16,
+};
+
+type ImportedQuoteNonce = struct {
+  user: actor_id,
+  nonce: u128,
+};
+
 type SignedBetQuote = struct {
   payload: BetQuotePayload,
   signature: vec u8,
@@ -71,6 +84,8 @@ type BetLaneError = enum {
   InvalidPageSize,
   EventEmitFailed,
   RoleManagementFailed,
+  MigrationRequiresPause,
+  MigrationBatchTooLarge,
 };
 
 /// Pagination parameters for listing roles or members.
@@ -89,6 +104,8 @@ service BetLane {
   AddAdmin : (account: actor_id) -> null;
   Claim : (basket_id: u64) -> u256;
   GrantRole : (role_id: [u8, 32], account: actor_id) -> null;
+  ImportPositions : (positions: vec ImportedPosition) -> u32;
+  ImportQuoteNonces : (nonces: vec ImportedQuoteNonce) -> u32;
   Pause : () -> null;
   PlaceBet : (basket_id: u64, amount: u256, signed_quote: SignedBetQuote) -> u256;
   Resume : () -> null;
@@ -101,7 +118,9 @@ service BetLane {
   query GetConfig : () -> BetLaneConfig;
   query GetDependencies : () -> BetLaneDependencies;
   query GetPosition : (user: actor_id, basket_id: u64) -> Position;
+  query GetPositionCount : () -> u64;
   query GetPositions : (user: actor_id, offset: u32, limit: u32) -> result (vec UserPositionView, BetLaneError);
+  query GetUsedQuoteNonceCount : () -> u64;
   query IsPaused : () -> bool;
   query IsQuoteNonceUsed : (user: actor_id, nonce: u128) -> bool;
   query QuoteSigner : () -> actor_id;
@@ -128,6 +147,12 @@ service BetLane {
     QuoteSignerRotated: struct {
       previous_quote_signer: actor_id,
       new_quote_signer: actor_id,
+    };
+    MigrationPositionsImported: struct {
+      count: u32
+    };
+    MigrationQuoteNoncesImported: struct {
+      count: u32
     };
   }
 };

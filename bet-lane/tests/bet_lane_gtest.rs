@@ -2,7 +2,7 @@ use awesome_sails_vft_admin::MINTER_ROLE;
 use bet_lane::WASM_BINARY as BET_LANE_WASM_BINARY;
 use bet_lane_client::{
     BetLaneClient, BetLaneClientCtors, BetLaneConfig, BetLaneDependencies, BetQuotePayload,
-    SignedBetQuote, bet_lane::BetLane,
+    ImportedPosition, ImportedQuoteNonce, SignedBetQuote, bet_lane::BetLane,
 };
 use bet_token::WASM_BINARY as BET_TOKEN_WASM_BINARY;
 use bet_token_client::{
@@ -637,6 +637,77 @@ async fn quote_signer_rotation_invalidates_old_signer_quotes() {
         .with_actor_id(harness.alice)
         .await
         .expect("new signer quote should succeed");
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn migration_imports_require_pause_and_restore_state() {
+    let harness = Harness::new().await;
+    let mut lane = harness.bet_lane.bet_lane();
+
+    let live_import = lane
+        .import_positions(vec![ImportedPosition {
+            basket_id: 77,
+            user: harness.alice,
+            shares: U256::from(300u32),
+            claimed: true,
+            index_at_creation_bps: 6_500,
+        }])
+        .with_actor_id(harness.admin)
+        .await;
+    assert!(live_import.is_err());
+
+    lane
+        .pause()
+        .with_actor_id(harness.admin)
+        .await
+        .expect("pause should succeed");
+
+    let imported_positions = lane
+        .import_positions(vec![ImportedPosition {
+            basket_id: 77,
+            user: harness.alice,
+            shares: U256::from(300u32),
+            claimed: true,
+            index_at_creation_bps: 6_500,
+        }])
+        .with_actor_id(harness.admin)
+        .await
+        .expect("position import should succeed");
+    let imported_nonces = lane
+        .import_quote_nonces(vec![ImportedQuoteNonce {
+            user: harness.alice,
+            nonce: 999,
+        }])
+        .with_actor_id(harness.admin)
+        .await
+        .expect("nonce import should succeed");
+
+    assert_eq!(imported_positions, 1);
+    assert_eq!(imported_nonces, 1);
+
+    let stored_position = lane
+        .get_position(harness.alice, 77)
+        .await
+        .expect("position query should succeed");
+    let position_count = lane
+        .get_position_count()
+        .await
+        .expect("position count query should succeed");
+    let nonce_count = lane
+        .get_used_quote_nonce_count()
+        .await
+        .expect("nonce count query should succeed");
+    let nonce_used = lane
+        .is_quote_nonce_used(harness.alice, 999)
+        .await
+        .expect("nonce query should succeed");
+
+    assert_eq!(stored_position.shares, U256::from(300u32));
+    assert!(stored_position.claimed);
+    assert_eq!(stored_position.index_at_creation_bps, 6_500);
+    assert_eq!(position_count, 1);
+    assert_eq!(nonce_count, 1);
+    assert!(nonce_used);
 }
 
 fn keypair_from_seed(seed: [u8; 32]) -> Keypair {
