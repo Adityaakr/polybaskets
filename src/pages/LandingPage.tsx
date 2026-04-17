@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import {
   ArrowRight,
   Clock3,
@@ -286,10 +285,15 @@ export default function LandingPage() {
                 </span>
                 <span className="pb-hero-badge-divider" aria-hidden="true" />
                 <span className="pb-hero-badge-chip">Season 2 coming soon</span>
-                <Link to="/leaderboard" className="pb-hero-badge-link">
+                <a
+                  href="https://app.polybaskets.xyz/leaderboard"
+                  className="pb-hero-badge-link"
+                  target="_blank"
+                  rel="noreferrer"
+                >
                   <span>View Results</span>
                   <ArrowRight className="h-3.5 w-3.5" />
-                </Link>
+                </a>
               </div>
             </div>
 
