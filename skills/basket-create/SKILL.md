@@ -13,7 +13,7 @@ Create a new prediction basket on PolyBaskets via `vara-wallet`.
 
 ```bash
 vara-wallet config set network mainnet
-BASKET_MARKET="0x702395d43248eaa5f1fd4d9eadadc75b0fb1c7c5ae9ea20bf31375fd4358f403"
+BASKET_MARKET="0xe5dd153b813c768b109094a9e2eb496c38216b1dbe868391f1d20ac927b7d2c2"
 _PB="${POLYBASKETS_SKILLS_DIR:-skills}"
 IDL="$_PB/idl/polymarket-mirror.idl"
 ```

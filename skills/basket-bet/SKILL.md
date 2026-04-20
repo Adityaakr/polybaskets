@@ -17,9 +17,9 @@ Claim CHIP tokens and bet on a PolyBaskets basket via `vara-wallet`.
 # Ensure mainnet (default RPC)
 vara-wallet config set network mainnet
 
-BASKET_MARKET="0x702395d43248eaa5f1fd4d9eadadc75b0fb1c7c5ae9ea20bf31375fd4358f403"
-BET_TOKEN="0x41be634b690ecde3d79f63ea2db9834b8570a6d4abb3c0be47af3947e3129ece"
-BET_LANE="0xf5aa436669bb3fc97c1675d06949592e8617f889cbd055451f321113b17bb564"
+BASKET_MARKET="0xe5dd153b813c768b109094a9e2eb496c38216b1dbe868391f1d20ac927b7d2c2"
+BET_TOKEN="0x186f6cda18fea13d9fc5969eec5a379220d6726f64c1d5f4b346e89271f917bc"
+BET_LANE="0x35848dea0ab64f283497deaff93b12fe4d17649624b2cd5149f253ef372b29dc"
 _PB="${POLYBASKETS_SKILLS_DIR:-skills}"
 IDL="$_PB/idl/polymarket-mirror.idl"
 BET_TOKEN_IDL="$_PB/idl/bet_token_client.idl"
