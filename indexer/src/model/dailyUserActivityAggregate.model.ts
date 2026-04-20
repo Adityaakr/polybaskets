@@ -35,6 +35,16 @@ export class DailyUserActivityAggregate {
 
   @Index()
   @Column("timestamptz")
+  firstTxAt: Date;
+
+  @Column("numeric", { transformer: requiredBigintTransformer })
+  firstTxBlock: bigint;
+
+  @Column()
+  firstTxMessageId: string;
+
+  @Index()
+  @Column("timestamptz")
   lastTxAt: Date;
 
   @Column("numeric", { transformer: requiredBigintTransformer })

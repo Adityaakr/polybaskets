@@ -18,6 +18,9 @@ export class ContestDayWinner {
   @Column()
   user: string;
 
+  @Column("integer")
+  rank: number;
+
   @Column("numeric", { transformer: requiredBigintTransformer })
   realizedProfit: bigint;
 

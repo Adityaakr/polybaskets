@@ -35,6 +35,7 @@ type BasketMarketConfig = struct {
   settler_role: actor_id,
   liveness_ms: u64,
   vara_enabled: bool,
+  min_items_per_basket: u32,
 };
 
 type AgentInfo = struct {
@@ -67,6 +68,7 @@ type BasketMarketError = enum {
   BasketNotActive,
   BasketAssetMismatch,
   NoItems,
+  NotEnoughItems,
   InvalidWeights,
   DuplicateBasketItem,
   TooManyItems,
@@ -200,4 +202,3 @@ service BasketMarket {
     };
   }
 };
-

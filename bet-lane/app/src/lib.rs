@@ -5,14 +5,18 @@ use awesome_sails_storage::{InfallibleStorage, InfallibleStorageMut, StorageRefC
 use awesome_sails_utils::pause::Pause;
 use bet_token_client::{BetTokenClient, BetTokenClientProgram, bet_token::BetToken};
 use polymarket_mirror_client::{
-    BasketAssetKind as MirrorBasketAssetKind, BasketStatus as MirrorBasketStatus, PolymarketMirror, PolymarketMirrorProgram,
-    SettlementStatus as MirrorSettlementStatus, basket_market::BasketMarket,
+    BasketAssetKind as MirrorBasketAssetKind, BasketStatus as MirrorBasketStatus, PolymarketMirror,
+    PolymarketMirrorProgram, SettlementStatus as MirrorSettlementStatus,
+    basket_market::BasketMarket,
 };
-use schnorrkel::{PublicKey, Signature};
 use sails_rs::client::Program as _;
 use sails_rs::gstd::{exec, services::Service};
 use sails_rs::prelude::*;
-use sails_rs::{cell::RefCell, collections::{BTreeMap, BTreeSet}};
+use sails_rs::{
+    cell::RefCell,
+    collections::{BTreeMap, BTreeSet},
+};
+use schnorrkel::{PublicKey, Signature};
 
 pub const PAUSER_ROLE: RoleId = [1u8; 32];
 pub const CONFIG_ROLE: RoleId = [2u8; 32];
@@ -222,8 +226,9 @@ pub enum BetLaneError {
 
 pub struct BetLaneService<'a> {
     roles: StorageRefCell<'a, RolesStorage>,
-    access_control:
-        awesome_sails_access_control::AccessControlExposure<AccessControl<'a, StorageRefCell<'a, RolesStorage>>>,
+    access_control: awesome_sails_access_control::AccessControlExposure<
+        AccessControl<'a, StorageRefCell<'a, RolesStorage>>,
+    >,
     basket_program_id: StorageRefCell<'a, ActorId>,
     bet_token_id: StorageRefCell<'a, ActorId>,
     config: StorageRefCell<'a, BetLaneConfig>,
@@ -450,14 +455,16 @@ impl<'a> BetLaneService<'a> {
             return Err(BetLaneError::BasketAssetMismatch);
         }
 
-        InfallibleStorageMut::get_mut(&mut self.positions).positions.insert(
-            (basket_id, caller),
-            Position {
-                shares: user_total,
-                claimed: current_position.claimed,
-                index_at_creation_bps: next_index_at_creation_bps,
-            },
-        );
+        InfallibleStorageMut::get_mut(&mut self.positions)
+            .positions
+            .insert(
+                (basket_id, caller),
+                Position {
+                    shares: user_total,
+                    claimed: current_position.claimed,
+                    index_at_creation_bps: next_index_at_creation_bps,
+                },
+            );
         self.clear_pending_bet(basket_id, caller);
 
         let _ = self.emit_event(Event::BetPlaced {
@@ -605,10 +612,7 @@ impl<'a> BetLaneService<'a> {
     }
 
     #[export(unwrap_result)]
-    pub fn rotate_quote_signer(
-        &mut self,
-        new_quote_signer: ActorId,
-    ) -> Result<(), BetLaneError> {
+    pub fn rotate_quote_signer(&mut self, new_quote_signer: ActorId) -> Result<(), BetLaneError> {
         self.require_role(CONFIG_ROLE, Syscall::message_source())?;
 
         let previous_quote_signer = {
@@ -634,10 +638,7 @@ impl<'a> BetLaneService<'a> {
         self.require_role(CONFIG_ROLE, Syscall::message_source())?;
         dependencies.validate()?;
 
-        InfallibleStorageMut::replace(
-            &mut self.basket_program_id,
-            dependencies.basket_program_id,
-        );
+        InfallibleStorageMut::replace(&mut self.basket_program_id, dependencies.basket_program_id);
         InfallibleStorageMut::replace(&mut self.bet_token_id, dependencies.bet_token_id);
 
         self.emit_event(Event::DependenciesUpdated(dependencies))
@@ -656,14 +657,16 @@ impl<'a> BetLaneService<'a> {
 
         for imported in positions {
             Self::validate_index_at_creation(imported.index_at_creation_bps)?;
-            InfallibleStorageMut::get_mut(&mut self.positions).positions.insert(
-                (imported.basket_id, imported.user),
-                Position {
-                    shares: imported.shares,
-                    claimed: imported.claimed,
-                    index_at_creation_bps: imported.index_at_creation_bps,
-                },
-            );
+            InfallibleStorageMut::get_mut(&mut self.positions)
+                .positions
+                .insert(
+                    (imported.basket_id, imported.user),
+                    Position {
+                        shares: imported.shares,
+                        claimed: imported.claimed,
+                        index_at_creation_bps: imported.index_at_creation_bps,
+                    },
+                );
         }
 
         self.emit_event(Event::MigrationPositionsImported { count })
@@ -814,9 +817,8 @@ impl<'a> BetLaneService<'a> {
 
     fn quote_signing_message(payload: &BetQuotePayload) -> Vec<u8> {
         let raw_payload = [b"BetLaneQuoteV1".encode(), payload.encode()].concat();
-        let mut wrapped = Vec::with_capacity(
-            b"<Bytes>".len() + raw_payload.len() + b"</Bytes>".len(),
-        );
+        let mut wrapped =
+            Vec::with_capacity(b"<Bytes>".len() + raw_payload.len() + b"</Bytes>".len());
         wrapped.extend_from_slice(b"<Bytes>");
         wrapped.extend_from_slice(&raw_payload);
         wrapped.extend_from_slice(b"</Bytes>");
@@ -887,8 +889,12 @@ impl<'a> BetLaneService<'a> {
 
     fn insert_pending_bet(&mut self, basket_id: u64, account: ActorId) -> Result<(), BetLaneError> {
         let mut pending_operations = InfallibleStorageMut::get_mut(&mut self.pending_operations);
-        if pending_operations.pending_bets.contains(&(basket_id, account))
-            || pending_operations.pending_claims.contains(&(basket_id, account))
+        if pending_operations
+            .pending_bets
+            .contains(&(basket_id, account))
+            || pending_operations
+                .pending_claims
+                .contains(&(basket_id, account))
         {
             return Err(BetLaneError::OperationInProgress);
         }
@@ -909,13 +915,19 @@ impl<'a> BetLaneService<'a> {
         account: ActorId,
     ) -> Result<(), BetLaneError> {
         let mut pending_operations = InfallibleStorageMut::get_mut(&mut self.pending_operations);
-        if pending_operations.pending_bets.contains(&(basket_id, account))
-            || pending_operations.pending_claims.contains(&(basket_id, account))
+        if pending_operations
+            .pending_bets
+            .contains(&(basket_id, account))
+            || pending_operations
+                .pending_claims
+                .contains(&(basket_id, account))
         {
             return Err(BetLaneError::OperationInProgress);
         }
 
-        pending_operations.pending_claims.insert((basket_id, account));
+        pending_operations
+            .pending_claims
+            .insert((basket_id, account));
         Ok(())
     }
 

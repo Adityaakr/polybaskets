@@ -3,11 +3,8 @@ use awesome_sails_vft_admin::{BURNER_ROLE, MINTER_ROLE, PAUSER_ROLE};
 use bet_token::WASM_BINARY;
 use bet_token_client::{
     BetTokenClient, BetTokenClientCtors, ClaimState, ImportedBalance, ImportedClaimState,
-    access_control::AccessControl,
-    bet_token::BetToken,
-    bet_token::events::BetTokenEvents,
-    vft_admin::VftAdmin,
-    vft_admin::events::VftAdminEvents,
+    access_control::AccessControl, bet_token::BetToken, bet_token::events::BetTokenEvents,
+    vft_admin::VftAdmin, vft_admin::events::VftAdminEvents,
 };
 use futures::StreamExt;
 use gtest::System;
@@ -22,7 +19,13 @@ const TOKEN_NAME: &str = "Bet Token";
 const TOKEN_SYMBOL: &str = "BET";
 const TOKEN_DECIMALS: u8 = 12;
 const DAY_MS: u64 = 24 * 60 * 60 * 1000;
+const HOUR_MS: u64 = 60 * 60 * 1000;
 const HALF_DAY_MS: u64 = 12 * 60 * 60 * 1000;
+const CHIP_UNIT: u128 = 1_000_000_000_000;
+
+fn chip_units(amount: u128) -> U256 {
+    U256::from(amount.saturating_mul(CHIP_UNIT))
+}
 
 struct Harness {
     env: GtestEnv,
@@ -112,7 +115,7 @@ async fn first_claim_mints_base_reward() {
 
     assert_eq!(state.streak_days, 1);
     assert_eq!(state.claim_count, 1);
-    assert_eq!(state.total_claimed, U256::from(100u32));
+    assert_eq!(state.total_claimed, chip_units(500));
 
     let service = harness.program.bet_token();
     let balance = service
@@ -120,11 +123,11 @@ async fn first_claim_mints_base_reward() {
         .await
         .expect("balance query should succeed");
 
-    assert_eq!(balance, U256::from(100u32));
+    assert_eq!(balance, chip_units(500));
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn claim_is_rejected_before_24h_window() {
+async fn claim_is_rejected_before_hourly_window() {
     let harness = Harness::new().await;
     let _ = harness.claim_as(harness.alice).await;
 
@@ -143,20 +146,21 @@ async fn claim_is_rejected_before_24h_window() {
 
     assert_eq!(state.streak_days, 1);
     assert_eq!(state.claim_count, 1);
-    assert_eq!(balance, U256::from(100u32));
+    assert_eq!(balance, chip_units(500));
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn streak_grows_and_caps_at_config_limit() {
+async fn hourly_claims_keep_same_daily_streak() {
     let harness = Harness::new().await;
 
     let mut last_state = harness.claim_as(harness.alice).await;
-    for _ in 0..9 {
-        harness.advance_claim_day(1);
+    for _ in 0..3 {
+        harness.advance_ms(HOUR_MS);
         last_state = harness.claim_as(harness.alice).await;
     }
 
-    assert_eq!(last_state.streak_days, 7);
+    assert_eq!(last_state.streak_days, 1);
+    assert_eq!(last_state.claim_count, 4);
 
     let service = harness.program.bet_token();
     let balance = service
@@ -164,7 +168,28 @@ async fn streak_grows_and_caps_at_config_limit() {
         .await
         .expect("balance query should succeed");
 
-    assert_eq!(balance, U256::from(4900u32));
+    assert_eq!(balance, chip_units(2000));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn streak_grows_by_day_and_caps_at_config_limit() {
+    let harness = Harness::new().await;
+
+    let mut last_state = harness.claim_as(harness.alice).await;
+    for _ in 0..11 {
+        harness.advance_claim_day(1);
+        last_state = harness.claim_as(harness.alice).await;
+    }
+
+    assert_eq!(last_state.streak_days, 11);
+
+    let service = harness.program.bet_token();
+    let balance = service
+        .balance_of(harness.alice)
+        .await
+        .expect("balance query should succeed");
+
+    assert_eq!(balance, chip_units(6650));
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -183,7 +208,7 @@ async fn missed_window_resets_streak() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn claim_is_available_on_next_utc_day_even_before_24h_passes() {
+async fn streak_advances_on_next_utc_day_even_before_24h_passes() {
     let harness = Harness::new().await;
     harness.set_claim_day_start_offset(HALF_DAY_MS).await;
     harness.advance_ms(HALF_DAY_MS.saturating_sub(BLOCK_DURATION_IN_MSECS));
@@ -361,7 +386,7 @@ async fn allowed_spender_can_execute_transfer_from() {
         .await
         .expect("allowance query should succeed");
 
-    assert_eq!(alice_balance, U256::from(30u32));
+    assert_eq!(alice_balance, chip_units(500) - U256::from(70u32));
     assert_eq!(bob_balance, U256::from(70u32));
     assert_eq!(allowance, U256::from(0u8));
 }
@@ -472,7 +497,7 @@ async fn claim_emits_claimed_and_streak_updated_events() {
         first_event,
         BetTokenEvents::Claimed {
             user: harness.alice,
-            amount: U256::from(100u32),
+            amount: chip_units(500),
             streak_days: 1,
             claimed_at: state
                 .last_claim_at
@@ -756,7 +781,7 @@ async fn vft_admin_burn_requires_role_and_emits_event() {
         .balance_of(harness.alice)
         .await
         .expect("balance query should succeed");
-    assert_eq!(balance, U256::from(60u32));
+    assert_eq!(balance, chip_units(500) - U256::from(40u32));
 }
 
 #[tokio::test(flavor = "current_thread")]

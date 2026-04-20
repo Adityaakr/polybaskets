@@ -23,6 +23,7 @@ export class SailsProgram {
         settler_role: '[u8;32]',
         liveness_ms: 'u64',
         vara_enabled: 'bool',
+        min_items_per_basket: 'u32',
       },
       BasketMarketError: {
         _enum: [
@@ -31,6 +32,7 @@ export class SailsProgram {
           'BasketNotActive',
           'BasketAssetMismatch',
           'NoItems',
+          'NotEnoughItems',
           'InvalidWeights',
           'DuplicateBasketItem',
           'TooManyItems',

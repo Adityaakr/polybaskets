@@ -18,6 +18,8 @@ import { UserMessageSentEvent } from "../types/gear-events";
 import { BaseHandler } from "./base";
 
 const INDEXER_STATE_ID = "daily-contest";
+const MAX_DAILY_WINNERS = 5;
+const CHIP_ACTIVITY_PNL_DIVISOR = 1_000_000_000_000_000;
 
 type BasketCreatedPayload = {
   basket_id: number | string | bigint;
@@ -71,11 +73,15 @@ type DaySettledPayload = {
   evidence_hash: string | Uint8Array;
 };
 
-type WinnerPaidPayload = {
-  day_id: number | string | bigint;
-  winner: string;
+type WinnerPayoutPayload = {
+  account: string;
   realized_profit: number | string | bigint;
   reward: number | string | bigint;
+};
+
+type WinnersPaidPayload = {
+  day_id: number | string | bigint;
+  payouts: WinnerPayoutPayload[];
 };
 
 const toBigIntValue = (value: number | string | bigint): bigint => {
@@ -174,43 +180,71 @@ const sortedWinners = (
     user: string;
     txCount: number;
     realizedProfit: bigint;
+    firstTxAt: Date;
+    firstTxBlock: bigint;
+    firstTxMessageId: string;
     lastTxAt: Date;
     lastTxBlock: bigint;
     lastTxMessageId: string;
+    dayId: bigint;
   }>
 ): Array<{
   user: string;
   txCount: number;
   realizedProfit: bigint;
+  firstTxAt: Date;
+  firstTxBlock: bigint;
+  firstTxMessageId: string;
   lastTxAt: Date;
   lastTxBlock: bigint;
   lastTxMessageId: string;
+  dayId: bigint;
 }> => {
   const eligible = activities.filter((item) => item.txCount > 0);
   if (!eligible.length) {
     return [];
   }
 
+  const activityIndex = (item: (typeof eligible)[number]): number => {
+    const dayStart = Number(dayStartMs(item.dayId));
+    const elapsedMs = Math.max(
+      0,
+      Math.min(Number(DAY_MS), item.firstTxAt.getTime() - dayStart)
+    );
+    const timeBonus = 1 - elapsedMs / Number(DAY_MS);
+
+    return (
+      item.txCount +
+      Number(item.realizedProfit) / CHIP_ACTIVITY_PNL_DIVISOR +
+      timeBonus * 0.000001
+    );
+  };
+
   return [...eligible].sort((left, right) => {
+    const scoreDiff = activityIndex(right) - activityIndex(left);
+    if (scoreDiff !== 0) {
+      return scoreDiff;
+    }
+
     if (left.txCount !== right.txCount) {
       return right.txCount - left.txCount;
+    }
+
+    const timestampDiff = left.firstTxAt.getTime() - right.firstTxAt.getTime();
+    if (timestampDiff !== 0) {
+      return timestampDiff;
     }
 
     if (left.realizedProfit !== right.realizedProfit) {
       return left.realizedProfit > right.realizedProfit ? -1 : 1;
     }
 
-    const timestampDiff = left.lastTxAt.getTime() - right.lastTxAt.getTime();
-    if (timestampDiff !== 0) {
-      return timestampDiff;
+    if (left.firstTxBlock !== right.firstTxBlock) {
+      return left.firstTxBlock < right.firstTxBlock ? -1 : 1;
     }
 
-    if (left.lastTxBlock !== right.lastTxBlock) {
-      return left.lastTxBlock < right.lastTxBlock ? -1 : 1;
-    }
-
-    if (left.lastTxMessageId !== right.lastTxMessageId) {
-      return left.lastTxMessageId.localeCompare(right.lastTxMessageId);
+    if (left.firstTxMessageId !== right.firstTxMessageId) {
+      return left.firstTxMessageId.localeCompare(right.firstTxMessageId);
     }
 
     return left.user.localeCompare(right.user);
@@ -499,8 +533,8 @@ export class DailyContestHandler extends BaseHandler {
         await this.handleDaySettled(payload as DaySettledPayload);
       }
 
-      if (method === "WinnerPaid") {
-        await this.handleWinnerPaid(payload as WinnerPaidPayload);
+      if (method === "WinnersPaid") {
+        await this.handleWinnersPaid(payload as WinnersPaidPayload);
       }
     }
   }
@@ -525,15 +559,13 @@ export class DailyContestHandler extends BaseHandler {
       })
     );
 
-    if (payload.asset_kind === "Bet") {
-      await this.recordActivity(
-        blockTimestamp,
-        String(payload.creator),
-        blockHeight,
-        messageId,
-        { txCount: 1, basketsMade: 1 }
-      );
-    }
+    await this.recordActivity(
+      blockTimestamp,
+      String(payload.creator),
+      blockHeight,
+      messageId,
+      { txCount: 1, basketsMade: 1 }
+    );
   }
 
   private async handleBetPlaced(
@@ -647,6 +679,9 @@ export class DailyContestHandler extends BaseHandler {
         betsPlaced: 0,
         approvesCount: 0,
         claimsCount: 0,
+        firstTxAt: txTimestamp,
+        firstTxBlock: BigInt(blockHeight),
+        firstTxMessageId: messageId,
         lastTxAt: txTimestamp,
         lastTxBlock: BigInt(blockHeight),
         lastTxMessageId: messageId,
@@ -662,12 +697,25 @@ export class DailyContestHandler extends BaseHandler {
     const currentLastTxMs = existing.lastTxAt.getTime();
     const nextTxMs = txTimestamp.getTime();
     const nextBlock = BigInt(blockHeight);
+    const currentFirstTxMs = existing.firstTxAt.getTime();
+    const shouldReplaceFirstTx =
+      nextTxMs < currentFirstTxMs ||
+      (nextTxMs === currentFirstTxMs &&
+        (nextBlock < existing.firstTxBlock ||
+          (nextBlock === existing.firstTxBlock &&
+            messageId.localeCompare(existing.firstTxMessageId) < 0)));
     const shouldReplaceLastTx =
       nextTxMs > currentLastTxMs ||
       (nextTxMs === currentLastTxMs &&
         (nextBlock > existing.lastTxBlock ||
           (nextBlock === existing.lastTxBlock &&
             messageId.localeCompare(existing.lastTxMessageId) > 0)));
+
+    if (shouldReplaceFirstTx) {
+      existing.firstTxAt = txTimestamp;
+      existing.firstTxBlock = nextBlock;
+      existing.firstTxMessageId = messageId;
+    }
 
     if (shouldReplaceLastTx) {
       existing.lastTxAt = txTimestamp;
@@ -820,23 +868,27 @@ export class DailyContestHandler extends BaseHandler {
         user: activity.user,
         txCount: activity.txCount,
         realizedProfit: profitsByUser.get(activity.user) ?? 0n,
+        firstTxAt: activity.firstTxAt,
+        firstTxBlock: activity.firstTxBlock,
+        firstTxMessageId: activity.firstTxMessageId,
         lastTxAt: activity.lastTxAt,
         lastTxBlock: activity.lastTxBlock,
         lastTxMessageId: activity.lastTxMessageId,
+        dayId,
       }))
     );
 
-    const winners = ranked.length
-      ? [
-          new ContestDayWinner({
-            id: contestWinnerId(dayId, ranked[0].user),
-            dayId: contestDayId(dayId),
-            user: ranked[0].user,
-            realizedProfit: ranked[0].realizedProfit,
-            reward: null,
-          }),
-        ]
-      : [];
+    const winners = ranked.slice(0, MAX_DAILY_WINNERS).map(
+      (winner, index) =>
+        new ContestDayWinner({
+          id: contestWinnerId(dayId, winner.user),
+          dayId: contestDayId(dayId),
+          user: winner.user,
+          rank: index + 1,
+          realizedProfit: winner.realizedProfit,
+          reward: null,
+        })
+    );
 
     this.winnerDaysToReplace.add(dayId.toString());
     this.winnersByDay.set(dayId.toString(), winners);
@@ -911,23 +963,23 @@ export class DailyContestHandler extends BaseHandler {
     );
   }
 
-  private async handleWinnerPaid(payload: WinnerPaidPayload): Promise<void> {
+  private async handleWinnersPaid(payload: WinnersPaidPayload): Promise<void> {
     const dayId = toBigIntValue(payload.day_id);
     const dayKey = dayId.toString();
     this.winnerDaysToReplace.add(dayKey);
 
-    const winner = new ContestDayWinner({
-      id: contestWinnerId(dayId, String(payload.winner)),
-      dayId: contestDayId(dayId),
-      user: String(payload.winner),
-      realizedProfit: toBigIntValue(payload.realized_profit),
-      reward: toBigIntValue(payload.reward),
-    });
-
-    const pending = this.winnersByDay.get(dayKey) ?? [];
-    const withoutCurrent = pending.filter((item) => item.id !== winner.id);
-    withoutCurrent.push(winner);
-    this.winnersByDay.set(dayKey, withoutCurrent);
+    const winners = payload.payouts.map(
+      (payout, index) =>
+        new ContestDayWinner({
+          id: contestWinnerId(dayId, String(payout.account)),
+          dayId: contestDayId(dayId),
+          user: String(payout.account),
+          rank: index + 1,
+          realizedProfit: toBigIntValue(payout.realized_profit),
+          reward: toBigIntValue(payout.reward),
+        })
+    );
+    this.winnersByDay.set(dayKey, winners);
 
     const existingDay =
       this.daysToSave.get(contestDayId(dayId)) ||
@@ -942,8 +994,8 @@ export class DailyContestHandler extends BaseHandler {
           id: contestDayId(dayId),
           dayId,
           status: "settled",
-          maxRealizedProfit: winner.realizedProfit,
-          winnerCount: withoutCurrent.length,
+          maxRealizedProfit: winners[0]?.realizedProfit ?? null,
+          winnerCount: winners.length,
           totalReward: null,
           settledOnChain: true,
           indexerComplete: computeIndexerComplete(

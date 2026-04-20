@@ -1,9 +1,9 @@
 #![no_std]
 
 use parity_scale_codec::{Decode, Encode};
+use sails_rs::collections::BTreeMap;
 use sails_rs::prelude::*;
 use scale_info::TypeInfo;
-use sails_rs::collections::BTreeMap;
 
 const DAY_MS: u64 = 86_400_000;
 const DEFAULT_DAY_BOUNDARY_OFFSET_MS: u64 = 43_200_000;
@@ -16,7 +16,7 @@ const MAX_PAGE_SIZE: u32 = 100;
 pub struct DailyContestConfig {
     pub admin_role: ActorId,
     pub settler_role: ActorId,
-    pub daily_reward: u128,
+    pub prize_payouts: Vec<u128>,
     pub grace_period_ms: u64,
     pub day_boundary_offset_ms: u64,
 }
@@ -124,11 +124,9 @@ pub enum Event {
         result_hash: [u8; 32],
         evidence_hash: [u8; 32],
     },
-    WinnerPaid {
+    WinnersPaid {
         day_id: u64,
-        winner: ActorId,
-        realized_profit: i128,
-        reward: u128,
+        payouts: Vec<WinnerPayout>,
     },
     ConfigUpdated {
         config: DailyContestConfig,
@@ -157,7 +155,7 @@ impl Default for State {
             config: DailyContestConfig {
                 admin_role: ActorId::zero(),
                 settler_role: ActorId::zero(),
-                daily_reward: 0,
+                prize_payouts: Vec::new(),
                 grace_period_ms: 0,
                 day_boundary_offset_ms: DEFAULT_DAY_BOUNDARY_OFFSET_MS,
             },
@@ -213,11 +211,12 @@ impl<'a> DailyContestService<'a> {
     fn validate_config(config: &DailyContestConfig) -> Result<(), DailyContestError> {
         if config.admin_role == ActorId::zero()
             || config.settler_role == ActorId::zero()
-            || config.daily_reward == 0
             || config.day_boundary_offset_ms >= DAY_MS
         {
             return Err(DailyContestError::InvalidConfig);
         }
+
+        Self::validate_prize_payouts(&config.prize_payouts)?;
 
         Ok(())
     }
@@ -238,8 +237,8 @@ impl<'a> DailyContestService<'a> {
         Ok(())
     }
 
-    fn validate_daily_reward(daily_reward: u128) -> Result<(), DailyContestError> {
-        if daily_reward == 0 {
+    fn validate_prize_payouts(prize_payouts: &[u128]) -> Result<(), DailyContestError> {
+        if prize_payouts.is_empty() || prize_payouts.iter().any(|reward| *reward == 0) {
             return Err(DailyContestError::InvalidConfig);
         }
 
@@ -254,10 +253,7 @@ impl<'a> DailyContestService<'a> {
         Ok(())
     }
 
-    fn day_start_ms(
-        day_id: u64,
-        day_boundary_offset_ms: u64,
-    ) -> Result<u64, DailyContestError> {
+    fn day_start_ms(day_id: u64, day_boundary_offset_ms: u64) -> Result<u64, DailyContestError> {
         day_id
             .checked_mul(DAY_MS)
             .and_then(|start| start.checked_add(day_boundary_offset_ms))
@@ -265,10 +261,7 @@ impl<'a> DailyContestService<'a> {
     }
 
     #[allow(dead_code)]
-    fn day_end_ms(
-        day_id: u64,
-        day_boundary_offset_ms: u64,
-    ) -> Result<u64, DailyContestError> {
+    fn day_end_ms(day_id: u64, day_boundary_offset_ms: u64) -> Result<u64, DailyContestError> {
         Self::day_start_ms(day_id, day_boundary_offset_ms)?
             .checked_add(DAY_MS)
             .and_then(|next_day_start| next_day_start.checked_sub(1))
@@ -295,62 +288,34 @@ impl<'a> DailyContestService<'a> {
         if winners.len() > MAX_WINNERS_PER_DAY {
             return Err(DailyContestError::TooManyWinners);
         }
-        if winners.is_empty() {
-            return Ok(());
-        }
 
-        let expected_profit = winners[0].realized_profit;
-        let mut previous: Option<ActorId> = None;
-
-        for winner in winners {
-            if winner.realized_profit != expected_profit {
-                return Err(DailyContestError::WinnerProfitMismatch);
+        for (index, winner) in winners.iter().enumerate() {
+            if winners
+                .iter()
+                .skip(index + 1)
+                .any(|other| other.account == winner.account)
+            {
+                return Err(DailyContestError::DuplicateWinner);
             }
-
-            if let Some(prev) = previous {
-                if winner.account == prev {
-                    return Err(DailyContestError::DuplicateWinner);
-                }
-                if winner.account < prev {
-                    return Err(DailyContestError::WinnersNotSorted);
-                }
-            }
-
-            previous = Some(winner.account);
         }
 
         Ok(())
     }
 
-    fn split_reward(
-        total_reward: u128,
+    fn prize_payouts_for_winners(
+        prize_payouts: &[u128],
         winners: &[WinnerInput],
     ) -> Result<Vec<WinnerPayout>, DailyContestError> {
-        // Reward split policy is intentionally deterministic:
-        // winners are passed in sorted account order, the fixed daily reward is split evenly,
-        // and any remainder is assigned one unit at a time to the first winners in that sorted list.
-        let winner_count = winners.len() as u128;
-        let base_reward = total_reward
-            .checked_div(winner_count)
-            .ok_or(DailyContestError::MathOverflow)?;
-        let remainder = total_reward
-            .checked_rem(winner_count)
-            .ok_or(DailyContestError::MathOverflow)?;
+        if winners.len() > prize_payouts.len() {
+            return Err(DailyContestError::TooManyWinners);
+        }
 
         let mut result = Vec::with_capacity(winners.len());
         for (index, winner) in winners.iter().enumerate() {
-            let reward = if (index as u128) < remainder {
-                base_reward
-                    .checked_add(1)
-                    .ok_or(DailyContestError::MathOverflow)?
-            } else {
-                base_reward
-            };
-
             result.push(WinnerPayout {
                 account: winner.account,
                 realized_profit: winner.realized_profit,
-                reward,
+                reward: prize_payouts[index],
             });
         }
 
@@ -450,12 +415,12 @@ impl<'a> DailyContestService<'a> {
     }
 
     #[export(unwrap_result)]
-    pub fn set_daily_reward(&mut self, daily_reward: u128) -> Result<(), DailyContestError> {
+    pub fn set_prize_payouts(&mut self, prize_payouts: Vec<u128>) -> Result<(), DailyContestError> {
         self.ensure_zero_value()?;
         self.ensure_admin()?;
-        DailyContestService::validate_daily_reward(daily_reward)?;
+        DailyContestService::validate_prize_payouts(&prize_payouts)?;
 
-        self.state.config.daily_reward = daily_reward;
+        self.state.config.prize_payouts = prize_payouts;
 
         self.emit_event(Event::ConfigUpdated {
             config: self.state.config.clone(),
@@ -503,11 +468,7 @@ impl<'a> DailyContestService<'a> {
     }
 
     #[export(unwrap_result)]
-    pub fn withdraw_funds(
-        &mut self,
-        to: ActorId,
-        amount: u128,
-    ) -> Result<u128, DailyContestError> {
+    pub fn withdraw_funds(&mut self, to: ActorId, amount: u128) -> Result<u128, DailyContestError> {
         self.ensure_zero_value()?;
         self.ensure_admin()?;
 
@@ -569,27 +530,42 @@ impl<'a> DailyContestService<'a> {
         let (status, reward, payouts) = if winners.is_empty() {
             (DayStatus::NoWinner, 0, Vec::new())
         } else {
-            let reward = self.state.config.daily_reward;
+            if winners.len() > self.state.config.prize_payouts.len() {
+                return Err(DailyContestError::TooManyWinners);
+            }
+
+            let reward = self
+                .state
+                .config
+                .prize_payouts
+                .iter()
+                .take(winners.len())
+                .try_fold(0u128, |total, payout| {
+                    total
+                        .checked_add(*payout)
+                        .ok_or(DailyContestError::MathOverflow)
+                })?;
             if self.state.reward_pool < reward {
                 return Err(DailyContestError::InsufficientRewardPool);
             }
 
-            let payouts = DailyContestService::split_reward(reward, &winners)?;
+            let payouts = DailyContestService::prize_payouts_for_winners(
+                &self.state.config.prize_payouts,
+                &winners,
+            )?;
 
             for payout in payouts.iter() {
                 if payout.reward > 0 {
                     sails_rs::gstd::msg::send_bytes_with_gas(payout.account, b"", 0, payout.reward)
                         .map_err(|_| DailyContestError::TransferFailed)?;
                 }
-
-                self.emit_event(Event::WinnerPaid {
-                    day_id,
-                    winner: payout.account,
-                    realized_profit: payout.realized_profit,
-                    reward: payout.reward,
-                })
-                .map_err(|_| DailyContestError::EventEmitFailed)?;
             }
+
+            self.emit_event(Event::WinnersPaid {
+                day_id,
+                payouts: payouts.clone(),
+            })
+            .map_err(|_| DailyContestError::EventEmitFailed)?;
 
             self.state.reward_pool = self
                 .state
@@ -600,16 +576,19 @@ impl<'a> DailyContestService<'a> {
             (DayStatus::Settled, reward, payouts)
         };
 
-        self.state.days.insert(day_id, ContestDay {
+        self.state.days.insert(
             day_id,
-            status,
-            winners: payouts,
-            total_reward: reward,
-            settled_at: now,
-            settled_by: sails_rs::gstd::msg::source(),
-            result_hash,
-            evidence_hash,
-        });
+            ContestDay {
+                day_id,
+                status,
+                winners: payouts,
+                total_reward: reward,
+                settled_at: now,
+                settled_by: sails_rs::gstd::msg::source(),
+                result_hash,
+                evidence_hash,
+            },
+        );
 
         self.emit_event(Event::DaySettled {
             day_id,
@@ -670,7 +649,6 @@ pub struct DailyContestProgram {
 #[sails_rs::program]
 impl DailyContestProgram {
     pub fn new(config: DailyContestConfig) -> Self {
-
         DailyContestService::validate_config(&config).expect("invalid initial config");
 
         Self {

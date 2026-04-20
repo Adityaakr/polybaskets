@@ -474,6 +474,7 @@ pub struct BasketMarketConfig {
     pub settler_role: ActorId,
     pub liveness_ms: u64,
     pub vara_enabled: bool,
+    pub min_items_per_basket: u32,
 }
 #[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]
 #[codec(crate = sails_rs::scale_codec)]
@@ -487,6 +488,7 @@ pub enum BasketMarketError {
     BasketNotActive,
     BasketAssetMismatch,
     NoItems,
+    NotEnoughItems,
     InvalidWeights,
     DuplicateBasketItem,
     TooManyItems,

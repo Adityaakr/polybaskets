@@ -96,13 +96,13 @@ ItemResolution {
 
 ## BetToken (`bet_token_client.idl`)
 
-Fungible token (VFT) with daily claim system and streak bonuses.
+Fungible token (VFT) with hourly claim windows and daily streak bonuses.
 
 ### Key Methods
 
 | Method | Args | Returns | Notes |
 |--------|------|---------|-------|
-| `Claim` | none | `ClaimState` | Daily token claim with streak bonus |
+| `Claim` | none | `ClaimState` | Hourly token claim with daily streak bonus |
 | `Transfer` | `to, value` | `bool` | Standard VFT transfer |
 | `Approve` | `spender, value` | `bool` | Approve spending allowance |
 | `TransferFrom` | `from, to, value` | `bool` | Transfer from approved allowance |
