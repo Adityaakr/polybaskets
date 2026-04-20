@@ -23,6 +23,7 @@ type DayWinnersQuery = {
   allContestDayWinners: {
     nodes: Array<{
       user: string;
+      rank: number;
       realizedProfit: string;
       reward: string | null;
     }>;
@@ -93,11 +94,12 @@ export class GraphqlReadModelClient implements ReadModelClient {
         query: `
           query DayWinners($dayId: String!) {
             allContestDayWinners(
-              orderBy: USER_ASC
+              orderBy: RANK_ASC
               filter: { dayId: { equalTo: $dayId } }
             ) {
               nodes {
                 user
+                rank
                 realizedProfit
                 reward
               }

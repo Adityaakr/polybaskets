@@ -1,8 +1,8 @@
 #![no_std]
 
 use parity_scale_codec::{Decode, Encode};
-use sails_rs::prelude::*;
 use sails_rs::collections::BTreeMap;
+use sails_rs::prelude::*;
 use scale_info::TypeInfo;
 
 const MAX_ITEMS_PER_BASKET: usize = 32;
@@ -138,6 +138,7 @@ pub struct BasketMarketConfig {
     pub settler_role: ActorId,
     pub liveness_ms: u64,
     pub vara_enabled: bool,
+    pub min_items_per_basket: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode, TypeInfo)]
@@ -170,6 +171,8 @@ pub enum BasketMarketError {
     BasketAssetMismatch,
     #[error("basket must have at least one item")]
     NoItems,
+    #[error("basket does not contain enough markets")]
+    NotEnoughItems,
     #[error("basket weights must sum to exactly 10000 and each weight must be in range")]
     InvalidWeights,
     #[error("basket contains duplicate market/outcome items")]
@@ -321,6 +324,7 @@ impl Default for State {
                 settler_role: ActorId::zero(),
                 liveness_ms: 86_400_000,
                 vara_enabled: false,
+                min_items_per_basket: 2,
             },
         }
     }
@@ -404,16 +408,26 @@ impl<'a> BasketMarketService<'a> {
     }
 
     fn validate_config(config: &BasketMarketConfig) -> Result<(), BasketMarketError> {
-        if config.admin_role == ActorId::zero() || config.settler_role == ActorId::zero() {
+        if config.admin_role == ActorId::zero()
+            || config.settler_role == ActorId::zero()
+            || config.min_items_per_basket == 0
+            || config.min_items_per_basket as usize > MAX_ITEMS_PER_BASKET
+        {
             return Err(BasketMarketError::InvalidConfig);
         }
 
         Ok(())
     }
 
-    fn validate_items(items: &[BasketItem]) -> Result<(), BasketMarketError> {
+    fn validate_items(
+        items: &[BasketItem],
+        min_items_per_basket: u32,
+    ) -> Result<(), BasketMarketError> {
         if items.is_empty() {
             return Err(BasketMarketError::NoItems);
+        }
+        if items.len() < min_items_per_basket as usize {
+            return Err(BasketMarketError::NotEnoughItems);
         }
         if items.len() > MAX_ITEMS_PER_BASKET {
             return Err(BasketMarketError::TooManyItems);
@@ -430,14 +444,10 @@ impl<'a> BasketMarketService<'a> {
             if item.poly_slug.len() > MAX_SLUG_LEN {
                 return Err(BasketMarketError::SlugTooLong);
             }
-            if items
-                .iter()
-                .skip(index + 1)
-                .any(|other| {
-                    other.poly_market_id == item.poly_market_id
-                        && other.selected_outcome == item.selected_outcome
-                })
-            {
+            if items.iter().skip(index + 1).any(|other| {
+                other.poly_market_id == item.poly_market_id
+                    && other.selected_outcome == item.selected_outcome
+            }) {
                 return Err(BasketMarketError::DuplicateBasketItem);
             }
 
@@ -466,13 +476,13 @@ impl<'a> BasketMarketService<'a> {
     }
 
     fn is_agent_name_taken(&self, name: &str, exclude: Option<ActorId>) -> bool {
-        self.state.agents.iter().any(|a| {
-            a.name == name && exclude.map_or(true, |ex| a.address != ex)
-        })
+        self.state
+            .agents
+            .iter()
+            .any(|a| a.name == name && exclude.map_or(true, |ex| a.address != ex))
     }
 
     fn validate_agent_name(name: &str) -> Result<(), BasketMarketError> {
-        
         if name.len() < MIN_AGENT_NAME_LEN {
             return Err(BasketMarketError::AgentNameTooShort);
         }
@@ -491,10 +501,7 @@ impl<'a> BasketMarketService<'a> {
         Ok(())
     }
 
-    fn validate_basket_metadata(
-        name: &str,
-        description: &str,
-    ) -> Result<(), BasketMarketError> {
+    fn validate_basket_metadata(name: &str, description: &str) -> Result<(), BasketMarketError> {
         if name.len() > MAX_NAME_LEN {
             return Err(BasketMarketError::NameTooLong);
         }
@@ -505,9 +512,7 @@ impl<'a> BasketMarketService<'a> {
         Ok(())
     }
 
-    fn validate_resolution_prices(
-        resolution: &ItemResolution,
-    ) -> Result<(), BasketMarketError> {
+    fn validate_resolution_prices(resolution: &ItemResolution) -> Result<(), BasketMarketError> {
         if resolution.poly_price_yes > 10_000 || resolution.poly_price_no > 10_000 {
             return Err(BasketMarketError::InvalidResolution);
         }
@@ -583,7 +588,7 @@ impl<'a> BasketMarketService<'a> {
     ) -> Result<u64, BasketMarketError> {
         self.ensure_not_paused()?;
         BasketMarketService::validate_basket_metadata(&name, &description)?;
-        BasketMarketService::validate_items(&items)?;
+        BasketMarketService::validate_items(&items, self.state.config.min_items_per_basket)?;
 
         if asset_kind == BasketAssetKind::Vara && !self.state.config.vara_enabled {
             return Err(BasketMarketError::VaraDisabled);
@@ -593,16 +598,19 @@ impl<'a> BasketMarketService<'a> {
         let created_at = sails_rs::gstd::exec::block_timestamp();
         let basket_id = self.state.next_basket_id;
 
-        self.state.baskets.insert(basket_id, Basket {
-            id: basket_id,
-            creator,
-            name,
-            description,
-            items,
-            created_at,
-            status: BasketStatus::Active,
-            asset_kind,
-        });
+        self.state.baskets.insert(
+            basket_id,
+            Basket {
+                id: basket_id,
+                creator,
+                name,
+                description,
+                items,
+                created_at,
+                status: BasketStatus::Active,
+                asset_kind,
+            },
+        );
         self.state.next_basket_id = self
             .state
             .next_basket_id
@@ -673,13 +681,16 @@ impl<'a> BasketMarketService<'a> {
             position.shares = user_total;
             position.index_at_creation_bps = stored_index_at_creation_bps;
         } else {
-            self.state.positions.insert((basket_id, user), Position {
-                basket_id,
-                user,
-                shares,
-                claimed: false,
-                index_at_creation_bps,
-            });
+            self.state.positions.insert(
+                (basket_id, user),
+                Position {
+                    basket_id,
+                    user,
+                    shares,
+                    claimed: false,
+                    index_at_creation_bps,
+                },
+            );
             user_total = shares;
             stored_index_at_creation_bps = index_at_creation_bps;
         };
@@ -727,17 +738,20 @@ impl<'a> BasketMarketService<'a> {
             .ok_or(BasketMarketError::MathOverflow)?;
         let proposer = sails_rs::gstd::msg::source();
 
-        self.state.settlements.insert(basket_id, Settlement {
+        self.state.settlements.insert(
             basket_id,
-            proposer,
-            item_resolutions,
-            payout_per_share,
-            payload,
-            proposed_at,
-            challenge_deadline,
-            finalized_at: None,
-            status: SettlementStatus::Proposed,
-        });
+            Settlement {
+                basket_id,
+                proposer,
+                item_resolutions,
+                payout_per_share,
+                payload,
+                proposed_at,
+                challenge_deadline,
+                finalized_at: None,
+                status: SettlementStatus::Proposed,
+            },
+        );
         self.basket_mut(basket_id)?.status = BasketStatus::SettlementPending;
 
         self.emit_event(Event::SettlementProposed {
@@ -892,7 +906,11 @@ impl<'a> BasketMarketService<'a> {
 
     #[export]
     pub fn get_agent(&self, address: ActorId) -> Option<AgentInfo> {
-        self.state.agents.iter().find(|a| a.address == address).cloned()
+        self.state
+            .agents
+            .iter()
+            .find(|a| a.address == address)
+            .cloned()
     }
 
     #[export]
@@ -1006,10 +1024,7 @@ impl<'a> BasketMarketService<'a> {
         let count = BasketMarketService::validate_migration_batch_size(&baskets)?;
 
         for basket in baskets {
-            self.state.next_basket_id = self
-                .state
-                .next_basket_id
-                .max(basket.id.saturating_add(1));
+            self.state.next_basket_id = self.state.next_basket_id.max(basket.id.saturating_add(1));
             self.state.baskets.insert(basket.id, basket);
         }
 
@@ -1108,6 +1123,7 @@ impl BasketMarketProgram {
             settler_role: init.settler_role,
             liveness_ms: init.liveness_ms,
             vara_enabled: false,
+            min_items_per_basket: 2,
         })
         .expect("invalid initial config");
 
@@ -1124,6 +1140,7 @@ impl BasketMarketProgram {
                     settler_role: init.settler_role,
                     liveness_ms: init.liveness_ms,
                     vara_enabled: false,
+                    min_items_per_basket: 2,
                 },
             },
         }

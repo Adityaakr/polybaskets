@@ -1,12 +1,12 @@
 # Daily Contest
 
-Sails contract for fixed-reward daily CHIP competition settlement.
+Sails contract for daily CHIP competition settlement with configurable ranked VARA payouts.
 
 ## Responsibilities
 
 - hold the native VARA reward pool
 - settle previous 12:00 UTC contest windows
-- split reward across tied winners deterministically
+- pay the configured prize schedule to ranked winners deterministically
 - transfer payouts immediately during settlement
 - persist settled day history for frontend reads
 
@@ -17,7 +17,7 @@ Sails contract for fixed-reward daily CHIP competition settlement.
 - audit linkage is preserved through `result_hash` and `evidence_hash`
 - settlement is gated by `day_end_ms(day_id) + grace_period_ms <= now`
 - days with no eligible winners are stored as `NoWinner` and do not consume reward pool
-- reward split policy is deterministic: winners must be sorted by account, reward is divided evenly, and any remainder is assigned to the first winners in that sorted order
+- prize policy is deterministic: winners are passed in Activity Index rank order and receive the corresponding configured payout
 - `fund()` is intentionally public so treasury or external sponsors can top up the pool
 - reward-pool reads and command paths mirror the contract account balance via `value_available()`, so direct VARA transfers are usable for settlement and admin withdrawals
 - non-funding command routes reject attached value to avoid accidental command-specific deposits
@@ -26,7 +26,7 @@ Sails contract for fixed-reward daily CHIP competition settlement.
 
 The contract keeps `set_config` for full replacement, but also exposes targeted admin routes so the contract does not need to be redeployed for common operations:
 
-- `set_daily_reward`
+- `set_prize_payouts`
 - `set_grace_period`
 - `set_admin_role`
 - `set_settler_role`

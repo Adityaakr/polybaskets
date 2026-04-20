@@ -19,6 +19,7 @@ use sails_rs::{
 
 const MAX_MIGRATION_BATCH_SIZE: usize = 250;
 const UTC_DAY_MS: u64 = 24 * 60 * 60 * 1000;
+const UTC_HOUR_MS: u64 = 60 * 60 * 1000;
 
 #[derive(Clone, Debug, PartialEq, Eq, Encode, Decode, TypeInfo)]
 #[codec(crate = sails_rs::scale_codec)]
@@ -34,8 +35,37 @@ pub struct ClaimConfig {
 }
 
 impl ClaimConfig {
+    fn default_for_decimals(decimals: u8) -> Self {
+        let unit = Self::token_unit(decimals).expect("token decimals are too large");
+
+        Self {
+            base_claim_amount: U256::from(500u32)
+                .checked_mul(unit)
+                .expect("default base claim amount overflow"),
+            max_claim_amount: U256::from(600u32)
+                .checked_mul(unit)
+                .expect("default max claim amount overflow"),
+            streak_step: U256::from(10u32)
+                .checked_mul(unit)
+                .expect("default claim streak step overflow"),
+            streak_cap_days: 11,
+            claim_period: UTC_HOUR_MS,
+            day_start_offset_ms: 0,
+            claim_paused: false,
+        }
+    }
+
+    fn token_unit(decimals: u8) -> Option<U256> {
+        let mut unit = U256::one();
+        for _ in 0..decimals {
+            unit = unit.checked_mul(U256::from(10u8))?;
+        }
+
+        Some(unit)
+    }
+
     fn validate(&self) -> Result<(), ClaimError> {
-        if self.claim_period != UTC_DAY_MS {
+        if self.claim_period == 0 {
             return Err(ClaimError::InvalidClaimPeriod);
         }
 
@@ -43,7 +73,7 @@ impl ClaimConfig {
             return Err(ClaimError::InvalidClaimBounds);
         }
 
-        if self.day_start_offset_ms >= self.claim_period {
+        if self.day_start_offset_ms >= UTC_DAY_MS {
             return Err(ClaimError::InvalidDayStartOffset);
         }
 
@@ -53,15 +83,7 @@ impl ClaimConfig {
 
 impl Default for ClaimConfig {
     fn default() -> Self {
-        Self {
-            base_claim_amount: 100.into(),
-            max_claim_amount: 700.into(),
-            streak_step: 100.into(),
-            streak_cap_days: 7,
-            claim_period: UTC_DAY_MS,
-            day_start_offset_ms: 0,
-            claim_paused: false,
-        }
+        Self::default_for_decimals(0)
     }
 }
 
@@ -574,7 +596,8 @@ where
                 continue;
             }
 
-            let value = Balance::try_from(imported.balance).map_err(|_| ClaimError::RewardTooLarge)?;
+            let value =
+                Balance::try_from(imported.balance).map_err(|_| ClaimError::RewardTooLarge)?;
             let value = NonZero::try_from(value).map_err(|_| ClaimError::InvalidClaimAmount)?;
             balances_store
                 .mint(user, value)
@@ -633,6 +656,8 @@ where
 
                 if current_claim_day > last_claim_day + 1 {
                     1
+                } else if current_claim_day == last_claim_day {
+                    state.streak_days.max(1)
                 } else {
                     state
                         .streak_days
@@ -663,13 +688,13 @@ where
 
     fn claim_day_id(&self, config: &ClaimConfig, timestamp: u64) -> i128 {
         (i128::from(timestamp) - i128::from(config.day_start_offset_ms))
-            .div_euclid(i128::from(config.claim_period))
+            .div_euclid(i128::from(UTC_DAY_MS))
     }
 
     fn next_claim_at(&self, config: &ClaimConfig, last_claim_at: u64) -> u64 {
-        let next_claim_day = self.claim_day_id(config, last_claim_at) + 1;
-        let next_claim_at = next_claim_day * i128::from(config.claim_period)
-            + i128::from(config.day_start_offset_ms);
+        let next_claim_period =
+            i128::from(last_claim_at).div_euclid(i128::from(config.claim_period)) + 1;
+        let next_claim_at = next_claim_period * i128::from(config.claim_period);
 
         next_claim_at.max(0) as u64
     }
@@ -781,7 +806,8 @@ impl Program {
         let _ = allowances.allocate_next_shard();
         let _ = balances.allocate_next_shard();
 
-        let claim_config = claim_config.unwrap_or_default();
+        let claim_config =
+            claim_config.unwrap_or_else(|| ClaimConfig::default_for_decimals(decimals));
         claim_config
             .validate()
             .expect("invalid initial claim configuration");

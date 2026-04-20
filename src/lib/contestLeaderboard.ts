@@ -1,7 +1,9 @@
 import { ENV } from "@/env";
 import {
+  CONTEST_DAY_MS,
   getContestDayIdFromTimestamp,
   getContestDayStartDate,
+  getContestDayStartTimestamp,
 } from "@/lib/contestDay";
 
 const CHIP_DECIMALS = 12;
@@ -65,6 +67,7 @@ type DailyUserActivityAggregateNode = {
   betsPlaced: number;
   approvesCount: number;
   claimsCount: number;
+  firstTxAt: string;
   lastTxAt: string;
   updatedAt: string;
 };
@@ -156,6 +159,7 @@ export type ContestLeaderboardEntry = DailyUserAggregateNode & {
   betsPlaced: number;
   approvesCount: number;
   claimsCount: number;
+  firstTxAt: string | null;
   lastTxAt: string | null;
   status: "scored" | "pending";
   rank: number;
@@ -196,6 +200,8 @@ const TODAY_CONTEST_LEADERBOARD_QUERY = `
     $activityDayId: BigFloat!
     $aggregateDayId: BigFloat!
     $winnerDayId: String!
+    $dayStart: Datetime!
+    $nextDayStart: Datetime!
   ) {
     allContestDayProjections(
       condition: { dayId: $projectionDayId }
@@ -216,8 +222,8 @@ const TODAY_CONTEST_LEADERBOARD_QUERY = `
     }
     allDailyUserActivityAggregates(
       condition: { dayId: $activityDayId }
-      orderBy: [TX_COUNT_DESC, LAST_TX_AT_ASC, USER_ASC]
-      first: 100
+      orderBy: [TX_COUNT_DESC, FIRST_TX_AT_ASC, USER_ASC]
+      first: 1000
     ) {
       nodes {
         dayId
@@ -227,6 +233,7 @@ const TODAY_CONTEST_LEADERBOARD_QUERY = `
         betsPlaced
         approvesCount
         claimsCount
+        firstTxAt
         lastTxAt
         updatedAt
       }
@@ -257,8 +264,8 @@ const TODAY_CONTEST_LEADERBOARD_QUERY = `
       }
     }
     allBaskets(
-      filter: { assetKind: { equalTo: "Bet" } }
-      first: 500
+      filter: { createdAt: { greaterThanOrEqualTo: $dayStart, lessThan: $nextDayStart } }
+      first: 1000
     ) {
       nodes {
         id
@@ -601,26 +608,28 @@ const chipUnitsToNumber = (value: string): number =>
   Number(BigInt(value)) / 10 ** CHIP_DECIMALS;
 
 export const calculateActivityIndex = (
-  entry: Pick<ContestLeaderboardEntry, "txCount" | "realizedProfit" | "lastTxAt">,
+  entry: Pick<ContestLeaderboardEntry, "dayId" | "txCount" | "realizedProfit" | "firstTxAt">,
 ): number => {
   const pnlComponent = chipUnitsToNumber(entry.realizedProfit) * 0.001;
 
-  if (!entry.lastTxAt) {
+  if (!entry.firstTxAt) {
     return entry.txCount + pnlComponent;
   }
 
-  const timestamp = new Date(entry.lastTxAt);
-  const secondsFromMidnight =
-    timestamp.getUTCHours() * 3600 +
-    timestamp.getUTCMinutes() * 60 +
-    timestamp.getUTCSeconds();
-  const timeBonus = (86400 - secondsFromMidnight) / 86400;
+  const elapsedMs = Math.max(
+    0,
+    Math.min(
+      CONTEST_DAY_MS,
+      new Date(entry.firstTxAt).getTime() - getContestDayStartTimestamp(entry.dayId),
+    ),
+  );
+  const timeBonus = 1 - elapsedMs / CONTEST_DAY_MS;
 
   return entry.txCount + pnlComponent + timeBonus * 0.000001;
 };
 
 export const formatActivityIndex = (
-  entry: Pick<ContestLeaderboardEntry, "txCount" | "realizedProfit" | "lastTxAt">,
+  entry: Pick<ContestLeaderboardEntry, "dayId" | "txCount" | "realizedProfit" | "firstTxAt">,
 ): string =>
   new Intl.NumberFormat("en-US", {
     minimumFractionDigits: 2,
@@ -661,6 +670,8 @@ export const fetchTodayContestLeaderboard = async (
       activityDayId: dayId,
       aggregateDayId: dayId,
       winnerDayId: dayId,
+      dayStart: getContestDayStartDate(dayId).toISOString(),
+      nextDayStart: getContestDayStartDate((BigInt(dayId) + 1n).toString()).toISOString(),
     },
   );
 
@@ -671,7 +682,7 @@ export const fetchTodayContestLeaderboard = async (
   const basketEntityToBasketId = new Map(
     data.allBaskets.nodes.map((basket) => [basket.id, basket.basketId]),
   );
-  const todayBetBasketIds = new Set(data.allBaskets.nodes.map((basket) => basket.id));
+  const selectedDayBasketIds = new Set(data.allBaskets.nodes.map((basket) => basket.id));
   const settledBasketIds = new Set(
     data.allBasketSettlements.nodes
       .filter((settlement) => settlement.status.toLowerCase() === "finalized")
@@ -689,7 +700,7 @@ export const fetchTodayContestLeaderboard = async (
       continue;
     }
 
-    if (!todayBetBasketIds.has(position.basketId) || settledBasketIds.has(position.basketId)) {
+    if (!selectedDayBasketIds.has(position.basketId) || settledBasketIds.has(position.basketId)) {
       continue;
     }
 
@@ -726,6 +737,7 @@ export const fetchTodayContestLeaderboard = async (
     betsPlaced: entry.betsPlaced,
     approvesCount: entry.approvesCount,
     claimsCount: entry.claimsCount,
+    firstTxAt: entry.firstTxAt,
     lastTxAt: entry.lastTxAt,
     status: "scored",
     rank: 0,
@@ -743,7 +755,7 @@ export const fetchTodayContestLeaderboard = async (
       const matchingPosition = data.allChipPositions.nodes.find(
         (position) =>
           position.user.toLowerCase() === userKey &&
-          todayBetBasketIds.has(position.basketId) &&
+          selectedDayBasketIds.has(position.basketId) &&
           !settledBasketIds.has(position.basketId),
       );
 
@@ -758,6 +770,7 @@ export const fetchTodayContestLeaderboard = async (
         betsPlaced: 0,
         approvesCount: 0,
         claimsCount: 0,
+        firstTxAt: matchingPosition?.updatedAt ?? null,
         lastTxAt: matchingPosition?.updatedAt ?? null,
         status: "pending",
         rank: 0,
@@ -774,20 +787,25 @@ export const fetchTodayContestLeaderboard = async (
 
   const entries = scoredEntries
     .sort((left, right) => {
+      const indexDiff = calculateActivityIndex(right) - calculateActivityIndex(left);
+      if (indexDiff !== 0) {
+        return indexDiff;
+      }
+
       if (left.txCount !== right.txCount) {
         return right.txCount - left.txCount;
+      }
+
+      const leftFirstTxAt = left.firstTxAt ? new Date(left.firstTxAt).getTime() : Number.MAX_SAFE_INTEGER;
+      const rightFirstTxAt = right.firstTxAt ? new Date(right.firstTxAt).getTime() : Number.MAX_SAFE_INTEGER;
+      if (leftFirstTxAt !== rightFirstTxAt) {
+        return leftFirstTxAt - rightFirstTxAt;
       }
 
       const leftProfit = BigInt(left.realizedProfit);
       const rightProfit = BigInt(right.realizedProfit);
       if (leftProfit !== rightProfit) {
         return rightProfit > leftProfit ? 1 : -1;
-      }
-
-      const leftLastTxAt = left.lastTxAt ? new Date(left.lastTxAt).getTime() : Number.MAX_SAFE_INTEGER;
-      const rightLastTxAt = right.lastTxAt ? new Date(right.lastTxAt).getTime() : Number.MAX_SAFE_INTEGER;
-      if (leftLastTxAt !== rightLastTxAt) {
-        return leftLastTxAt - rightLastTxAt;
       }
 
       return left.user.localeCompare(right.user);

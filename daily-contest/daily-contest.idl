@@ -1,7 +1,7 @@
 type DailyContestConfig = struct {
   admin_role: actor_id,
   settler_role: actor_id,
-  daily_reward: u128,
+  prize_payouts: vec u128,
   grace_period_ms: u64,
   day_boundary_offset_ms: u64,
 };
@@ -65,9 +65,9 @@ service DailyContest {
   Fund : () -> u128;
   SetAdminRole : (admin_role: actor_id) -> null;
   SetConfig : (config: DailyContestConfig) -> null;
-  SetDailyReward : (daily_reward: u128) -> null;
   SetDayBoundaryOffset : (day_boundary_offset_ms: u64) -> null;
   SetGracePeriod : (grace_period_ms: u64) -> null;
+  SetPrizePayouts : (prize_payouts: vec u128) -> null;
   SetRoles : (admin_role: actor_id, settler_role: actor_id) -> null;
   SetSettlerRole : (settler_role: actor_id) -> null;
   SettleDay : (day_id: u64, winners: vec WinnerInput, result_hash: [u8, 32], evidence_hash: [u8, 32]) -> null;
@@ -92,11 +92,9 @@ service DailyContest {
       result_hash: [u8, 32],
       evidence_hash: [u8, 32],
     };
-    WinnerPaid: struct {
+    WinnersPaid: struct {
       day_id: u64,
-      winner: actor_id,
-      realized_profit: i128,
-      reward: u128,
+      payouts: vec WinnerPayout,
     };
     ConfigUpdated: struct {
       config: DailyContestConfig

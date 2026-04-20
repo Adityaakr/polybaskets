@@ -12,6 +12,7 @@ declare global {
     settler_role: ActorId;
     liveness_ms: number | string | bigint;
     vara_enabled: boolean;
+    min_items_per_basket: number;
   }
 
   export type BasketMarketError =
@@ -20,6 +21,7 @@ declare global {
     | "BasketNotActive"
     | "BasketAssetMismatch"
     | "NoItems"
+    | "NotEnoughItems"
     | "InvalidWeights"
     | "DuplicateBasketItem"
     | "TooManyItems"

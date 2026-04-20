@@ -11,6 +11,13 @@ build = "build.rs"
 [dependencies]
 daily-contest-app = { path = "app" }
 
+[dev-dependencies]
+daily-contest-client = { path = "client" }
+gtest = "1.10.0"
+futures = "0.3.31"
+sails-rs = { version = "=0.10.2", features = ["gtest", "gclient"] }
+tokio = "1.48.0"
+
 [build-dependencies]
 sails-rs = { version = "=0.10.2", features = ["build"] }
 sails-idl-gen = "=0.10.2"

@@ -18,3 +18,12 @@ export const useTodayContestLeaderboard = () => {
     refetchOnWindowFocus: true,
   });
 };
+
+export const useContestLeaderboard = (dayId: string) =>
+  useQuery<TodayContestLeaderboard>({
+    queryKey: ["contest-leaderboard", "day", dayId],
+    queryFn: () => fetchTodayContestLeaderboard(dayId),
+    staleTime: 15_000,
+    refetchInterval: REFRESH_INTERVAL_MS,
+    refetchOnWindowFocus: true,
+  });

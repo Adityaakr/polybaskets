@@ -56,6 +56,9 @@ type DailyUserActivityAggregate @entity {
   betsPlaced: Int!
   approvesCount: Int!
   claimsCount: Int!
+  firstTxAt: DateTime! @index
+  firstTxBlock: BigInt!
+  firstTxMessageId: String!
   lastTxAt: DateTime! @index
   lastTxBlock: BigInt!
   lastTxMessageId: String!
@@ -82,6 +85,7 @@ type ContestDayWinner @entity {
   id: ID!
   dayId: String! @index
   user: String! @index
+  rank: Int!
   realizedProfit: BigInt!
   reward: BigInt
 }

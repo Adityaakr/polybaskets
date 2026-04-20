@@ -21,6 +21,8 @@ import {
   formatVaraAmount,
   formatUtcDateTime,
   formatUtcTime,
+  getCurrentUtcDayId,
+  getUtcDayLabel,
   type ContestLeaderboardEntry,
   type AllTimeTradingPnlEntry,
   type TodayContestLeaderboard,
@@ -28,10 +30,11 @@ import {
 import { useAgentNames } from '@/hooks/useAgentNames';
 import { ENV, isBasketAssetKindEnabled } from '@/env';
 import { truncateAddress } from '@/lib/basket-utils.ts';
-import { useTodayContestLeaderboard } from '@/hooks/useTodayContestLeaderboard';
+import { useContestLeaderboard } from '@/hooks/useTodayContestLeaderboard';
 import { useAllTimeContestWinners } from '@/hooks/useAllTimeContestWinners';
 import { useAllTimeBasketWinnings } from '@/hooks/useAllTimeBasketWinnings';
 import { actorIdFromAddress } from '@/lib/varaClient';
+import { getContestDayIdFromDate, getContestDayStartDate } from '@/lib/contestDay';
 import { cn } from '@/lib/utils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -40,6 +43,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { Input } from '@/components/ui/input';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Link } from 'react-router-dom';
 import {
   Trophy,
@@ -57,6 +62,7 @@ import {
   Search,
   Flame,
   Heart,
+  CalendarDays,
 } from 'lucide-react';
 import type { Basket } from '@/types/basket.ts';
 
@@ -338,6 +344,7 @@ function ActivityLeaderboardRow({
 
 function TodayContestTab() {
   const [now, setNow] = useState(Date.now());
+  const [selectedDayId, setSelectedDayId] = useState(() => getCurrentUtcDayId());
   const [activeView, setActiveView] = useState<LeaderboardView>('total');
   const [expandedEntryUser, setExpandedEntryUser] = useState<string | null>(null);
   const [todayPage, setTodayPage] = useState(1);
@@ -346,7 +353,7 @@ function TodayContestTab() {
   const [rankedSearchQuery, setRankedSearchQuery] = useState('');
   const [awaitingSearchQuery, setAwaitingSearchQuery] = useState('');
   const [totalSearchQuery, setTotalSearchQuery] = useState('');
-  const leaderboardQuery = useTodayContestLeaderboard();
+  const leaderboardQuery = useContestLeaderboard(selectedDayId);
   const allTimeWinnersQuery = useAllTimeContestWinners();
   const { address } = useWallet();
   const { resolveAgentName } = useAgentNames();
@@ -362,6 +369,55 @@ function TodayContestTab() {
     const interval = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(interval);
   }, []);
+
+  const currentDayId = getCurrentUtcDayId(now);
+  const selectedDayLabel = getUtcDayLabel(selectedDayId);
+  const isSelectedToday = selectedDayId === currentDayId;
+
+  const daySelector = (
+    <Card className="card-elevated">
+      <CardContent className="flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            <CalendarDays className="h-3.5 w-3.5" />
+            <span>Contest day</span>
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            12:00 UTC window for {isSelectedToday ? 'today' : selectedDayLabel}.
+          </p>
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <Button
+            type="button"
+            variant={isSelectedToday ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setSelectedDayId(currentDayId)}
+          >
+            Today
+          </Button>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button type="button" variant="outline" size="sm" className="justify-start text-left font-normal">
+                <CalendarDays className="mr-2 h-4 w-4 text-muted-foreground" />
+                {selectedDayLabel}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="end">
+              <Calendar
+                mode="single"
+                selected={getContestDayStartDate(selectedDayId)}
+                onSelect={(date) => {
+                  if (!date) return;
+                  setSelectedDayId(getContestDayIdFromDate(date));
+                }}
+                initialFocus
+              />
+            </PopoverContent>
+          </Popover>
+        </div>
+      </CardContent>
+    </Card>
+  );
 
   const scoredEntries = contest?.entries ?? [];
   const awaitingEntries = contest?.awaitingEntries ?? [];
@@ -409,8 +465,8 @@ function TodayContestTab() {
   const awaitingTotalPages = Math.max(1, Math.ceil(awaitingTotalEntries / LEADERBOARD_PAGE_SIZE));
   const totalResultsPages = Math.max(1, Math.ceil(totalResultsCount / LEADERBOARD_PAGE_SIZE));
 
-  useEffect(() => setTodayPage(1), [rankedSearchQuery]);
-  useEffect(() => setAwaitingPage(1), [awaitingSearchQuery]);
+  useEffect(() => setTodayPage(1), [rankedSearchQuery, selectedDayId]);
+  useEffect(() => setAwaitingPage(1), [awaitingSearchQuery, selectedDayId]);
   useEffect(() => setTotalPage(1), [totalSearchQuery]);
   useEffect(() => setTodayPage((currentPage) => Math.min(currentPage, todayTotalPages)), [todayTotalPages]);
   useEffect(() => setAwaitingPage((currentPage) => Math.min(currentPage, awaitingTotalPages)), [awaitingTotalPages]);
@@ -436,6 +492,7 @@ function TodayContestTab() {
   if (leaderboardQuery.isLoading) {
     return (
       <div className="space-y-6">
+        {daySelector}
         <Card className="card-elevated">
           <CardHeader>
             <Skeleton className="h-7 w-56" />
@@ -470,15 +527,18 @@ function TodayContestTab() {
 
   if (leaderboardQuery.isError) {
     return (
-      <Card className="card-elevated border-destructive/40">
-        <CardContent className="py-12 text-center">
-          <Loader2 className="w-10 h-10 text-destructive mx-auto mb-4" />
-          <p className="font-medium">{CONTEST_QUERY_ERROR}</p>
-          <p className="text-sm text-muted-foreground mt-2">
-            {(leaderboardQuery.error as Error)?.message ?? 'Unknown indexer error'}
-          </p>
-        </CardContent>
-      </Card>
+      <div className="space-y-6">
+        {daySelector}
+        <Card className="card-elevated border-destructive/40">
+          <CardContent className="py-12 text-center">
+            <Loader2 className="w-10 h-10 text-destructive mx-auto mb-4" />
+            <p className="font-medium">{CONTEST_QUERY_ERROR}</p>
+            <p className="text-sm text-muted-foreground mt-2">
+              {(leaderboardQuery.error as Error)?.message ?? 'Unknown indexer error'}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
     );
   }
 
@@ -520,24 +580,21 @@ function TodayContestTab() {
 
   return (
     <div className="space-y-6">
+      {daySelector}
       {isEmpty ? (
         <Card className="card-elevated">
           <CardContent className="py-12 text-center">
             <Trophy className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-            <p className="text-lg font-medium">No activity leaderboard entries yet today</p>
+            <p className="text-lg font-medium">No activity leaderboard entries for {selectedDayLabel}</p>
             <p className="text-sm text-muted-foreground mt-2">
-              The leaderboard will appear after the first qualifying on-chain transaction in the current 12:00 UTC contest window.
+              The leaderboard will appear after the first qualifying on-chain transaction in this 12:00 UTC contest window.
             </p>
           </CardContent>
         </Card>
       ) : (
         <Card className="card-elevated overflow-hidden">
           <CardHeader className="border-b">
-            <CardTitle className="text-lg">Leaderboard</CardTitle>
-            <CardDescription>
-              Switch between today&apos;s activity ranking, awaiting baskets, and total historical performance.
-            </CardDescription>
-            <div className="flex flex-col gap-3 pt-2 lg:flex-row lg:items-start lg:justify-between">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="outline" className="border-primary/15 bg-background/70 text-foreground">
                   {scoredEntries.length} Agent{scoredEntries.length === 1 ? '' : 's'}
@@ -552,9 +609,9 @@ function TodayContestTab() {
                     : 'Pending first finalized basket'}
                 </Badge>
               </div>
-              <div className="flex flex-col gap-1 text-sm text-muted-foreground lg:max-w-md lg:text-right">
-                <div>{countdown ?? 'Waiting for the first finalized basket to expose settlement timing.'}</div>
-                <div className="flex items-center gap-2 lg:justify-end">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-muted-foreground lg:justify-end">
+                {countdown ? <span>{countdown}</span> : null}
+                <div className="flex items-center gap-2">
                   <Radio className="h-3.5 w-3.5 text-primary" />
                   <span>
                     {currentUserEntry
@@ -566,7 +623,7 @@ function TodayContestTab() {
                         : 'Your position: Connect wallet'}
                   </span>
                 </div>
-                <div className="text-xs">
+                <span className="text-xs">
                   {currentUserEntry
                     ? currentUserEntry.status === 'pending'
                       ? `You have ${currentUserEntry.pendingBasketCount} pending position${currentUserEntry.pendingBasketCount === 1 ? '' : 's'} awaiting results.`
@@ -574,7 +631,7 @@ function TodayContestTab() {
                     : contest?.projection?.settledOnChain
                       ? `Settled on-chain at ${formatUtcDateTime(contest.projection.settledAt)} UTC`
                       : 'Live projection from the indexer read model.'}
-                </div>
+                </span>
               </div>
             </div>
           </CardHeader>
@@ -585,7 +642,7 @@ function TodayContestTab() {
                   <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
                     <div className="overflow-x-auto -mx-1 px-1">
                       <TabsList className="grid w-full grid-cols-3 xl:w-auto min-w-[320px]">
-                        <TabsTrigger value="today">Today&apos;s activity</TabsTrigger>
+                        <TabsTrigger value="today">Day activity</TabsTrigger>
                         <TabsTrigger value="awaiting">Awaiting Results</TabsTrigger>
                         <TabsTrigger value="total">Total Results</TabsTrigger>
                       </TabsList>

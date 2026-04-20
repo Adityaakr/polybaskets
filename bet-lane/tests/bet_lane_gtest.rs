@@ -6,9 +6,7 @@ use bet_lane_client::{
 };
 use bet_token::WASM_BINARY as BET_TOKEN_WASM_BINARY;
 use bet_token_client::{
-    BetTokenClient, BetTokenClientCtors,
-    bet_token::BetToken,
-    vft_admin::VftAdmin,
+    BetTokenClient, BetTokenClientCtors, bet_token::BetToken, vft_admin::VftAdmin,
 };
 use gtest::System;
 use gtest::constants::{DEFAULT_USER_ALICE, DEFAULT_USER_BOB, DEFAULT_USER_CHARLIE};
@@ -17,9 +15,12 @@ use polymarket_mirror_client::{
     BasketAssetKind, BasketItem, BasketMarketInit, ItemResolution, Outcome, PolymarketMirror,
     PolymarketMirrorCtors, basket_market::BasketMarket,
 };
-use schnorrkel::{ExpansionMode, Keypair, MiniSecretKey, signing_context};
 use sails_rs::client::{GearEnv, GtestEnv};
-use sails_rs::{Encode, prelude::{ActorId, U256}};
+use sails_rs::{
+    Encode,
+    prelude::{ActorId, U256},
+};
+use schnorrkel::{ExpansionMode, Keypair, MiniSecretKey, signing_context};
 
 const TOKEN_NAME: &str = "Bet Token";
 const TOKEN_SYMBOL: &str = "BET";
@@ -98,12 +99,7 @@ impl Harness {
             GtestEnv,
         > = env.deploy(lane_code_id, b"bet-lane".to_vec());
         let bet_lane = bet_lane_deployment
-            .create(
-                admin,
-                mirror.id(),
-                bet_token.id(),
-                Some(lane_config),
-            )
+            .create(admin, mirror.id(), bet_token.id(), Some(lane_config))
             .await
             .expect("bet-lane deployment should succeed");
 
@@ -160,12 +156,20 @@ impl Harness {
             .create_basket(
                 "Basket #1".into(),
                 "Companion BET lane".into(),
-                vec![BasketItem {
-                    poly_market_id: "market-1".into(),
-                    poly_slug: "market-1".into(),
-                    weight_bps: 10_000,
-                    selected_outcome: Outcome::YES,
-                }],
+                vec![
+                    BasketItem {
+                        poly_market_id: "market-1".into(),
+                        poly_slug: "market-1".into(),
+                        weight_bps: 5_000,
+                        selected_outcome: Outcome::YES,
+                    },
+                    BasketItem {
+                        poly_market_id: "market-2".into(),
+                        poly_slug: "market-2".into(),
+                        weight_bps: 5_000,
+                        selected_outcome: Outcome::YES,
+                    },
+                ],
                 asset_kind,
             )
             .with_actor_id(self.admin)
@@ -178,14 +182,24 @@ impl Harness {
         mirror
             .propose_settlement(
                 basket_id,
-                vec![ItemResolution {
-                    item_index: 0,
-                    resolved: Outcome::YES,
-                    poly_slug: "market-1".into(),
-                    poly_condition_id: None,
-                    poly_price_yes: 10_000,
-                    poly_price_no: 0,
-                }],
+                vec![
+                    ItemResolution {
+                        item_index: 0,
+                        resolved: Outcome::YES,
+                        poly_slug: "market-1".into(),
+                        poly_condition_id: None,
+                        poly_price_yes: 10_000,
+                        poly_price_no: 0,
+                    },
+                    ItemResolution {
+                        item_index: 1,
+                        resolved: Outcome::YES,
+                        poly_slug: "market-2".into(),
+                        poly_condition_id: None,
+                        poly_price_yes: 10_000,
+                        poly_price_no: 0,
+                    },
+                ],
                 "{\"source\":\"gtest\"}".into(),
             )
             .with_actor_id(self.admin)
@@ -319,8 +333,7 @@ async fn repeated_entries_merge_into_weighted_average_index() {
         VALID_QUOTE_DEADLINE_MS,
         1,
     );
-    lane
-        .place_bet(basket_id, U256::from(100u32), first_quote)
+    lane.place_bet(basket_id, U256::from(100u32), first_quote)
         .with_actor_id(harness.alice)
         .await
         .expect("first bet should succeed");
@@ -332,8 +345,7 @@ async fn repeated_entries_merge_into_weighted_average_index() {
         VALID_QUOTE_DEADLINE_MS,
         2,
     );
-    lane
-        .place_bet(basket_id, U256::from(100u32), second_quote)
+    lane.place_bet(basket_id, U256::from(100u32), second_quote)
         .with_actor_id(harness.alice)
         .await
         .expect("second bet should succeed");
@@ -375,8 +387,7 @@ async fn claim_requires_finalized_settlement_and_settled_basket_blocks_new_bets(
         VALID_QUOTE_DEADLINE_MS,
         1,
     );
-    lane
-        .place_bet(basket_id, U256::from(50u32), first_quote)
+    lane.place_bet(basket_id, U256::from(50u32), first_quote)
         .with_actor_id(harness.alice)
         .await
         .expect("place bet should succeed");
@@ -426,8 +437,7 @@ async fn max_bet_applies_to_total_user_exposure() {
         VALID_QUOTE_DEADLINE_MS,
         1,
     );
-    lane
-        .place_bet(basket_id, U256::from(60u32), first_quote)
+    lane.place_bet(basket_id, U256::from(60u32), first_quote)
         .with_actor_id(harness.alice)
         .await
         .expect("first bet should succeed");
@@ -497,14 +507,13 @@ async fn config_role_can_update_dependency_addresses() {
         .await;
     assert!(unauthorized.is_err());
 
-    lane
-        .set_dependencies(BetLaneDependencies {
-            basket_program_id: outsider,
-            bet_token_id: harness.bet_token.id(),
-        })
-        .with_actor_id(harness.admin)
-        .await
-        .expect("admin should update dependencies");
+    lane.set_dependencies(BetLaneDependencies {
+        basket_program_id: outsider,
+        bet_token_id: harness.bet_token.id(),
+    })
+    .with_actor_id(harness.admin)
+    .await
+    .expect("admin should update dependencies");
 
     let deps = lane
         .get_dependencies()
@@ -541,8 +550,7 @@ async fn quote_nonce_cannot_be_replayed() {
     );
 
     let mut lane = harness.bet_lane.bet_lane();
-    lane
-        .place_bet(basket_id, U256::from(100u32), signed_quote.clone())
+    lane.place_bet(basket_id, U256::from(100u32), signed_quote.clone())
         .with_actor_id(harness.alice)
         .await
         .expect("first quote use should succeed");
@@ -563,14 +571,8 @@ async fn expired_quote_is_rejected() {
     harness.approve_lane(harness.alice, 100).await;
 
     let mut lane = harness.bet_lane.bet_lane();
-    let expired_quote = harness.signed_quote(
-        harness.alice,
-        basket_id,
-        U256::from(100u32),
-        5_000,
-        0,
-        1,
-    );
+    let expired_quote =
+        harness.signed_quote(harness.alice, basket_id, U256::from(100u32), 5_000, 0, 1);
     let result = lane
         .place_bet(basket_id, U256::from(100u32), expired_quote)
         .with_actor_id(harness.alice)
@@ -599,8 +601,7 @@ async fn quote_signer_rotation_invalidates_old_signer_quotes() {
 
     let new_signer = keypair_from_seed([8u8; 32]);
     let new_signer_actor = ActorId::from(new_signer.public.to_bytes());
-    lane
-        .rotate_quote_signer(new_signer_actor)
+    lane.rotate_quote_signer(new_signer_actor)
         .with_actor_id(harness.admin)
         .await
         .expect("admin should rotate quote signer");
@@ -632,8 +633,7 @@ async fn quote_signer_rotation_invalidates_old_signer_quotes() {
         .to_vec();
 
     let new_quote = SignedBetQuote { payload, signature };
-    lane
-        .place_bet(basket_id, U256::from(100u32), new_quote)
+    lane.place_bet(basket_id, U256::from(100u32), new_quote)
         .with_actor_id(harness.alice)
         .await
         .expect("new signer quote should succeed");
@@ -656,8 +656,7 @@ async fn migration_imports_require_pause_and_restore_state() {
         .await;
     assert!(live_import.is_err());
 
-    lane
-        .pause()
+    lane.pause()
         .with_actor_id(harness.admin)
         .await
         .expect("pause should succeed");

@@ -67,7 +67,12 @@ impl Harness {
             .expect("vara flag query")
     }
 
-    fn create_basket(&self, actor: u64, asset_kind: BasketAssetKind, items: Vec<BasketItem>) -> u64 {
+    fn create_basket(
+        &self,
+        actor: u64,
+        asset_kind: BasketAssetKind,
+        items: Vec<BasketItem>,
+    ) -> u64 {
         block_on(
             self.program
                 .basket_market()
@@ -105,7 +110,13 @@ impl Harness {
         .expect("propose transport");
     }
 
-    fn propose_fails(&self, actor: u64, basket_id: u64, resolutions: Vec<ItemResolution>, payload: String) {
+    fn propose_fails(
+        &self,
+        actor: u64,
+        basket_id: u64,
+        resolutions: Vec<ItemResolution>,
+        payload: String,
+    ) {
         let failed = block_on(
             self.program
                 .basket_market()
@@ -252,6 +263,7 @@ fn default_config_is_chip_only() {
             settler_role: SETTLER.into(),
             liveness_ms: 1_000,
             vara_enabled: false,
+            min_items_per_basket: 2,
         }
     );
     assert!(!harness.vara_enabled());
@@ -282,6 +294,7 @@ fn admin_can_replace_runtime_config_and_handover_admin_role() {
             settler_role: USER.into(),
             liveness_ms: 12_345,
             vara_enabled: true,
+            min_items_per_basket: 2,
         },
     );
 
@@ -292,6 +305,7 @@ fn admin_can_replace_runtime_config_and_handover_admin_role() {
             settler_role: USER.into(),
             liveness_ms: 12_345,
             vara_enabled: true,
+            min_items_per_basket: 2,
         },
     );
 
@@ -308,6 +322,7 @@ fn admin_can_replace_runtime_config_and_handover_admin_role() {
             settler_role: USER.into(),
             liveness_ms: 12_345,
             vara_enabled: true,
+            min_items_per_basket: 2,
         }
     );
 
@@ -327,6 +342,7 @@ fn config_update_rejects_zero_roles() {
             settler_role: SETTLER.into(),
             liveness_ms: 1_000,
             vara_enabled: false,
+            min_items_per_basket: 2,
         },
     );
 
@@ -337,6 +353,18 @@ fn config_update_rejects_zero_roles() {
             settler_role: ActorId::zero(),
             liveness_ms: 1_000,
             vara_enabled: false,
+            min_items_per_basket: 2,
+        },
+    );
+
+    harness.set_config_fails(
+        ADMIN,
+        BasketMarketConfig {
+            admin_role: ADMIN.into(),
+            settler_role: SETTLER.into(),
+            liveness_ms: 1_000,
+            vara_enabled: false,
+            min_items_per_basket: 0,
         },
     );
 }
@@ -354,11 +382,11 @@ fn create_basket_respects_vara_toggle() {
     );
     assert_eq!(harness.basket_count(), 0);
 
-    let ft_basket_id = harness.create_basket(USER, BasketAssetKind::Bet, single_item(Outcome::YES));
+    let ft_basket_id = harness.create_basket(USER, BasketAssetKind::Bet, two_items());
     assert_eq!(ft_basket_id, 0);
 
     harness.set_vara_enabled(ADMIN, true);
-    let vara_basket_id = harness.create_basket(USER, BasketAssetKind::Vara, single_item(Outcome::YES));
+    let vara_basket_id = harness.create_basket(USER, BasketAssetKind::Vara, two_items());
     assert_eq!(vara_basket_id, 1);
 }
 
@@ -377,6 +405,34 @@ fn duplicate_basket_items_are_rejected_on_chain() {
 }
 
 #[test]
+fn basket_requires_configured_minimum_item_count() {
+    let harness = Harness::new(1_000);
+
+    harness.create_basket_fails(
+        USER,
+        "basket".into(),
+        "basket".into(),
+        BasketAssetKind::Bet,
+        single_item(Outcome::YES),
+    );
+    assert_eq!(harness.basket_count(), 0);
+
+    harness.set_config(
+        ADMIN,
+        BasketMarketConfig {
+            admin_role: ADMIN.into(),
+            settler_role: SETTLER.into(),
+            liveness_ms: 1_000,
+            vara_enabled: false,
+            min_items_per_basket: 1,
+        },
+    );
+
+    let basket_id = harness.create_basket(USER, BasketAssetKind::Bet, single_item(Outcome::YES));
+    assert_eq!(basket_id, 0);
+}
+
+#[test]
 fn basket_and_payload_size_limits_are_enforced() {
     let harness = Harness::new(1_000);
 
@@ -389,7 +445,7 @@ fn basket_and_payload_size_limits_are_enforced() {
     );
     assert_eq!(harness.basket_count(), 0);
 
-    let basket_id = harness.create_basket(USER, BasketAssetKind::Bet, single_item(Outcome::YES));
+    let basket_id = harness.create_basket(USER, BasketAssetKind::Bet, two_items());
     harness.propose_fails(SETTLER, basket_id, single_resolution(), "p".repeat(4_097));
 }
 
@@ -398,8 +454,8 @@ fn native_vara_bet_is_rejected_when_disabled_or_for_ft_basket() {
     let harness = Harness::new(1_000);
 
     harness.set_vara_enabled(ADMIN, true);
-    let vara_basket_id = harness.create_basket(USER, BasketAssetKind::Vara, single_item(Outcome::YES));
-    let ft_basket_id = harness.create_basket(USER, BasketAssetKind::Bet, single_item(Outcome::YES));
+    let vara_basket_id = harness.create_basket(USER, BasketAssetKind::Vara, two_items());
+    let ft_basket_id = harness.create_basket(USER, BasketAssetKind::Bet, two_items());
 
     harness.set_vara_enabled(ADMIN, false);
     let disabled_bet = block_on(
@@ -431,8 +487,8 @@ fn betting_is_locked_after_settlement_proposal() {
     let harness = Harness::new(1_000);
 
     harness.set_vara_enabled(ADMIN, true);
-    let basket_id = harness.create_basket(USER, BasketAssetKind::Vara, single_item(Outcome::YES));
-    harness.propose(SETTLER, basket_id, single_resolution());
+    let basket_id = harness.create_basket(USER, BasketAssetKind::Vara, two_items());
+    harness.propose(SETTLER, basket_id, two_resolutions());
 
     let basket: Basket = harness
         .program
@@ -540,7 +596,7 @@ fn claim_requires_finalized_vara_settlement() {
     let harness = Harness::new(1_000);
 
     harness.set_vara_enabled(ADMIN, true);
-    let basket_id = harness.create_basket(USER, BasketAssetKind::Vara, single_item(Outcome::YES));
+    let basket_id = harness.create_basket(USER, BasketAssetKind::Vara, two_items());
     let bet = block_on(
         harness
             .program
@@ -552,7 +608,7 @@ fn claim_requires_finalized_vara_settlement() {
     .expect("bet transport");
     assert_eq!(bet, 1_000);
 
-    harness.propose(SETTLER, basket_id, single_resolution());
+    harness.propose(SETTLER, basket_id, two_resolutions());
 
     let premature_claim = block_on(
         harness
@@ -569,7 +625,7 @@ fn claim_requires_finalized_vara_settlement() {
 fn claim_is_rejected_for_ft_baskets() {
     let harness = Harness::new(1_000);
 
-    let basket_id = harness.create_basket(USER, BasketAssetKind::Bet, single_item(Outcome::YES));
+    let basket_id = harness.create_basket(USER, BasketAssetKind::Bet, two_items());
     let claim_failed = block_on(
         harness
             .program
@@ -586,7 +642,7 @@ fn existing_vara_positions_can_claim_after_disable_but_not_twice() {
     let harness = Harness::new(0);
 
     harness.set_vara_enabled(ADMIN, true);
-    let basket_id = harness.create_basket(USER, BasketAssetKind::Vara, single_item(Outcome::YES));
+    let basket_id = harness.create_basket(USER, BasketAssetKind::Vara, two_items());
     let bet = block_on(
         harness
             .program
@@ -598,7 +654,7 @@ fn existing_vara_positions_can_claim_after_disable_but_not_twice() {
     .expect("bet transport");
     assert_eq!(bet, 1_000);
 
-    harness.propose(SETTLER, basket_id, single_resolution());
+    harness.propose(SETTLER, basket_id, two_resolutions());
     harness.set_vara_enabled(ADMIN, false);
     harness.advance_blocks(1);
 
