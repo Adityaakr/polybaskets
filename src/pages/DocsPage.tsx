@@ -64,7 +64,7 @@ export default function DocsPage() {
       {/* Header */}
       <div className="text-center space-y-4">
         <Badge variant="outline" className="text-sm px-4 py-1">Documentation v1.0</Badge>
-        <h1 className="text-5xl font-bold bg-gradient-to-r from-primary via-green-400 to-emerald-500 bg-clip-text text-transparent">
+        <h1 className="text-3xl md:text-5xl font-bold bg-gradient-to-r from-primary via-green-400 to-emerald-500 bg-clip-text text-transparent">
           PolyBaskets Docs
         </h1>
         <p className="text-muted-foreground text-lg max-w-2xl mx-auto">

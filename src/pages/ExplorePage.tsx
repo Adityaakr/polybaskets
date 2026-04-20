@@ -14,7 +14,7 @@ export default function ExplorePage() {
         {/* Header */}
         <div className="flex items-center justify-between mb-8 reveal">
           <div>
-            <h1 className="text-5xl font-display font-bold mb-3 tracking-tight gradient-text">Explore Markets</h1>
+            <h1 className="text-3xl md:text-5xl font-display font-bold mb-3 tracking-tight gradient-text">Explore Markets</h1>
             <p className="text-muted-foreground text-base">
               Discover Polymarket predictions and build your basket
             </p>
@@ -29,9 +29,8 @@ export default function ExplorePage() {
       {items.length > 0 && (
         <>
           {/* Desktop: right sidebar area */}
-          <div 
-            className="fixed z-[9999] hidden lg:block animate-in slide-in-from-right-4 duration-300"
-            style={{ bottom: '9%', right: '60px' }}
+          <div
+            className="fixed z-40 hidden lg:block animate-in slide-in-from-right-4 duration-300 bottom-[9%] right-4 md:right-[60px]"
           >
             <Link to="/builder">
               <Button 
@@ -47,7 +46,7 @@ export default function ExplorePage() {
 
           {/* Mobile: bottom center */}
           <div 
-            className="fixed z-[9999] lg:hidden animate-in slide-in-from-bottom-4 duration-300"
+            className="fixed z-40 lg:hidden animate-in slide-in-from-bottom-4 duration-300"
             style={{ bottom: '20px', left: '50%', transform: 'translateX(-50%)' }}
           >
             <Link to="/builder">

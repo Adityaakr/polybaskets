@@ -18,8 +18,9 @@ Sails contract for fixed-reward daily CHIP competition settlement.
 - settlement is gated by `day_end_ms(day_id) + grace_period_ms <= now`
 - days with no eligible winners are stored as `NoWinner` and do not consume reward pool
 - reward split policy is deterministic: winners must be sorted by account, reward is divided evenly, and any remainder is assigned to the first winners in that sorted order
-- `fund()` is intentionally public so treasury or external sponsors can top up the pool, but internal accounting only tracks value received through `fund()`
-- non-funding command routes reject attached value so internal reward-pool accounting stays aligned with supported funding paths
+- `fund()` is intentionally public so treasury or external sponsors can top up the pool
+- reward-pool reads and command paths mirror the contract account balance via `value_available()`, so direct VARA transfers are usable for settlement and admin withdrawals
+- non-funding command routes reject attached value to avoid accidental command-specific deposits
 
 ## Admin Operations
 
@@ -32,4 +33,4 @@ The contract keeps `set_config` for full replacement, but also exposes targeted 
 - `set_roles`
 - `withdraw_funds`
 
-`withdraw_funds` debits tracked `reward_pool` and transfers VARA out of the contract. This is intended for treasury rotation or emergency pool management.
+`withdraw_funds` syncs against the contract account balance before transferring VARA out. This is intended for treasury rotation or emergency pool management.

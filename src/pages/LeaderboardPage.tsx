@@ -210,7 +210,7 @@ function ActivityLeaderboardRow({
           }
         }}
         className={cn(
-          'grid w-full grid-cols-[72px_minmax(0,1.5fr)_140px_140px] gap-4 px-6 py-4 text-left transition-colors',
+          'grid w-full grid-cols-[40px_1fr] md:grid-cols-[72px_minmax(0,1.5fr)_140px_140px] gap-2 md:gap-4 px-4 md:px-6 py-4 text-left transition-colors',
           isCurrentUser ? 'hover:bg-primary/5' : 'hover:bg-muted/20',
         )}
       >
@@ -228,7 +228,7 @@ function ActivityLeaderboardRow({
           <div className="flex items-center gap-3">
             <div
               className={cn(
-                'flex h-9 w-9 items-center justify-center rounded-full border text-sm font-semibold',
+                'flex h-9 w-9 shrink-0 items-center justify-center rounded-full border text-sm font-semibold',
                 isCurrentUser
                   ? 'border-primary/40 bg-primary/10 text-primary'
                   : isTopThree
@@ -261,6 +261,15 @@ function ActivityLeaderboardRow({
               <p className="truncate font-mono text-xs text-muted-foreground">
                 {isCurrentUser ? 'Connected wallet' : truncateAddress(entry.user)}
               </p>
+              {/* Mobile stats row */}
+              <div className="flex items-center gap-3 mt-1 md:hidden">
+                <span className="font-mono text-xs font-semibold tabular-nums text-emerald-300">
+                  {formatActivityIndex(entry)}
+                </span>
+                <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                  {entry.txCount} tx
+                </span>
+              </div>
             </div>
             {isExpanded ? (
               <ChevronUp className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -269,10 +278,10 @@ function ActivityLeaderboardRow({
             )}
           </div>
         </div>
-        <div className="text-right font-mono text-sm font-semibold tabular-nums text-emerald-300">
+        <div className="hidden md:block text-right font-mono text-sm font-semibold tabular-nums text-emerald-300">
           {formatActivityIndex(entry)}
         </div>
-        <div className="text-right font-mono text-sm tabular-nums text-muted-foreground">
+        <div className="hidden md:block text-right font-mono text-sm tabular-nums text-muted-foreground">
           {entry.txCount} tx
         </div>
       </div>
@@ -329,7 +338,7 @@ function ActivityLeaderboardRow({
 
 function TodayContestTab() {
   const [now, setNow] = useState(Date.now());
-  const [activeView, setActiveView] = useState<LeaderboardView>('today');
+  const [activeView, setActiveView] = useState<LeaderboardView>('total');
   const [expandedEntryUser, setExpandedEntryUser] = useState<string | null>(null);
   const [todayPage, setTodayPage] = useState(1);
   const [awaitingPage, setAwaitingPage] = useState(1);
@@ -574,18 +583,20 @@ function TodayContestTab() {
               <div className="border-b border-primary/10 bg-muted/20 px-6 py-4">
                 <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                   <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
-                    <TabsList className="grid w-full grid-cols-3 xl:w-auto">
-                      <TabsTrigger value="today">Today&apos;s activity</TabsTrigger>
-                      <TabsTrigger value="awaiting">Awaiting Results</TabsTrigger>
-                      <TabsTrigger value="total">Total Results</TabsTrigger>
-                    </TabsList>
+                    <div className="overflow-x-auto -mx-1 px-1">
+                      <TabsList className="grid w-full grid-cols-3 xl:w-auto min-w-[320px]">
+                        <TabsTrigger value="today">Today&apos;s activity</TabsTrigger>
+                        <TabsTrigger value="awaiting">Awaiting Results</TabsTrigger>
+                        <TabsTrigger value="total">Total Results</TabsTrigger>
+                      </TabsList>
+                    </div>
                     <div className="inline-flex items-center gap-2 text-sm text-muted-foreground">
                       <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(74,222,128,0.9)]" />
                       Live
                     </div>
                   </div>
                   <div className="flex w-full flex-col gap-3 xl:w-auto xl:flex-row xl:items-center">
-                    <div className="relative min-w-[280px]">
+                    <div className="relative min-w-0 w-full md:min-w-[280px]">
                       <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                       <Input
                         value={activeSearchValue}
@@ -608,7 +619,7 @@ function TodayContestTab() {
               </div>
 
               <TabsContent value="today" className="m-0">
-                <div className="grid grid-cols-[72px_minmax(0,1.5fr)_140px_140px] gap-4 border-b border-primary/10 bg-muted/30 px-6 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                <div className="hidden md:grid grid-cols-[72px_minmax(0,1.5fr)_140px_140px] gap-4 border-b border-primary/10 bg-muted/30 px-6 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
                   <span className="text-center">#</span>
                   <span>Agent</span>
                   <span className="text-right">Index</span>
@@ -682,7 +693,7 @@ function TodayContestTab() {
               </TabsContent>
 
               <TabsContent value="awaiting" className="m-0">
-                <div className="grid grid-cols-[72px_minmax(0,1.5fr)_140px_160px] gap-4 border-b border-primary/10 bg-muted/30 px-6 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                <div className="hidden md:grid grid-cols-[72px_minmax(0,1.5fr)_140px_160px] gap-4 border-b border-primary/10 bg-muted/30 px-6 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
                   <span className="text-center">#</span>
                   <span>Agent</span>
                   <span className="text-right">Status</span>
@@ -699,7 +710,7 @@ function TodayContestTab() {
                         key={`awaiting-panel-${entry.user}`}
                         to={`/agents/${encodeURIComponent(entry.user)}/baskets/awaiting`}
                         className={[
-                          'group grid grid-cols-[72px_minmax(0,1.5fr)_140px_160px] gap-4 px-6 py-4 transition-colors',
+                          'group grid grid-cols-[40px_1fr] md:grid-cols-[72px_minmax(0,1.5fr)_140px_160px] gap-2 md:gap-4 px-4 md:px-6 py-4 transition-colors',
                           isCurrentUser ? 'bg-primary/5' : 'hover:bg-muted/20',
                         ].join(' ')}
                       >
@@ -722,13 +733,19 @@ function TodayContestTab() {
                           <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
                             {isCurrentUser ? 'Connected wallet' : truncateAddress(entry.user)}
                           </p>
+                          <div className="flex items-center gap-3 mt-1 md:hidden">
+                            <span className="text-xs text-muted-foreground">Awaiting</span>
+                            <span className="font-mono text-xs font-semibold tabular-nums text-muted-foreground">
+                              {entry.pendingBasketCount} positions
+                            </span>
+                          </div>
                         </div>
-                        <div className="text-right">
+                        <div className="hidden md:block text-right">
                           <span className="text-sm font-medium text-muted-foreground">
                             Awaiting results
                           </span>
                         </div>
-                        <div className="text-right font-mono text-sm font-semibold tabular-nums text-muted-foreground">
+                        <div className="hidden md:block text-right font-mono text-sm font-semibold tabular-nums text-muted-foreground">
                           {entry.pendingBasketCount}
                         </div>
                       </Link>
@@ -803,7 +820,7 @@ function TodayContestTab() {
                   </div>
                 ) : (
                   <>
-                    <div className="grid grid-cols-[72px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_120px] gap-4 border-b border-primary/10 bg-muted/30 px-6 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                    <div className="hidden md:grid grid-cols-[72px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_120px] gap-4 border-b border-primary/10 bg-muted/30 px-6 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
                       <span className="text-center">#</span>
                       <span>Agent</span>
                       <span className="text-right">P&amp;L</span>
@@ -820,7 +837,7 @@ function TodayContestTab() {
                             key={`total-${entry.user}`}
                             to={`/agents/${encodeURIComponent(entry.user)}`}
                             className={[
-                              'group grid grid-cols-[72px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_120px] gap-4 px-6 py-4 transition-colors',
+                              'group grid grid-cols-[40px_1fr] md:grid-cols-[72px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_120px] gap-2 md:gap-4 px-4 md:px-6 py-4 transition-colors',
                               isCurrentUser ? 'bg-primary/5' : 'hover:bg-muted/20',
                             ].join(' ')}
                           >
@@ -843,14 +860,22 @@ function TodayContestTab() {
                               <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
                                 {isCurrentUser ? 'Connected wallet' : truncateAddress(entry.user)}
                               </p>
+                              <div className="flex items-center gap-3 mt-1 md:hidden">
+                                <span className="font-mono text-xs font-semibold tabular-nums text-emerald-300">
+                                  P&L: {formatChipAmount(entry.totalRealizedProfit)}
+                                </span>
+                                <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                                  {entry.basketCount} baskets
+                                </span>
+                              </div>
                             </div>
-                            <div className="text-right font-mono text-sm font-semibold tabular-nums text-emerald-300">
+                            <div className="hidden md:block text-right font-mono text-sm font-semibold tabular-nums text-emerald-300">
                               {formatChipAmount(entry.totalRealizedProfit)}
                             </div>
-                            <div className="text-right font-mono text-sm font-semibold tabular-nums text-amber-300">
+                            <div className="hidden md:block text-right font-mono text-sm font-semibold tabular-nums text-amber-300">
                               {formatVaraAmount(entry.totalRewards)}
                             </div>
-                            <div className="text-right font-mono text-sm tabular-nums text-muted-foreground">
+                            <div className="hidden md:block text-right font-mono text-sm tabular-nums text-muted-foreground">
                               {entry.basketCount}
                             </div>
                           </Link>
@@ -1389,7 +1414,7 @@ function CommunityVaraLeaderboard() {
         </TabsTrigger>
         </TabsList>
         <div className="flex w-full flex-col gap-3 xl:w-auto xl:flex-row xl:items-center">
-          <div className="relative min-w-[280px]">
+          <div className="relative min-w-0 w-full md:min-w-[280px]">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={activeCommunitySearchValue}
@@ -1460,7 +1485,7 @@ function CommunityVaraLeaderboard() {
         ) : (
           <Card className="card-elevated">
             <CardContent className="p-0">
-              <div className="border-b">
+              <div className="border-b hidden md:block">
                 <div className="grid grid-cols-[72px_minmax(0,1.6fr)_180px_140px_120px_132px] gap-4 px-6 py-3 text-xs font-medium text-muted-foreground bg-muted/50">
                   <span className="text-center">#</span>
                   <span>Basket</span>
@@ -1470,14 +1495,14 @@ function CommunityVaraLeaderboard() {
                   <span className="text-right">Follow</span>
                 </div>
               </div>
-              <div className="divide-y">
+              <div className="divide-y overflow-x-auto">
                 {pagedBaskets.map((entry, index) => {
                   const statusMeta = getCommunityBasketStatusMeta(entry.basket.status);
                   const absoluteRank = (basketsPage - 1) * COMMUNITY_PAGE_SIZE + index + 1;
                   return (
                     <div
                       key={entry.basket.id}
-                      className="grid grid-cols-[72px_minmax(0,1.6fr)_180px_140px_120px_132px] gap-4 px-6 py-4 items-center transition-colors hover:bg-muted/30"
+                      className="grid grid-cols-[72px_minmax(0,1.6fr)_180px_140px_120px_132px] gap-4 px-6 py-4 items-center transition-colors hover:bg-muted/30 min-w-[700px] md:min-w-0"
                     >
                       <span className="text-center font-semibold text-muted-foreground">
                         {absoluteRank}
@@ -1599,7 +1624,7 @@ function CommunityVaraLeaderboard() {
         ) : (
           <Card className="card-elevated">
             <CardContent className="p-0">
-              <div className="border-b">
+              <div className="border-b hidden md:block">
                 <div className="grid grid-cols-[72px_minmax(0,1.6fr)_140px_160px] gap-4 px-6 py-3 text-xs font-medium text-muted-foreground bg-muted/50">
                   <span className="text-center">#</span>
                   <span>Agent</span>
@@ -1607,7 +1632,7 @@ function CommunityVaraLeaderboard() {
                   <span className="text-right">Total Followers</span>
                 </div>
               </div>
-              <div className="divide-y">
+              <div className="divide-y overflow-x-auto">
                 {pagedCurators.map((curator, index) => {
                   const absoluteRank = (curatorsPage - 1) * COMMUNITY_PAGE_SIZE + index + 1;
                   return (
@@ -1723,14 +1748,14 @@ function CommunityVaraLeaderboard() {
         ) : (
           <Card className="card-elevated">
             <CardContent className="p-0">
-              <div className="border-b">
+              <div className="border-b hidden md:block">
                 <div className="grid grid-cols-[72px_minmax(0,1.6fr)_160px] gap-4 px-6 py-3 text-xs font-medium text-muted-foreground bg-muted/50">
                   <span className="text-center">#</span>
                   <span>Agent</span>
                   <span className="text-right">All-Time PnL</span>
                 </div>
               </div>
-              <div className="divide-y">
+              <div className="divide-y overflow-x-auto">
                 {pagedWinnings.map((entry) => (
                   <Link
                     key={entry.user}

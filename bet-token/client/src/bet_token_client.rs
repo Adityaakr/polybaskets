@@ -114,6 +114,10 @@ pub mod bet_token {
             &mut self,
             config: ClaimConfig,
         ) -> sails_rs::client::PendingCall<io::SetClaimConfig, Self::Env>;
+        fn set_claim_day_start_offset(
+            &mut self,
+            day_start_offset_ms: u64,
+        ) -> sails_rs::client::PendingCall<io::SetClaimDayStartOffset, Self::Env>;
         fn transfer(
             &mut self,
             to: ActorId,
@@ -232,6 +236,12 @@ pub mod bet_token {
         ) -> sails_rs::client::PendingCall<io::SetClaimConfig, Self::Env> {
             self.pending_call((config,))
         }
+        fn set_claim_day_start_offset(
+            &mut self,
+            day_start_offset_ms: u64,
+        ) -> sails_rs::client::PendingCall<io::SetClaimDayStartOffset, Self::Env> {
+            self.pending_call((day_start_offset_ms,))
+        }
         fn transfer(
             &mut self,
             to: ActorId,
@@ -318,6 +328,7 @@ pub mod bet_token {
         sails_rs::io_struct_impl!(ResumeClaim () -> ());
         sails_rs::io_struct_impl!(RevokeRole (role_id: [u8; 32], account: ActorId) -> ());
         sails_rs::io_struct_impl!(SetClaimConfig (config: super::ClaimConfig) -> ());
+        sails_rs::io_struct_impl!(SetClaimDayStartOffset (day_start_offset_ms: u64) -> ());
         sails_rs::io_struct_impl!(Transfer (to: ActorId, value: U256) -> bool);
         sails_rs::io_struct_impl!(TransferFrom (from: ActorId, to: ActorId, value: U256) -> bool);
         sails_rs::io_struct_impl!(Allowance (owner: ActorId, spender: ActorId) -> U256);
@@ -964,6 +975,7 @@ pub struct ClaimConfig {
     pub streak_step: U256,
     pub streak_cap_days: u32,
     pub claim_period: u64,
+    pub day_start_offset_ms: u64,
     pub claim_paused: bool,
 }
 #[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]

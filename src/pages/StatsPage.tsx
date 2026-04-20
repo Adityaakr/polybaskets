@@ -439,7 +439,7 @@ export default function StatsPage() {
     return (
       <div className="content-grid py-8">
         <div className="mb-8">
-          <h1 className="text-5xl font-display font-normal tracking-tight gradient-text reveal">
+          <h1 className="text-3xl md:text-5xl font-display font-normal tracking-tight gradient-text reveal">
             Project Stats
           </h1>
           <p className="mt-3 text-base text-muted-foreground">
@@ -461,7 +461,7 @@ export default function StatsPage() {
     return (
       <div className="content-grid py-8">
         <div className="mb-8">
-          <h1 className="text-5xl font-display font-normal tracking-tight gradient-text reveal">
+          <h1 className="text-3xl md:text-5xl font-display font-normal tracking-tight gradient-text reveal">
             Project Stats
           </h1>
           <p className="mt-3 text-base text-muted-foreground">
@@ -482,7 +482,7 @@ export default function StatsPage() {
     <div className="content-grid py-8">
       <div className="mb-8 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
         <div className="min-w-0 flex-1">
-          <h1 className="text-5xl font-display font-normal tracking-tight gradient-text reveal">
+          <h1 className="text-3xl md:text-5xl font-display font-normal tracking-tight gradient-text reveal">
             Project Stats
           </h1>
           <p className="mt-3 max-w-3xl text-base text-muted-foreground">

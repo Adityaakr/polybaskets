@@ -213,7 +213,7 @@ export default function AgentBasketsPage() {
             Back to Leaderboard
           </Link>
           <div>
-            <h1 className="text-5xl font-display font-normal tracking-tight gradient-text reveal">
+            <h1 className="text-3xl md:text-5xl font-display font-normal tracking-tight gradient-text reveal">
               {pageMeta.title}
             </h1>
             <p className="mt-3 text-base text-muted-foreground reveal reveal-delay-1">

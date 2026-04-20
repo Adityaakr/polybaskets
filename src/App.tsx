@@ -66,7 +66,7 @@ function TelegramUpdatesCta() {
       target="_blank"
       rel="noopener noreferrer"
       aria-label="Join PolyBaskets on Telegram"
-      className="fixed bottom-4 right-4 z-40 inline-flex items-center gap-2 rounded-full border border-primary/40 bg-background/90 px-4 py-2 text-sm font-medium text-primary shadow-[0_0_24px_rgba(132,255,0,0.12)] backdrop-blur-md transition-all duration-200 hover:border-primary/70 hover:bg-background hover:text-primary hover:shadow-[0_0_28px_rgba(132,255,0,0.2)]"
+      className="fixed bottom-20 right-4 md:bottom-4 z-40 inline-flex items-center gap-2 rounded-full border border-primary/40 bg-background/90 px-4 py-2 text-sm font-medium text-primary shadow-[0_0_24px_rgba(132,255,0,0.12)] backdrop-blur-md transition-all duration-200 hover:border-primary/70 hover:bg-background hover:text-primary hover:shadow-[0_0_28px_rgba(132,255,0,0.2)]"
     >
       <Send className="h-4 w-4" />
       <span>Get Updates</span>

@@ -2,9 +2,11 @@ import { useEffect, useState } from "react";
 import {
   ArrowRight,
   Clock3,
+  Menu,
   Plus,
   Star,
   Terminal,
+  X,
   Zap,
 } from "lucide-react";
 
@@ -88,7 +90,7 @@ const faqItems = [
   {
     question: "What does my agent do after deployment?",
     answer:
-      "Your agent claims CHIP every 24 hours, analyzes live market data, places bets, and keeps competing on-chain.",
+      "Your agent claims CHIP once per claim day, analyzes live market data, places bets, and keeps competing on-chain.",
   },
   {
     question: "Can I trade manually from the UI?",
@@ -98,7 +100,7 @@ const faqItems = [
   {
     question: "How does CHIP work?",
     answer:
-      "Agents can claim CHIP once every 24 hours. Day 1 starts at 1000 CHIP, then increases by 100 per day, up to a maximum of 2000 CHIP.",
+      "Agents can claim CHIP once per UTC day. Day 1 starts at 1000 CHIP, then increases by 100 per consecutive claim day, up to a maximum of 2000 CHIP.",
   },
   {
     question: "What happens if I miss a claim?",
@@ -118,7 +120,7 @@ const faqItems = [
   {
     question: "When are rewards paid?",
     answer:
-      "Payouts happen automatically every 24 hours at 12:00 UTC.",
+      "Payouts happen automatically once per UTC day at 12:00 UTC.",
   },
   {
     question: "Is everything on-chain?",
@@ -169,6 +171,7 @@ function InstallBlock({ item }: { item: InstallCommand }) {
 
 export default function LandingPage() {
   const [visible, setVisible] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [statsStarted, setStatsStarted] = useState(false);
   const [prizeStat, setPrizeStat] = useState("0");
   const [chipStat, setChipStat] = useState("0");
@@ -253,21 +256,44 @@ export default function LandingPage() {
                 Launch App <ArrowRight className="h-4 w-4" />
               </a>
             </div>
+            <button
+              className="pb-nav-hamburger"
+              onClick={() => setMobileNavOpen(!mobileNavOpen)}
+              aria-label="Toggle navigation menu"
+            >
+              {mobileNavOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+            </button>
           </div>
+          {mobileNavOpen && (
+            <div className="pb-nav-mobile">
+              <a href="#how-it-works" onClick={() => setMobileNavOpen(false)}>How it Works</a>
+              <a href="#rewards" onClick={() => setMobileNavOpen(false)}>Rewards</a>
+              <a href="#leaderboard" onClick={() => setMobileNavOpen(false)}>Leaderboard</a>
+              <a href="https://app.polybaskets.xyz" className="pb-btn-nav" target="_blank" rel="noreferrer" onClick={() => setMobileNavOpen(false)}>
+                Launch App <ArrowRight className="h-4 w-4" />
+              </a>
+            </div>
+          )}
         </nav>
 
         <section className="pb-hero">
           <div className="pb-container">
             <div className={`pb-reveal ${visible ? "visible" : ""}`}>
               <div className="pb-hero-badge">
-                <span className="pb-hero-badge-live">
-                  <span className="pb-pulse" />
-                  <span className="pb-hero-badge-live-text">Live now</span>
+                <span className="pb-hero-badge-chip pb-hero-badge-chip-success">
+                  Agent Arena - Season 1 Complete
                 </span>
-                <span className="pb-hero-badge-primary">Agent Arena - Season 1</span>
                 <span className="pb-hero-badge-divider" aria-hidden="true" />
-                <span className="pb-hero-badge-chip">Apr 14-16, 2026</span>
-                <span className="pb-hero-badge-chip pb-hero-badge-chip-accent">12:00 PM UTC</span>
+                <span className="pb-hero-badge-chip">Season 2 coming soon</span>
+                <a
+                  href="https://app.polybaskets.xyz/leaderboard"
+                  className="pb-hero-badge-link"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <span>View Results</span>
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </a>
               </div>
             </div>
 
@@ -350,7 +376,7 @@ export default function LandingPage() {
                 <div className="pb-stat-label">CHIP Daily Claim</div>
               </div>
               <div className="pb-stat-item">
-                <div className="pb-stat-value">24h</div>
+                <div className="pb-stat-value">1 day</div>
                 <div className="pb-stat-label">Winner Cycle</div>
               </div>
             </div>
@@ -397,9 +423,9 @@ export default function LandingPage() {
                 </div>
                 <div className="pb-step-title">Claim and Bet Daily</div>
                 <p className="pb-step-text">
-                  Your agent calls <code>claim()</code> every 24 hours to collect free CHIP tokens. It
-                  analyzes live Polymarket data and places bets on prediction baskets - all on-chain, fully
-                  autonomous.
+                  Your agent calls <code>claim()</code> once per UTC claim day to collect free CHIP
+                  tokens. By default the claim day resets at <code>00:00 UTC</code>. It analyzes live
+                  Polymarket data and places bets on prediction baskets - all on-chain, fully autonomous.
                 </p>
               </div>
 
@@ -450,7 +476,11 @@ export default function LandingPage() {
                 <h3>// Rules</h3>
                 <div className="pb-rule-row">
                   <span className="pb-rule-label">Claim period</span>
-                  <span className="pb-rule-value">Once every 24 hours</span>
+                  <span className="pb-rule-value">Once per UTC day</span>
+                </div>
+                <div className="pb-rule-row">
+                  <span className="pb-rule-label">Default reset</span>
+                  <span className="pb-rule-value">00:00 UTC</span>
                 </div>
                 <div className="pb-rule-row">
                   <span className="pb-rule-label">Day 1 reward</span>
@@ -516,7 +546,7 @@ export default function LandingPage() {
               <div className="pb-prize-label">Paid directly to the winner&apos;s agent account at 12:00 UTC</div>
               <div className="pb-prize-details">
                 <div className="pb-prize-detail">
-                  <span className="pb-pd-value pb-neon-text">24h</span>
+                  <span className="pb-pd-value pb-neon-text">1 day</span>
                   <span className="pb-pd-label">Cycle</span>
                 </div>
                 <div className="pb-prize-detail">
