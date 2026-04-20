@@ -95,6 +95,14 @@ pub mod bet_token {
             role_id: [u8; 32],
             account: ActorId,
         ) -> sails_rs::client::PendingCall<io::GrantRole, Self::Env>;
+        fn import_balances(
+            &mut self,
+            balances: Vec<ImportedBalance>,
+        ) -> sails_rs::client::PendingCall<io::ImportBalances, Self::Env>;
+        fn import_claim_states(
+            &mut self,
+            claim_states: Vec<ImportedClaimState>,
+        ) -> sails_rs::client::PendingCall<io::ImportClaimStates, Self::Env>;
         fn pause_claim(&mut self) -> sails_rs::client::PendingCall<io::PauseClaim, Self::Env>;
         fn resume_claim(&mut self) -> sails_rs::client::PendingCall<io::ResumeClaim, Self::Env>;
         fn revoke_role(
@@ -140,6 +148,9 @@ pub mod bet_token {
             &self,
             user: ActorId,
         ) -> sails_rs::client::PendingCall<io::GetClaimState, Self::Env>;
+        fn get_claim_state_count(
+            &self,
+        ) -> sails_rs::client::PendingCall<io::GetClaimStateCount, Self::Env>;
         fn is_claim_paused(&self) -> sails_rs::client::PendingCall<io::IsClaimPaused, Self::Env>;
         fn is_spender_allowed(
             &self,
@@ -193,6 +204,18 @@ pub mod bet_token {
             account: ActorId,
         ) -> sails_rs::client::PendingCall<io::GrantRole, Self::Env> {
             self.pending_call((role_id, account))
+        }
+        fn import_balances(
+            &mut self,
+            balances: Vec<ImportedBalance>,
+        ) -> sails_rs::client::PendingCall<io::ImportBalances, Self::Env> {
+            self.pending_call((balances,))
+        }
+        fn import_claim_states(
+            &mut self,
+            claim_states: Vec<ImportedClaimState>,
+        ) -> sails_rs::client::PendingCall<io::ImportClaimStates, Self::Env> {
+            self.pending_call((claim_states,))
         }
         fn pause_claim(&mut self) -> sails_rs::client::PendingCall<io::PauseClaim, Self::Env> {
             self.pending_call(())
@@ -265,6 +288,11 @@ pub mod bet_token {
         ) -> sails_rs::client::PendingCall<io::GetClaimState, Self::Env> {
             self.pending_call((user,))
         }
+        fn get_claim_state_count(
+            &self,
+        ) -> sails_rs::client::PendingCall<io::GetClaimStateCount, Self::Env> {
+            self.pending_call(())
+        }
         fn is_claim_paused(&self) -> sails_rs::client::PendingCall<io::IsClaimPaused, Self::Env> {
             self.pending_call(())
         }
@@ -294,6 +322,8 @@ pub mod bet_token {
         sails_rs::io_struct_impl!(Claim () -> super::ClaimState);
         sails_rs::io_struct_impl!(DisallowSpender (spender: ActorId) -> ());
         sails_rs::io_struct_impl!(GrantRole (role_id: [u8; 32], account: ActorId) -> ());
+        sails_rs::io_struct_impl!(ImportBalances (balances: Vec<super::ImportedBalance>) -> u32);
+        sails_rs::io_struct_impl!(ImportClaimStates (claim_states: Vec<super::ImportedClaimState>) -> u32);
         sails_rs::io_struct_impl!(PauseClaim () -> ());
         sails_rs::io_struct_impl!(ResumeClaim () -> ());
         sails_rs::io_struct_impl!(RevokeRole (role_id: [u8; 32], account: ActorId) -> ());
@@ -307,6 +337,7 @@ pub mod bet_token {
         sails_rs::io_struct_impl!(GetClaimConfig () -> super::ClaimConfig);
         sails_rs::io_struct_impl!(GetClaimPreview (user: ActorId) -> super::ClaimPreview);
         sails_rs::io_struct_impl!(GetClaimState (user: ActorId) -> super::ClaimState);
+        sails_rs::io_struct_impl!(GetClaimStateCount () -> u64);
         sails_rs::io_struct_impl!(IsClaimPaused () -> bool);
         sails_rs::io_struct_impl!(IsSpenderAllowed (spender: ActorId) -> bool);
         sails_rs::io_struct_impl!(Name () -> String);
@@ -342,6 +373,12 @@ pub mod bet_token {
             ClaimResumed,
             SpenderAllowed(ActorId),
             SpenderDisallowed(ActorId),
+            MigrationBalancesImported {
+                count: u32,
+            },
+            MigrationClaimStatesImported {
+                count: u32,
+            },
         }
         impl sails_rs::client::Event for BetTokenEvents {
             const EVENT_NAMES: &'static [Route] = &[
@@ -353,6 +390,8 @@ pub mod bet_token {
                 "ClaimResumed",
                 "SpenderAllowed",
                 "SpenderDisallowed",
+                "MigrationBalancesImported",
+                "MigrationClaimStatesImported",
             ];
         }
         impl sails_rs::client::ServiceWithEvents for BetTokenImpl {
@@ -947,6 +986,20 @@ pub struct ClaimState {
     pub streak_days: u32,
     pub total_claimed: U256,
     pub claim_count: u32,
+}
+#[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
+pub struct ImportedBalance {
+    pub user: ActorId,
+    pub balance: U256,
+}
+#[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
+pub struct ImportedClaimState {
+    pub user: ActorId,
+    pub state: ClaimState,
 }
 #[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]
 #[codec(crate = sails_rs::scale_codec)]

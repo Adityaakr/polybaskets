@@ -67,6 +67,14 @@ pub mod bet_lane {
             role_id: [u8; 32],
             account: ActorId,
         ) -> sails_rs::client::PendingCall<io::GrantRole, Self::Env>;
+        fn import_positions(
+            &mut self,
+            positions: Vec<ImportedPosition>,
+        ) -> sails_rs::client::PendingCall<io::ImportPositions, Self::Env>;
+        fn import_quote_nonces(
+            &mut self,
+            nonces: Vec<ImportedQuoteNonce>,
+        ) -> sails_rs::client::PendingCall<io::ImportQuoteNonces, Self::Env>;
         fn pause(&mut self) -> sails_rs::client::PendingCall<io::Pause, Self::Env>;
         fn place_bet(
             &mut self,
@@ -104,12 +112,18 @@ pub mod bet_lane {
             user: ActorId,
             basket_id: u64,
         ) -> sails_rs::client::PendingCall<io::GetPosition, Self::Env>;
+        fn get_position_count(
+            &self,
+        ) -> sails_rs::client::PendingCall<io::GetPositionCount, Self::Env>;
         fn get_positions(
             &self,
             user: ActorId,
             offset: u32,
             limit: u32,
         ) -> sails_rs::client::PendingCall<io::GetPositions, Self::Env>;
+        fn get_used_quote_nonce_count(
+            &self,
+        ) -> sails_rs::client::PendingCall<io::GetUsedQuoteNonceCount, Self::Env>;
         fn is_paused(&self) -> sails_rs::client::PendingCall<io::IsPaused, Self::Env>;
         fn is_quote_nonce_used(
             &self,
@@ -136,6 +150,18 @@ pub mod bet_lane {
             account: ActorId,
         ) -> sails_rs::client::PendingCall<io::GrantRole, Self::Env> {
             self.pending_call((role_id, account))
+        }
+        fn import_positions(
+            &mut self,
+            positions: Vec<ImportedPosition>,
+        ) -> sails_rs::client::PendingCall<io::ImportPositions, Self::Env> {
+            self.pending_call((positions,))
+        }
+        fn import_quote_nonces(
+            &mut self,
+            nonces: Vec<ImportedQuoteNonce>,
+        ) -> sails_rs::client::PendingCall<io::ImportQuoteNonces, Self::Env> {
+            self.pending_call((nonces,))
         }
         fn pause(&mut self) -> sails_rs::client::PendingCall<io::Pause, Self::Env> {
             self.pending_call(())
@@ -199,6 +225,11 @@ pub mod bet_lane {
         ) -> sails_rs::client::PendingCall<io::GetPosition, Self::Env> {
             self.pending_call((user, basket_id))
         }
+        fn get_position_count(
+            &self,
+        ) -> sails_rs::client::PendingCall<io::GetPositionCount, Self::Env> {
+            self.pending_call(())
+        }
         fn get_positions(
             &self,
             user: ActorId,
@@ -206,6 +237,11 @@ pub mod bet_lane {
             limit: u32,
         ) -> sails_rs::client::PendingCall<io::GetPositions, Self::Env> {
             self.pending_call((user, offset, limit))
+        }
+        fn get_used_quote_nonce_count(
+            &self,
+        ) -> sails_rs::client::PendingCall<io::GetUsedQuoteNonceCount, Self::Env> {
+            self.pending_call(())
         }
         fn is_paused(&self) -> sails_rs::client::PendingCall<io::IsPaused, Self::Env> {
             self.pending_call(())
@@ -227,6 +263,8 @@ pub mod bet_lane {
         sails_rs::io_struct_impl!(AddAdmin (account: ActorId) -> ());
         sails_rs::io_struct_impl!(Claim (basket_id: u64) -> U256);
         sails_rs::io_struct_impl!(GrantRole (role_id: [u8; 32], account: ActorId) -> ());
+        sails_rs::io_struct_impl!(ImportPositions (positions: Vec<super::ImportedPosition>) -> u32);
+        sails_rs::io_struct_impl!(ImportQuoteNonces (nonces: Vec<super::ImportedQuoteNonce>) -> u32);
         sails_rs::io_struct_impl!(Pause () -> ());
         sails_rs::io_struct_impl!(PlaceBet (basket_id: u64, amount: U256, signed_quote: super::SignedBetQuote) -> U256);
         sails_rs::io_struct_impl!(Resume () -> ());
@@ -239,7 +277,9 @@ pub mod bet_lane {
         sails_rs::io_struct_impl!(GetConfig () -> super::BetLaneConfig);
         sails_rs::io_struct_impl!(GetDependencies () -> super::BetLaneDependencies);
         sails_rs::io_struct_impl!(GetPosition (user: ActorId, basket_id: u64) -> super::Position);
+        sails_rs::io_struct_impl!(GetPositionCount () -> u64);
         sails_rs::io_struct_impl!(GetPositions (user: ActorId, offset: u32, limit: u32) -> Result<Vec<super::UserPositionView>, super::BetLaneError>);
+        sails_rs::io_struct_impl!(GetUsedQuoteNonceCount () -> u64);
         sails_rs::io_struct_impl!(IsPaused () -> bool);
         sails_rs::io_struct_impl!(IsQuoteNonceUsed (user: ActorId, nonce: u128) -> bool);
         sails_rs::io_struct_impl!(QuoteSigner () -> ActorId);
@@ -273,6 +313,12 @@ pub mod bet_lane {
                 previous_quote_signer: ActorId,
                 new_quote_signer: ActorId,
             },
+            MigrationPositionsImported {
+                count: u32,
+            },
+            MigrationQuoteNoncesImported {
+                count: u32,
+            },
         }
         impl sails_rs::client::Event for BetLaneEvents {
             const EVENT_NAMES: &'static [Route] = &[
@@ -283,6 +329,8 @@ pub mod bet_lane {
                 "ConfigUpdated",
                 "DependenciesUpdated",
                 "QuoteSignerRotated",
+                "MigrationPositionsImported",
+                "MigrationQuoteNoncesImported",
             ];
         }
         impl sails_rs::client::ServiceWithEvents for BetLaneImpl {
@@ -617,6 +665,23 @@ pub struct BetLaneConfig {
 #[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]
 #[codec(crate = sails_rs::scale_codec)]
 #[scale_info(crate = sails_rs::scale_info)]
+pub struct ImportedPosition {
+    pub basket_id: u64,
+    pub user: ActorId,
+    pub shares: U256,
+    pub claimed: bool,
+    pub index_at_creation_bps: u16,
+}
+#[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
+pub struct ImportedQuoteNonce {
+    pub user: ActorId,
+    pub nonce: u128,
+}
+#[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
 pub struct SignedBetQuote {
     pub payload: BetQuotePayload,
     pub signature: Vec<u8>,
@@ -693,6 +758,8 @@ pub enum BetLaneError {
     InvalidPageSize,
     EventEmitFailed,
     RoleManagementFailed,
+    MigrationRequiresPause,
+    MigrationBatchTooLarge,
 }
 /// Pagination parameters for listing roles or members.
 #[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]

@@ -18,6 +18,7 @@ pub const PAUSER_ROLE: RoleId = [1u8; 32];
 pub const CONFIG_ROLE: RoleId = [2u8; 32];
 
 const MAX_PAGE_SIZE: u32 = 100;
+const MAX_MIGRATION_BATCH_SIZE: usize = 250;
 
 #[derive(Clone, Debug, PartialEq, Eq, Encode, Decode, TypeInfo)]
 #[codec(crate = sails_rs::scale_codec)]
@@ -104,6 +105,25 @@ pub struct BetQuotePayload {
 pub struct SignedBetQuote {
     pub payload: BetQuotePayload,
     pub signature: Vec<u8>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
+pub struct ImportedPosition {
+    pub basket_id: u64,
+    pub user: ActorId,
+    pub shares: U256,
+    pub claimed: bool,
+    pub index_at_creation_bps: u16,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
+pub struct ImportedQuoteNonce {
+    pub user: ActorId,
+    pub nonce: u128,
 }
 
 #[derive(Debug, Default)]
@@ -194,6 +214,10 @@ pub enum BetLaneError {
     EventEmitFailed,
     #[error("role management failed")]
     RoleManagementFailed,
+    #[error("migration import requires paused mode")]
+    MigrationRequiresPause,
+    #[error("migration batch is too large")]
+    MigrationBatchTooLarge,
 }
 
 pub struct BetLaneService<'a> {
@@ -310,6 +334,16 @@ impl<'a> BetLaneService<'a> {
             .collect();
 
         Ok(result)
+    }
+
+    #[export]
+    pub fn get_position_count(&self) -> u64 {
+        InfallibleStorage::get(&self.positions).positions.len() as u64
+    }
+
+    #[export]
+    pub fn get_used_quote_nonce_count(&self) -> u64 {
+        InfallibleStorage::get(&self.used_quote_nonces).nonces.len() as u64
     }
 
     #[export(unwrap_result)]
@@ -612,6 +646,54 @@ impl<'a> BetLaneService<'a> {
     }
 
     #[export(unwrap_result)]
+    pub fn import_positions(
+        &mut self,
+        positions: Vec<ImportedPosition>,
+    ) -> Result<u32, BetLaneError> {
+        self.require_role(DEFAULT_ADMIN_ROLE, Syscall::message_source())?;
+        self.ensure_paused_for_migration()?;
+        let count = Self::validate_migration_batch_size(&positions)?;
+
+        for imported in positions {
+            Self::validate_index_at_creation(imported.index_at_creation_bps)?;
+            InfallibleStorageMut::get_mut(&mut self.positions).positions.insert(
+                (imported.basket_id, imported.user),
+                Position {
+                    shares: imported.shares,
+                    claimed: imported.claimed,
+                    index_at_creation_bps: imported.index_at_creation_bps,
+                },
+            );
+        }
+
+        self.emit_event(Event::MigrationPositionsImported { count })
+            .map_err(|_| BetLaneError::EventEmitFailed)?;
+
+        Ok(count)
+    }
+
+    #[export(unwrap_result)]
+    pub fn import_quote_nonces(
+        &mut self,
+        nonces: Vec<ImportedQuoteNonce>,
+    ) -> Result<u32, BetLaneError> {
+        self.require_role(DEFAULT_ADMIN_ROLE, Syscall::message_source())?;
+        self.ensure_paused_for_migration()?;
+        let count = Self::validate_migration_batch_size(&nonces)?;
+
+        for imported in nonces {
+            InfallibleStorageMut::get_mut(&mut self.used_quote_nonces)
+                .nonces
+                .insert((imported.user, imported.nonce));
+        }
+
+        self.emit_event(Event::MigrationQuoteNoncesImported { count })
+            .map_err(|_| BetLaneError::EventEmitFailed)?;
+
+        Ok(count)
+    }
+
+    #[export(unwrap_result)]
     pub fn add_admin(&mut self, account: ActorId) -> Result<(), BetLaneError> {
         self.access_control
             .grant_role(DEFAULT_ADMIN_ROLE, account)
@@ -668,6 +750,14 @@ impl<'a> BetLaneService<'a> {
             Err(BetLaneError::InvalidPageSize)
         } else {
             Ok(())
+        }
+    }
+
+    fn validate_migration_batch_size<T>(items: &[T]) -> Result<u32, BetLaneError> {
+        if items.len() > MAX_MIGRATION_BATCH_SIZE {
+            Err(BetLaneError::MigrationBatchTooLarge)
+        } else {
+            Ok(items.len() as u32)
         }
     }
 
@@ -787,6 +877,14 @@ impl<'a> BetLaneService<'a> {
         }
     }
 
+    fn ensure_paused_for_migration(&self) -> Result<(), BetLaneError> {
+        if self.pause.is_paused() {
+            Ok(())
+        } else {
+            Err(BetLaneError::MigrationRequiresPause)
+        }
+    }
+
     fn insert_pending_bet(&mut self, basket_id: u64, account: ActorId) -> Result<(), BetLaneError> {
         let mut pending_operations = InfallibleStorageMut::get_mut(&mut self.pending_operations);
         if pending_operations.pending_bets.contains(&(basket_id, account))
@@ -879,6 +977,12 @@ pub enum Event {
     QuoteSignerRotated {
         previous_quote_signer: ActorId,
         new_quote_signer: ActorId,
+    },
+    MigrationPositionsImported {
+        count: u32,
+    },
+    MigrationQuoteNoncesImported {
+        count: u32,
     },
 }
 

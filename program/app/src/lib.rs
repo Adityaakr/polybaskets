@@ -2,6 +2,7 @@
 
 use parity_scale_codec::{Decode, Encode};
 use sails_rs::prelude::*;
+use sails_rs::collections::BTreeMap;
 use scale_info::TypeInfo;
 
 const MAX_ITEMS_PER_BASKET: usize = 32;
@@ -13,6 +14,7 @@ const MAX_DESCRIPTION_LEN: usize = 512;
 const MAX_MARKET_ID_LEN: usize = 128;
 const MAX_SLUG_LEN: usize = 128;
 const MAX_SETTLEMENT_PAYLOAD_LEN: usize = 4_096;
+const MAX_MIGRATION_BATCH_SIZE: usize = 250;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode, TypeInfo)]
 #[codec(crate = sails_rs::scale_codec)]
@@ -138,12 +140,28 @@ pub struct BasketMarketConfig {
     pub vara_enabled: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
+pub enum MigrationEntityKind {
+    Baskets,
+    Settlements,
+    Positions,
+    Agents,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, TypeInfo, thiserror::Error)]
 #[codec(crate = sails_rs::scale_codec)]
 #[scale_info(crate = sails_rs::scale_info)]
 pub enum BasketMarketError {
     #[error("access denied")]
     Unauthorized,
+    #[error("basket market is paused")]
+    Paused,
+    #[error("migration import requires paused mode")]
+    MigrationRequiresPause,
+    #[error("migration batch is too large")]
+    MigrationBatchTooLarge,
     #[error("basket not found")]
     BasketNotFound,
     #[error("basket is not active")]
@@ -268,28 +286,36 @@ pub enum Event {
     ConfigUpdated {
         config: BasketMarketConfig,
     },
+    Paused,
+    Resumed,
+    MigrationBatchImported {
+        entity: MigrationEntityKind,
+        count: u32,
+    },
 }
 
 #[derive(Debug, Clone, Encode, Decode, TypeInfo)]
 #[codec(crate = sails_rs::scale_codec)]
 #[scale_info(crate = sails_rs::scale_info)]
 pub struct State {
-    pub baskets: Vec<Basket>,
-    pub positions: Vec<Position>,
-    pub settlements: Vec<Settlement>,
+    pub baskets: BTreeMap<u64, Basket>,
+    pub positions: BTreeMap<(u64, ActorId), Position>,
+    pub settlements: BTreeMap<u64, Settlement>,
     pub agents: Vec<AgentInfo>,
     pub next_basket_id: u64,
+    pub paused: bool,
     pub config: BasketMarketConfig,
 }
 
 impl Default for State {
     fn default() -> Self {
         Self {
-            baskets: Vec::new(),
-            positions: Vec::new(),
-            settlements: Vec::new(),
+            baskets: BTreeMap::new(),
+            positions: BTreeMap::new(),
+            settlements: BTreeMap::new(),
             agents: Vec::new(),
             next_basket_id: 0,
+            paused: false,
             config: BasketMarketConfig {
                 admin_role: ActorId::zero(),
                 settler_role: ActorId::zero(),
@@ -309,27 +335,40 @@ impl<'a> BasketMarketService<'a> {
         Self { state }
     }
 
-    fn basket_index(&self, basket_id: u64) -> Result<usize, BasketMarketError> {
+    fn basket(&self, basket_id: u64) -> Result<&Basket, BasketMarketError> {
         self.state
             .baskets
-            .iter()
-            .position(|basket| basket.id == basket_id)
+            .get(&basket_id)
             .ok_or(BasketMarketError::BasketNotFound)
     }
 
-    fn settlement_index(&self, basket_id: u64) -> Result<usize, BasketMarketError> {
+    fn basket_mut(&mut self, basket_id: u64) -> Result<&mut Basket, BasketMarketError> {
+        self.state
+            .baskets
+            .get_mut(&basket_id)
+            .ok_or(BasketMarketError::BasketNotFound)
+    }
+
+    fn settlement(&self, basket_id: u64) -> Result<&Settlement, BasketMarketError> {
         self.state
             .settlements
-            .iter()
-            .position(|settlement| settlement.basket_id == basket_id)
+            .get(&basket_id)
             .ok_or(BasketMarketError::SettlementNotFound)
     }
 
-    fn position_index(&self, basket_id: u64, user: ActorId) -> Option<usize> {
+    fn settlement_mut(&mut self, basket_id: u64) -> Result<&mut Settlement, BasketMarketError> {
         self.state
-            .positions
-            .iter()
-            .position(|position| position.basket_id == basket_id && position.user == user)
+            .settlements
+            .get_mut(&basket_id)
+            .ok_or(BasketMarketError::SettlementNotFound)
+    }
+
+    fn position(&self, basket_id: u64, user: ActorId) -> Option<&Position> {
+        self.state.positions.get(&(basket_id, user))
+    }
+
+    fn position_mut(&mut self, basket_id: u64, user: ActorId) -> Option<&mut Position> {
+        self.state.positions.get_mut(&(basket_id, user))
     }
 
     fn ensure_admin(&self) -> Result<(), BasketMarketError> {
@@ -346,6 +385,22 @@ impl<'a> BasketMarketService<'a> {
         }
 
         Ok(())
+    }
+
+    fn ensure_not_paused(&self) -> Result<(), BasketMarketError> {
+        if self.state.paused {
+            Err(BasketMarketError::Paused)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn ensure_paused(&self) -> Result<(), BasketMarketError> {
+        if self.state.paused {
+            Ok(())
+        } else {
+            Err(BasketMarketError::MigrationRequiresPause)
+        }
     }
 
     fn validate_config(config: &BasketMarketConfig) -> Result<(), BasketMarketError> {
@@ -460,6 +515,14 @@ impl<'a> BasketMarketService<'a> {
         Ok(())
     }
 
+    fn validate_migration_batch_size<T>(items: &[T]) -> Result<u32, BasketMarketError> {
+        if items.len() > MAX_MIGRATION_BATCH_SIZE {
+            return Err(BasketMarketError::MigrationBatchTooLarge);
+        }
+
+        Ok(items.len() as u32)
+    }
+
     fn calculate_payout_per_share(
         basket: &Basket,
         item_resolutions: &[ItemResolution],
@@ -518,6 +581,7 @@ impl<'a> BasketMarketService<'a> {
         items: Vec<BasketItem>,
         asset_kind: BasketAssetKind,
     ) -> Result<u64, BasketMarketError> {
+        self.ensure_not_paused()?;
         BasketMarketService::validate_basket_metadata(&name, &description)?;
         BasketMarketService::validate_items(&items)?;
 
@@ -529,7 +593,7 @@ impl<'a> BasketMarketService<'a> {
         let created_at = sails_rs::gstd::exec::block_timestamp();
         let basket_id = self.state.next_basket_id;
 
-        self.state.baskets.push(Basket {
+        self.state.baskets.insert(basket_id, Basket {
             id: basket_id,
             creator,
             name,
@@ -561,8 +625,8 @@ impl<'a> BasketMarketService<'a> {
         basket_id: u64,
         index_at_creation_bps: u16,
     ) -> Result<u128, BasketMarketError> {
-        let basket_index = self.basket_index(basket_id)?;
-        let basket = &self.state.baskets[basket_index];
+        self.ensure_not_paused()?;
+        let basket = self.basket(basket_id)?;
 
         if basket.asset_kind != BasketAssetKind::Vara {
             return Err(BasketMarketError::BasketAssetMismatch);
@@ -585,10 +649,7 @@ impl<'a> BasketMarketService<'a> {
         let user_total;
         let stored_index_at_creation_bps;
 
-        if let Some(position_index) =
-            self.position_index(basket_id, user)
-        {
-            let position = &mut self.state.positions[position_index];
+        if let Some(position) = self.position_mut(basket_id, user) {
             let old_shares = position.shares;
             user_total = old_shares
                 .checked_add(shares)
@@ -612,7 +673,7 @@ impl<'a> BasketMarketService<'a> {
             position.shares = user_total;
             position.index_at_creation_bps = stored_index_at_creation_bps;
         } else {
-            self.state.positions.push(Position {
+            self.state.positions.insert((basket_id, user), Position {
                 basket_id,
                 user,
                 shares,
@@ -642,19 +703,19 @@ impl<'a> BasketMarketService<'a> {
         item_resolutions: Vec<ItemResolution>,
         payload: String,
     ) -> Result<(), BasketMarketError> {
+        self.ensure_not_paused()?;
         self.ensure_settler()?;
         if payload.len() > MAX_SETTLEMENT_PAYLOAD_LEN {
             return Err(BasketMarketError::PayloadTooLong);
         }
 
-        let basket_index = self.basket_index(basket_id)?;
-        let basket = &self.state.baskets[basket_index];
+        let basket = self.basket(basket_id)?;
         if basket.status != BasketStatus::Active {
             return Err(BasketMarketError::BasketNotActive);
         }
         let asset_kind = basket.asset_kind;
 
-        if self.settlement_index(basket_id).is_ok() {
+        if self.state.settlements.contains_key(&basket_id) {
             return Err(BasketMarketError::SettlementAlreadyExists);
         }
 
@@ -666,7 +727,7 @@ impl<'a> BasketMarketService<'a> {
             .ok_or(BasketMarketError::MathOverflow)?;
         let proposer = sails_rs::gstd::msg::source();
 
-        self.state.settlements.push(Settlement {
+        self.state.settlements.insert(basket_id, Settlement {
             basket_id,
             proposer,
             item_resolutions,
@@ -677,7 +738,7 @@ impl<'a> BasketMarketService<'a> {
             finalized_at: None,
             status: SettlementStatus::Proposed,
         });
-        self.state.baskets[basket_index].status = BasketStatus::SettlementPending;
+        self.basket_mut(basket_id)?.status = BasketStatus::SettlementPending;
 
         self.emit_event(Event::SettlementProposed {
             basket_id,
@@ -693,10 +754,10 @@ impl<'a> BasketMarketService<'a> {
 
     #[export(unwrap_result)]
     pub fn finalize_settlement(&mut self, basket_id: u64) -> Result<(), BasketMarketError> {
-        let settlement_index = self.settlement_index(basket_id)?;
+        self.ensure_not_paused()?;
         let now = sails_rs::gstd::exec::block_timestamp();
         let payout_per_share = {
-            let settlement = &mut self.state.settlements[settlement_index];
+            let settlement = self.settlement_mut(basket_id)?;
 
             if settlement.status != SettlementStatus::Proposed {
                 return Err(BasketMarketError::SettlementNotProposed);
@@ -710,12 +771,13 @@ impl<'a> BasketMarketService<'a> {
             settlement.payout_per_share
         };
 
-        let basket_index = self.basket_index(basket_id)?;
-        self.state.baskets[basket_index].status = BasketStatus::Settled;
+        let basket = self.basket_mut(basket_id)?;
+        basket.status = BasketStatus::Settled;
+        let asset_kind = basket.asset_kind;
 
         self.emit_event(Event::SettlementFinalized {
             basket_id,
-            asset_kind: self.state.baskets[basket_index].asset_kind,
+            asset_kind,
             finalized_at: now,
             payout_per_share,
         })
@@ -726,23 +788,21 @@ impl<'a> BasketMarketService<'a> {
 
     #[export(unwrap_result)]
     pub fn claim(&mut self, basket_id: u64) -> Result<u128, BasketMarketError> {
-        let basket_index = self.basket_index(basket_id)?;
-        let basket = &self.state.baskets[basket_index];
+        self.ensure_not_paused()?;
+        let basket = self.basket(basket_id)?;
         if basket.asset_kind != BasketAssetKind::Vara {
             return Err(BasketMarketError::BasketAssetMismatch);
         }
 
-        let settlement_index = self.settlement_index(basket_id)?;
-        let settlement = &self.state.settlements[settlement_index];
+        let settlement = self.settlement(basket_id)?;
         if settlement.status != SettlementStatus::Finalized {
             return Err(BasketMarketError::SettlementNotFinalized);
         }
 
         let user = sails_rs::gstd::msg::source();
-        let position_index = self
-            .position_index(basket_id, user)
+        let position = self
+            .position(basket_id, user)
             .ok_or(BasketMarketError::NothingToClaim)?;
-        let position = &self.state.positions[position_index];
 
         if position.claimed {
             return Err(BasketMarketError::AlreadyClaimed);
@@ -764,7 +824,9 @@ impl<'a> BasketMarketService<'a> {
                 .map_err(|_| BasketMarketError::TransferFailed)?;
         }
 
-        self.state.positions[position_index].claimed = true;
+        if let Some(position) = self.position_mut(basket_id, user) {
+            position.claimed = true;
+        }
         self.emit_event(Event::Claimed {
             basket_id,
             user,
@@ -780,6 +842,7 @@ impl<'a> BasketMarketService<'a> {
     /// and hyphens only, no leading/trailing hyphens. Rename has a 7-day cooldown.
     #[export(unwrap_result)]
     pub fn register_agent(&mut self, name: String) -> Result<(), BasketMarketError> {
+        self.ensure_not_paused()?;
         let name = name.to_ascii_lowercase();
         BasketMarketService::validate_agent_name(&name)?;
 
@@ -844,15 +907,14 @@ impl<'a> BasketMarketService<'a> {
 
     #[export]
     pub fn get_basket(&self, basket_id: u64) -> Result<Basket, BasketMarketError> {
-        let basket_index = self.basket_index(basket_id)?;
-        Ok(self.state.baskets[basket_index].clone())
+        Ok(self.basket(basket_id)?.clone())
     }
 
     #[export]
     pub fn get_positions(&self, user: ActorId) -> Vec<Position> {
         self.state
             .positions
-            .iter()
+            .values()
             .filter(|position| position.user == user)
             .cloned()
             .collect()
@@ -860,13 +922,17 @@ impl<'a> BasketMarketService<'a> {
 
     #[export]
     pub fn get_settlement(&self, basket_id: u64) -> Result<Settlement, BasketMarketError> {
-        let settlement_index = self.settlement_index(basket_id)?;
-        Ok(self.state.settlements[settlement_index].clone())
+        Ok(self.settlement(basket_id)?.clone())
     }
 
     #[export]
     pub fn get_basket_count(&self) -> u64 {
         self.state.baskets.len() as u64
+    }
+
+    #[export]
+    pub fn is_paused(&self) -> bool {
+        self.state.paused
     }
 
     #[export]
@@ -910,6 +976,124 @@ impl<'a> BasketMarketService<'a> {
 
         Ok(())
     }
+
+    #[export(unwrap_result)]
+    pub fn pause(&mut self) -> Result<(), BasketMarketError> {
+        self.ensure_admin()?;
+        if !self.state.paused {
+            self.state.paused = true;
+            self.emit_event(Event::Paused)
+                .map_err(|_| BasketMarketError::EventEmitFailed)?;
+        }
+        Ok(())
+    }
+
+    #[export(unwrap_result)]
+    pub fn resume(&mut self) -> Result<(), BasketMarketError> {
+        self.ensure_admin()?;
+        if self.state.paused {
+            self.state.paused = false;
+            self.emit_event(Event::Resumed)
+                .map_err(|_| BasketMarketError::EventEmitFailed)?;
+        }
+        Ok(())
+    }
+
+    #[export(unwrap_result)]
+    pub fn import_baskets(&mut self, baskets: Vec<Basket>) -> Result<u32, BasketMarketError> {
+        self.ensure_admin()?;
+        self.ensure_paused()?;
+        let count = BasketMarketService::validate_migration_batch_size(&baskets)?;
+
+        for basket in baskets {
+            self.state.next_basket_id = self
+                .state
+                .next_basket_id
+                .max(basket.id.saturating_add(1));
+            self.state.baskets.insert(basket.id, basket);
+        }
+
+        self.emit_event(Event::MigrationBatchImported {
+            entity: MigrationEntityKind::Baskets,
+            count,
+        })
+        .map_err(|_| BasketMarketError::EventEmitFailed)?;
+
+        Ok(count)
+    }
+
+    #[export(unwrap_result)]
+    pub fn import_settlements(
+        &mut self,
+        settlements: Vec<Settlement>,
+    ) -> Result<u32, BasketMarketError> {
+        self.ensure_admin()?;
+        self.ensure_paused()?;
+        let count = BasketMarketService::validate_migration_batch_size(&settlements)?;
+
+        for settlement in settlements {
+            self.state
+                .settlements
+                .insert(settlement.basket_id, settlement);
+        }
+
+        self.emit_event(Event::MigrationBatchImported {
+            entity: MigrationEntityKind::Settlements,
+            count,
+        })
+        .map_err(|_| BasketMarketError::EventEmitFailed)?;
+
+        Ok(count)
+    }
+
+    #[export(unwrap_result)]
+    pub fn import_positions(&mut self, positions: Vec<Position>) -> Result<u32, BasketMarketError> {
+        self.ensure_admin()?;
+        self.ensure_paused()?;
+        let count = BasketMarketService::validate_migration_batch_size(&positions)?;
+
+        for position in positions {
+            self.state
+                .positions
+                .insert((position.basket_id, position.user), position);
+        }
+
+        self.emit_event(Event::MigrationBatchImported {
+            entity: MigrationEntityKind::Positions,
+            count,
+        })
+        .map_err(|_| BasketMarketError::EventEmitFailed)?;
+
+        Ok(count)
+    }
+
+    #[export(unwrap_result)]
+    pub fn import_agents(&mut self, agents: Vec<AgentInfo>) -> Result<u32, BasketMarketError> {
+        self.ensure_admin()?;
+        self.ensure_paused()?;
+        let count = BasketMarketService::validate_migration_batch_size(&agents)?;
+
+        for imported in agents {
+            if let Some(existing) = self
+                .state
+                .agents
+                .iter_mut()
+                .find(|agent| agent.address == imported.address)
+            {
+                *existing = imported;
+            } else {
+                self.state.agents.push(imported);
+            }
+        }
+
+        self.emit_event(Event::MigrationBatchImported {
+            entity: MigrationEntityKind::Agents,
+            count,
+        })
+        .map_err(|_| BasketMarketError::EventEmitFailed)?;
+
+        Ok(count)
+    }
 }
 
 pub struct BasketMarketProgram {
@@ -929,11 +1113,12 @@ impl BasketMarketProgram {
 
         Self {
             state: State {
-                baskets: Vec::new(),
-                positions: Vec::new(),
-                settlements: Vec::new(),
+                baskets: BTreeMap::new(),
+                positions: BTreeMap::new(),
+                settlements: BTreeMap::new(),
                 agents: Vec::new(),
                 next_basket_id: 0,
+                paused: false,
                 config: BasketMarketConfig {
                     admin_role: init.admin_role,
                     settler_role: init.settler_role,

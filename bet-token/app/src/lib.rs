@@ -2,6 +2,7 @@
 
 use awesome_sails_access_control::{AccessControl, DEFAULT_ADMIN_ROLE, RoleId, RolesStorage};
 use awesome_sails_storage::{InfallibleStorage, InfallibleStorageMut, StorageMut, StorageRefCell};
+use awesome_sails_utils::math::NonZero;
 use awesome_sails_utils::pause::{PausableRef, Pause};
 use awesome_sails_vft::{
     Vft,
@@ -16,6 +17,7 @@ use sails_rs::{
     collections::{BTreeMap, BTreeSet},
 };
 
+const MAX_MIGRATION_BATCH_SIZE: usize = 250;
 const UTC_DAY_MS: u64 = 24 * 60 * 60 * 1000;
 
 #[derive(Clone, Debug, PartialEq, Eq, Encode, Decode, TypeInfo)]
@@ -93,6 +95,22 @@ pub struct ClaimPreview {
     pub can_claim_now: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
+pub struct ImportedBalance {
+    pub user: ActorId,
+    pub balance: U256,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
+pub struct ImportedClaimState {
+    pub user: ActorId,
+    pub state: ClaimState,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Encode, Decode, TypeInfo, thiserror::Error)]
 #[codec(crate = sails_rs::scale_codec)]
 #[scale_info(crate = sails_rs::scale_info)]
@@ -135,6 +153,10 @@ pub enum ClaimError {
     InvalidMintAmount,
     #[error("role management failed")]
     RoleManagementFailed,
+    #[error("migration import requires paused token and paused claim flow")]
+    MigrationRequiresPause,
+    #[error("migration batch is too large")]
+    MigrationBatchTooLarge,
 }
 
 pub struct BetTokenService<
@@ -152,6 +174,8 @@ pub struct BetTokenService<
     metadata: &'a Metadata,
     vft: awesome_sails_vft::VftExposure<Vft<'a, A, B>>,
     balances: B,
+    raw_balances: StorageRefCell<'a, Balances>,
+    pause: &'a Pause,
 }
 
 impl<'a, A, B> BetTokenService<'a, A, B> {
@@ -166,6 +190,8 @@ impl<'a, A, B> BetTokenService<'a, A, B> {
         metadata: &'a Metadata,
         vft: awesome_sails_vft::VftExposure<Vft<'a, A, B>>,
         balances: B,
+        raw_balances: StorageRefCell<'a, Balances>,
+        pause: &'a Pause,
     ) -> Self {
         Self {
             roles,
@@ -176,6 +202,8 @@ impl<'a, A, B> BetTokenService<'a, A, B> {
             metadata,
             vft,
             balances,
+            raw_balances,
+            pause,
         }
     }
 }
@@ -288,6 +316,11 @@ where
             .get(&user)
             .cloned()
             .unwrap_or_default()
+    }
+
+    #[export]
+    pub fn get_claim_state_count(&self) -> u64 {
+        InfallibleStorage::get(&self.claim_states).states.len() as u64
     }
 
     #[export]
@@ -524,6 +557,60 @@ where
     }
 
     #[export(unwrap_result)]
+    pub fn import_balances(&mut self, balances: Vec<ImportedBalance>) -> Result<u32, ClaimError> {
+        self.require_role(DEFAULT_ADMIN_ROLE, Syscall::message_source())?;
+        self.ensure_migration_paused()?;
+        let count = Self::validate_migration_batch_size(&balances)?;
+
+        let mut balances_store = InfallibleStorageMut::get_mut(&mut self.raw_balances);
+
+        for imported in balances {
+            let user =
+                NonZero::try_from(imported.user).map_err(|_| ClaimError::InvalidClaimRecipient)?;
+
+            balances_store.burn_all(user);
+
+            if imported.balance.is_zero() {
+                continue;
+            }
+
+            let value = Balance::try_from(imported.balance).map_err(|_| ClaimError::RewardTooLarge)?;
+            let value = NonZero::try_from(value).map_err(|_| ClaimError::InvalidClaimAmount)?;
+            balances_store
+                .mint(user, value)
+                .map_err(|_| ClaimError::MintOperationFailed)?;
+        }
+        drop(balances_store);
+
+        self.emit_event(Event::MigrationBalancesImported { count })
+            .map_err(|_| ClaimError::EventEmitFailed)?;
+
+        Ok(count)
+    }
+
+    #[export(unwrap_result)]
+    pub fn import_claim_states(
+        &mut self,
+        claim_states: Vec<ImportedClaimState>,
+    ) -> Result<u32, ClaimError> {
+        self.require_role(DEFAULT_ADMIN_ROLE, Syscall::message_source())?;
+        self.ensure_migration_paused()?;
+        let count = Self::validate_migration_batch_size(&claim_states)?;
+
+        {
+            let states = &mut InfallibleStorageMut::get_mut(&mut self.claim_states).states;
+            for imported in claim_states {
+                states.insert(imported.user, imported.state);
+            }
+        }
+
+        self.emit_event(Event::MigrationClaimStatesImported { count })
+            .map_err(|_| ClaimError::EventEmitFailed)?;
+
+        Ok(count)
+    }
+
+    #[export(unwrap_result)]
     pub fn grant_role(&mut self, role_id: RoleId, account: ActorId) -> Result<(), ClaimError> {
         self.access_control
             .grant_role(role_id, account)
@@ -595,6 +682,22 @@ where
             Err(ClaimError::AccessDenied)
         }
     }
+
+    fn ensure_migration_paused(&self) -> Result<(), ClaimError> {
+        if self.pause.is_paused() && InfallibleStorage::get(&self.claim_config).claim_paused {
+            Ok(())
+        } else {
+            Err(ClaimError::MigrationRequiresPause)
+        }
+    }
+
+    fn validate_migration_batch_size<T>(items: &[T]) -> Result<u32, ClaimError> {
+        if items.len() > MAX_MIGRATION_BATCH_SIZE {
+            Err(ClaimError::MigrationBatchTooLarge)
+        } else {
+            Ok(items.len() as u32)
+        }
+    }
 }
 
 #[event]
@@ -624,6 +727,12 @@ pub enum Event {
     ClaimResumed,
     SpenderAllowed(ActorId),
     SpenderDisallowed(ActorId),
+    MigrationBalancesImported {
+        count: u32,
+    },
+    MigrationClaimStatesImported {
+        count: u32,
+    },
 }
 
 #[derive(Default)]
@@ -699,6 +808,8 @@ impl Program {
             &self.metadata,
             self.vft_service().expose(b"Vft"),
             self.balances(),
+            StorageRefCell::new(&self.balances),
+            &self.pause,
         )
     }
 
