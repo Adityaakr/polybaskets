@@ -10,6 +10,7 @@ export interface ClaimConfig {
   streak_step: number | string | bigint;
   streak_cap_days: number;
   claim_period: number | string | bigint;
+  day_start_offset_ms: number | string | bigint;
   claim_paused: boolean;
 }
 
@@ -40,6 +41,7 @@ export class SailsProgram {
         streak_step: 'u256',
         streak_cap_days: 'u32',
         claim_period: 'u64',
+        day_start_offset_ms: 'u64',
         claim_paused: 'bool',
       },
       ClaimState: {
@@ -114,6 +116,22 @@ export class BetToken {
       'AdminMint',
       [to, value],
       '([u8;32], u256)',
+      'Null',
+      this._program.programId,
+    );
+  }
+
+  public setClaimDayStartOffset(
+    dayStartOffsetMs: number | string | bigint,
+  ): TransactionBuilder<null> {
+    return new TransactionBuilder<null>(
+      this._program.api,
+      this._program.registry,
+      'send_message',
+      'BetToken',
+      'SetClaimDayStartOffset',
+      dayStartOffsetMs,
+      'u64',
       'Null',
       this._program.programId,
     );

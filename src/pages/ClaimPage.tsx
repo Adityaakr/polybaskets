@@ -94,10 +94,19 @@ export default function ClaimPage() {
   const claimState = claimStateQuery.data;
   const balanceUnits = toBigIntValue(balanceQuery.data);
   const canClaimNow = Boolean(claimPreview?.can_claim_now);
+  const dayStartOffsetMs = Number(configQuery.data?.day_start_offset_ms ?? 0);
   const nextClaimAtLabel =
     claimPreview?.next_claim_at != null
-      ? new Date(Number(claimPreview.next_claim_at)).toLocaleString()
+      ? new Date(Number(claimPreview.next_claim_at)).toUTCString()
       : null;
+  const claimBoundaryLabel = useMemo(() => {
+    const totalMinutes = Math.floor(dayStartOffsetMs / 60_000);
+    const hours = Math.floor(totalMinutes / 60)
+      .toString()
+      .padStart(2, '0');
+    const minutes = (totalMinutes % 60).toString().padStart(2, '0');
+    return `${hours}:${minutes} UTC`;
+  }, [dayStartOffsetMs]);
 
   const handleClaim = async () => {
     if (!manualBettingEnabled) {
@@ -208,7 +217,7 @@ export default function ClaimPage() {
                   Daily Claim
                 </CardTitle>
                 <CardDescription>
-                  Claim free {tokenSymbol} once per 24 hours. Missing a day stops new accrual, but your existing balance stays in the wallet.
+                  Claim free {tokenSymbol} once per UTC day. Missing a claim day resets streak growth, but your existing balance stays in the wallet.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -253,7 +262,8 @@ export default function ClaimPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-2 text-sm text-muted-foreground">
-                <p>Claim period: once every {configQuery.data ? Math.round(Number(configQuery.data.claim_period) / 3_600_000) : 24} hours.</p>
+                <p>Claim period: once per UTC day.</p>
+                <p>Claim day boundary: {claimBoundaryLabel}.</p>
                 <p>Base reward: {configQuery.data ? fromTokenUnits(configQuery.data.base_claim_amount, tokenDecimals) : '0'} {tokenSymbol}.</p>
                 <p>Max reward: {configQuery.data ? fromTokenUnits(configQuery.data.max_claim_amount, tokenDecimals) : '0'} {tokenSymbol}.</p>
                 <p>Streak step: {configQuery.data ? fromTokenUnits(configQuery.data.streak_step, tokenDecimals) : '0'} {tokenSymbol} per day until cap.</p>

@@ -2,25 +2,24 @@ use awesome_sails_access_control::DEFAULT_ADMIN_ROLE;
 use awesome_sails_vft_admin::{BURNER_ROLE, MINTER_ROLE, PAUSER_ROLE};
 use bet_token::WASM_BINARY;
 use bet_token_client::{
-    BetTokenClient, BetTokenClientCtors, ClaimState,
-    access_control::AccessControl,
-    bet_token::BetToken,
-    bet_token::events::BetTokenEvents,
-    vft_admin::VftAdmin,
+    BetTokenClient, BetTokenClientCtors, ClaimState, access_control::AccessControl,
+    bet_token::BetToken, bet_token::events::BetTokenEvents, vft_admin::VftAdmin,
     vft_admin::events::VftAdminEvents,
 };
 use futures::StreamExt;
+use gtest::System;
 use gtest::constants::{
     BLOCK_DURATION_IN_MSECS, DEFAULT_USER_ALICE, DEFAULT_USER_BOB, DEFAULT_USER_CHARLIE,
     DEFAULT_USER_EVE,
 };
-use gtest::System;
 use sails_rs::client::{GearEnv, GtestEnv};
 use sails_rs::prelude::{ActorId, U256};
 
 const TOKEN_NAME: &str = "Bet Token";
 const TOKEN_SYMBOL: &str = "BET";
 const TOKEN_DECIMALS: u8 = 12;
+const DAY_MS: u64 = 24 * 60 * 60 * 1000;
+const HALF_DAY_MS: u64 = 12 * 60 * 60 * 1000;
 
 struct Harness {
     env: GtestEnv,
@@ -65,14 +64,31 @@ impl Harness {
         }
     }
 
-    fn advance_claim_window(&self, periods: u64) {
-        let blocks_per_period = (24 * 60 * 60 * 1000) / BLOCK_DURATION_IN_MSECS;
+    fn advance_blocks(&self, blocks: u64) {
         let next_block = self
             .env
             .system()
             .block_height()
-            .saturating_add((blocks_per_period * periods) as u32);
+            .saturating_add(blocks as u32);
         self.env.system().run_to_block(next_block);
+    }
+
+    fn advance_ms(&self, ms: u64) {
+        let blocks = ms.div_ceil(BLOCK_DURATION_IN_MSECS);
+        self.advance_blocks(blocks);
+    }
+
+    fn advance_claim_day(&self, days: u64) {
+        self.advance_ms(DAY_MS.saturating_mul(days));
+    }
+
+    async fn set_claim_day_start_offset(&self, offset_ms: u64) {
+        let mut service = self.program.bet_token();
+        service
+            .set_claim_day_start_offset(offset_ms)
+            .with_actor_id(self.admin)
+            .await
+            .expect("admin should set claim day start offset");
     }
 
     async fn claim_as(&self, actor: ActorId) -> ClaimState {
@@ -133,7 +149,7 @@ async fn streak_grows_and_caps_at_config_limit() {
 
     let mut last_state = harness.claim_as(harness.alice).await;
     for _ in 0..9 {
-        harness.advance_claim_window(1);
+        harness.advance_claim_day(1);
         last_state = harness.claim_as(harness.alice).await;
     }
 
@@ -153,14 +169,35 @@ async fn missed_window_resets_streak() {
     let harness = Harness::new().await;
 
     let _ = harness.claim_as(harness.alice).await;
-    harness.advance_claim_window(1);
+    harness.advance_claim_day(1);
     let _ = harness.claim_as(harness.alice).await;
 
-    harness.advance_claim_window(2);
+    harness.advance_claim_day(2);
     let state = harness.claim_as(harness.alice).await;
 
     assert_eq!(state.streak_days, 1);
     assert_eq!(state.claim_count, 3);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn claim_is_available_on_next_utc_day_even_before_24h_passes() {
+    let harness = Harness::new().await;
+    harness.set_claim_day_start_offset(HALF_DAY_MS).await;
+    harness.advance_ms(HALF_DAY_MS.saturating_sub(BLOCK_DURATION_IN_MSECS));
+
+    let first_claim = harness.claim_as(harness.alice).await;
+    let next_claim_at = first_claim
+        .last_claim_at
+        .map(|last_claim_at| {
+            ((last_claim_at as i128 - HALF_DAY_MS as i128).div_euclid(DAY_MS as i128) + 1) as u64
+        })
+        .map(|next_day| next_day.saturating_mul(DAY_MS).saturating_add(HALF_DAY_MS))
+        .expect("claim timestamp should exist");
+
+    harness.advance_ms(next_claim_at.saturating_sub(first_claim.last_claim_at.unwrap_or_default()));
+    let second_claim = harness.claim_as(harness.alice).await;
+
+    assert_eq!(second_claim.streak_days, 2);
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -191,6 +228,20 @@ async fn claim_pause_and_resume_work_independently() {
 
     let resumed_state = harness.claim_as(harness.alice).await;
     assert_eq!(resumed_state.streak_days, 1);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn admin_can_update_claim_day_start_offset() {
+    let harness = Harness::new().await;
+    harness.set_claim_day_start_offset(HALF_DAY_MS).await;
+
+    let service = harness.program.bet_token();
+    let config = service
+        .get_claim_config()
+        .await
+        .expect("claim config query should succeed");
+
+    assert_eq!(config.day_start_offset_ms, HALF_DAY_MS);
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -409,7 +460,10 @@ async fn claim_emits_claimed_and_streak_updated_events() {
         .expect("claim should succeed");
 
     let (_, first_event) = events.next().await.expect("first claim event should exist");
-    let (_, second_event) = events.next().await.expect("second claim event should exist");
+    let (_, second_event) = events
+        .next()
+        .await
+        .expect("second claim event should exist");
 
     assert_eq!(
         first_event,
@@ -417,7 +471,9 @@ async fn claim_emits_claimed_and_streak_updated_events() {
             user: harness.alice,
             amount: U256::from(100u32),
             streak_days: 1,
-            claimed_at: state.last_claim_at.expect("claim timestamp should be present"),
+            claimed_at: state
+                .last_claim_at
+                .expect("claim timestamp should be present"),
         }
     );
     assert_eq!(
@@ -462,8 +518,14 @@ async fn claim_and_spender_admin_actions_emit_events() {
         .with_actor_id(harness.admin)
         .await
         .expect("admin should allow spender");
-    let (_, allowed_event) = events.next().await.expect("spender allowed event should exist");
-    assert_eq!(allowed_event, BetTokenEvents::SpenderAllowed(harness.betting));
+    let (_, allowed_event) = events
+        .next()
+        .await
+        .expect("spender allowed event should exist");
+    assert_eq!(
+        allowed_event,
+        BetTokenEvents::SpenderAllowed(harness.betting)
+    );
 
     service
         .disallow_spender(harness.betting)
@@ -499,7 +561,10 @@ async fn approve_emits_event_and_false_means_allowance_unchanged() {
         .expect("first approve should succeed");
     assert!(first_approve);
 
-    let (_, first_event) = events.next().await.expect("first approve event should exist");
+    let (_, first_event) = events
+        .next()
+        .await
+        .expect("first approve event should exist");
     assert_eq!(
         first_event,
         BetTokenEvents::Approved {
@@ -517,7 +582,10 @@ async fn approve_emits_event_and_false_means_allowance_unchanged() {
         .expect("second approve should also succeed");
     assert!(!second_approve);
 
-    let (_, second_event) = events.next().await.expect("second approve event should exist");
+    let (_, second_event) = events
+        .next()
+        .await
+        .expect("second approve event should exist");
     assert_eq!(
         second_event,
         BetTokenEvents::Approved {

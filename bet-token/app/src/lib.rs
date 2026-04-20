@@ -1,11 +1,7 @@
 #![no_std]
 
-use awesome_sails_access_control::{
-    AccessControl, DEFAULT_ADMIN_ROLE, RoleId, RolesStorage,
-};
-use awesome_sails_storage::{
-    InfallibleStorage, InfallibleStorageMut, StorageMut, StorageRefCell,
-};
+use awesome_sails_access_control::{AccessControl, DEFAULT_ADMIN_ROLE, RoleId, RolesStorage};
+use awesome_sails_storage::{InfallibleStorage, InfallibleStorageMut, StorageMut, StorageRefCell};
 use awesome_sails_utils::pause::{PausableRef, Pause};
 use awesome_sails_vft::{
     Vft,
@@ -20,6 +16,8 @@ use sails_rs::{
     collections::{BTreeMap, BTreeSet},
 };
 
+const UTC_DAY_MS: u64 = 24 * 60 * 60 * 1000;
+
 #[derive(Clone, Debug, PartialEq, Eq, Encode, Decode, TypeInfo)]
 #[codec(crate = sails_rs::scale_codec)]
 #[scale_info(crate = sails_rs::scale_info)]
@@ -29,17 +27,22 @@ pub struct ClaimConfig {
     pub streak_step: U256,
     pub streak_cap_days: u32,
     pub claim_period: u64,
+    pub day_start_offset_ms: u64,
     pub claim_paused: bool,
 }
 
 impl ClaimConfig {
     fn validate(&self) -> Result<(), ClaimError> {
-        if self.claim_period == 0 {
+        if self.claim_period != UTC_DAY_MS {
             return Err(ClaimError::InvalidClaimPeriod);
         }
 
         if self.base_claim_amount > self.max_claim_amount {
             return Err(ClaimError::InvalidClaimBounds);
+        }
+
+        if self.day_start_offset_ms >= self.claim_period {
+            return Err(ClaimError::InvalidDayStartOffset);
         }
 
         Ok(())
@@ -53,7 +56,8 @@ impl Default for ClaimConfig {
             max_claim_amount: 700.into(),
             streak_step: 100.into(),
             streak_cap_days: 7,
-            claim_period: 24 * 60 * 60 * 1000,
+            claim_period: UTC_DAY_MS,
+            day_start_offset_ms: 0,
             claim_paused: false,
         }
     }
@@ -105,6 +109,8 @@ pub enum ClaimError {
     TransferFromFailed,
     #[error("claim period is invalid")]
     InvalidClaimPeriod,
+    #[error("day start offset is invalid")]
+    InvalidDayStartOffset,
     #[error("claim bounds are invalid")]
     InvalidClaimBounds,
     #[error("claim is too early until {next_claim_at}")]
@@ -137,8 +143,9 @@ pub struct BetTokenService<
     B = PausableRef<'a, Balances>,
 > {
     roles: StorageRefCell<'a, RolesStorage>,
-    access_control:
-        awesome_sails_access_control::AccessControlExposure<AccessControl<'a, StorageRefCell<'a, RolesStorage>>>,
+    access_control: awesome_sails_access_control::AccessControlExposure<
+        AccessControl<'a, StorageRefCell<'a, RolesStorage>>,
+    >,
     claim_config: StorageRefCell<'a, ClaimConfig>,
     claim_states: StorageRefCell<'a, ClaimStates>,
     allowed_spenders: StorageRefCell<'a, AllowedSpenders>,
@@ -214,7 +221,8 @@ where
     pub fn transfer(&mut self, to: ActorId, value: U256) -> Result<bool, ClaimError> {
         let sender = Syscall::message_source();
 
-        let sender_is_admin = InfallibleStorage::get(&self.roles).has_role(DEFAULT_ADMIN_ROLE, sender);
+        let sender_is_admin =
+            InfallibleStorage::get(&self.roles).has_role(DEFAULT_ADMIN_ROLE, sender);
         let sender_is_allowed_spender = InfallibleStorage::get(&self.allowed_spenders)
             .spenders
             .contains(&sender);
@@ -294,12 +302,14 @@ where
 
         let next_claim_at = state
             .last_claim_at
-            .map(|last: u64| last.saturating_add(config.claim_period));
+            .map(|last_claim_at| self.next_claim_at(&config, last_claim_at));
         let can_claim_now =
             !config.claim_paused && next_claim_at.is_none_or(|allowed_at| now >= allowed_at);
 
         let streak_days = self.next_streak_days(&config, &state, now);
-        let amount = self.reward_for_streak(&config, streak_days).unwrap_or_default();
+        let amount = self
+            .reward_for_streak(&config, streak_days)
+            .unwrap_or_default();
 
         ClaimPreview {
             amount,
@@ -326,7 +336,7 @@ where
             .unwrap_or_default();
 
         if let Some(last_claim_at) = state.last_claim_at {
-            let next_claim_at = last_claim_at.saturating_add(config.claim_period);
+            let next_claim_at = self.next_claim_at(&config, last_claim_at);
             if now < next_claim_at {
                 return Err(ClaimError::ClaimTooEarly { next_claim_at });
             }
@@ -384,6 +394,25 @@ where
     #[export(unwrap_result)]
     pub fn set_claim_config(&mut self, config: ClaimConfig) -> Result<(), ClaimError> {
         self.require_role(DEFAULT_ADMIN_ROLE, Syscall::message_source())?;
+        config.validate()?;
+
+        InfallibleStorageMut::replace(&mut self.claim_config, config.clone());
+
+        self.emit_event(Event::ClaimConfigUpdated(config))
+            .map_err(|_| ClaimError::EventEmitFailed)?;
+
+        Ok(())
+    }
+
+    #[export(unwrap_result)]
+    pub fn set_claim_day_start_offset(
+        &mut self,
+        day_start_offset_ms: u64,
+    ) -> Result<(), ClaimError> {
+        self.require_role(DEFAULT_ADMIN_ROLE, Syscall::message_source())?;
+
+        let mut config = InfallibleStorage::get(&self.claim_config).clone();
+        config.day_start_offset_ms = day_start_offset_ms;
         config.validate()?;
 
         InfallibleStorageMut::replace(&mut self.claim_config, config.clone());
@@ -512,9 +541,10 @@ where
         match state.last_claim_at {
             None => 1,
             Some(last_claim_at) => {
-                let reset_after = last_claim_at.saturating_add(config.claim_period.saturating_mul(2));
+                let current_claim_day = self.claim_day_id(config, now);
+                let last_claim_day = self.claim_day_id(config, last_claim_at);
 
-                if now > reset_after {
+                if current_claim_day > last_claim_day + 1 {
                     1
                 } else {
                     state
@@ -542,6 +572,19 @@ where
             .ok_or(ClaimError::RewardOverflow)?;
 
         Ok(reward.min(config.max_claim_amount))
+    }
+
+    fn claim_day_id(&self, config: &ClaimConfig, timestamp: u64) -> i128 {
+        (i128::from(timestamp) - i128::from(config.day_start_offset_ms))
+            .div_euclid(i128::from(config.claim_period))
+    }
+
+    fn next_claim_at(&self, config: &ClaimConfig, last_claim_at: u64) -> u64 {
+        let next_claim_day = self.claim_day_id(config, last_claim_at) + 1;
+        let next_claim_at = next_claim_day * i128::from(config.claim_period)
+            + i128::from(config.day_start_offset_ms);
+
+        next_claim_at.max(0) as u64
     }
 
     fn require_role(&self, role_id: RoleId, account: ActorId) -> Result<(), ClaimError> {

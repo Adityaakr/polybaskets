@@ -199,6 +199,17 @@ impl<'a> DailyContestService<'a> {
         Ok(())
     }
 
+    fn account_balance() -> u128 {
+        // `value_available` is the contract account balance available to the
+        // current execution and already includes value attached to this message.
+        sails_rs::gstd::exec::value_available()
+    }
+
+    fn sync_reward_pool(&mut self) -> u128 {
+        self.state.reward_pool = Self::account_balance();
+        self.state.reward_pool
+    }
+
     fn validate_config(config: &DailyContestConfig) -> Result<(), DailyContestError> {
         if config.admin_role == ActorId::zero()
             || config.settler_role == ActorId::zero()
@@ -351,27 +362,23 @@ impl<'a> DailyContestService<'a> {
 impl<'a> DailyContestService<'a> {
     #[export(unwrap_result)]
     pub fn fund(&mut self) -> Result<u128, DailyContestError> {
-        // Funding is intentionally public: anyone may top up the contest treasury,
-        // but only explicit `fund()` calls affect internal reward-pool accounting.
+        // Funding is intentionally public: anyone may top up the contest treasury.
+        // The pool mirrors the real account balance so direct transfers are usable too.
         let amount = sails_rs::gstd::msg::value();
         if amount == 0 {
             return Err(DailyContestError::InvalidFundingAmount);
         }
 
-        self.state.reward_pool = self
-            .state
-            .reward_pool
-            .checked_add(amount)
-            .ok_or(DailyContestError::MathOverflow)?;
+        let reward_pool = self.sync_reward_pool();
 
         self.emit_event(Event::Funded {
             from: sails_rs::gstd::msg::source(),
             amount,
-            reward_pool: self.state.reward_pool,
+            reward_pool,
         })
         .map_err(|_| DailyContestError::EventEmitFailed)?;
 
-        Ok(self.state.reward_pool)
+        Ok(reward_pool)
     }
 
     #[export(unwrap_result)]
@@ -504,6 +511,8 @@ impl<'a> DailyContestService<'a> {
         self.ensure_zero_value()?;
         self.ensure_admin()?;
 
+        self.sync_reward_pool();
+
         if amount > self.state.reward_pool {
             return Err(DailyContestError::InsufficientRewardPool);
         }
@@ -554,6 +563,8 @@ impl<'a> DailyContestService<'a> {
         if now < settlement_allowed_at {
             return Err(DailyContestError::DayNotClosed);
         }
+
+        self.sync_reward_pool();
 
         let (status, reward, payouts) = if winners.is_empty() {
             (DayStatus::NoWinner, 0, Vec::new())
@@ -620,7 +631,7 @@ impl<'a> DailyContestService<'a> {
 
     #[export]
     pub fn get_reward_pool(&self) -> u128 {
-        self.state.reward_pool
+        DailyContestService::account_balance()
     }
 
     #[export]
