@@ -117,18 +117,15 @@ export class GaslessService {
     }
   }
 
-  /**
-   * Roll back a ceiling reservation after the issue/update fails.
-   * Worst case if caller forgets to call this: the IP loses `amount` of
-   * headroom for the UTC day until the counter resets. Preferable to the
-   * alternative (charging nothing on failure, which enables retry abuse).
-   */
-  private releaseIpReservation(ip: string, amount: number): void {
-    const today = this.getTodayIsoDate();
-    const existing = this.ipVaraToday.get(ip);
-    if (!existing || existing.day !== today) return;
-    existing.varaIssued = Math.max(0, existing.varaIssued - amount);
-  }
+  // NOTE: we intentionally do NOT roll back the IP reservation on issue()/update()
+  // failure. The signAndSend timeout explicitly says the tx may have landed, and
+  // repo.save can fail after the chain accepted the extrinsic. Releasing the
+  // reservation in those paths lets a retry re-fund the voucher — double-mint.
+  //
+  // Trade-off: honest users occasionally lose ~dailyCap worth of IP-level budget
+  // on transient failures. They can retry tomorrow (UTC-day reset) or from a
+  // different IP. The alternative (allowing retries to bypass the ceiling) is a
+  // real security hole. Codex review caught this in PR #23.
 
   async getVoucherInfo() {
     return {
@@ -238,18 +235,16 @@ export class GaslessService {
       if (!existing) {
         // Reserve BEFORE the await so concurrent same-IP calls serialize on the counter.
         this.reserveIpCeiling(ip, dailyCap);
-        try {
-          const voucherId = await this.voucherService.issue(
-            address,
-            programAddress as HexString,
-            dailyCap,
-            duration,
-          );
-          return { voucherId };
-        } catch (e) {
-          this.releaseIpReservation(ip, dailyCap);
-          throw e;
-        }
+        // No rollback on failure — see releaseIpReservation note above. If issue()
+        // throws (esp. on signAndSend timeout, which says "may or may not have
+        // landed"), retrying would re-mint if we refunded the reservation.
+        const voucherId = await this.voucherService.issue(
+          address,
+          programAddress as HexString,
+          dailyCap,
+          duration,
+        );
+        return { voucherId };
       }
 
       const alreadyFundedToday = existing.lastRenewedAt >= this.getTodayMidnight();
@@ -260,13 +255,9 @@ export class GaslessService {
         const addPrograms = existing.programs.includes(programAddress)
           ? undefined
           : [programAddress as HexString];
-        try {
-          await this.voucherService.update(existing, dailyCap, duration, addPrograms);
-          return { voucherId: existing.voucherId };
-        } catch (e) {
-          this.releaseIpReservation(ip, dailyCap);
-          throw e;
-        }
+        // No rollback on failure — see note at releaseIpReservation site.
+        await this.voucherService.update(existing, dailyCap, duration, addPrograms);
+        return { voucherId: existing.voucherId };
       }
 
       // Already funded today — same voucher, just register an extra program if needed.

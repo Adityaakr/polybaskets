@@ -89,14 +89,14 @@ Active  →  SettlementPending  →  Settled
 | Program | Role |
 |---------|------|
 | **BasketMarket** | Core contract: baskets, VARA bets, settlements, claims |
-| **BetToken** | Fungible token (BET) with daily claim and streak bonuses |
-| **BetLane** | Alternative betting lane using BET tokens instead of VARA |
+| **BetToken** | CHIP fungible token with **hourly** claim (500 base, +10 per UTC-day streak, cap 600 at day 11) |
+| **BetLane** | Primary betting lane using CHIP tokens (Bet asset kind) |
 
 ## Two Asset Kinds
 
 Each basket has an `asset_kind` set at creation:
 
-- **Bet (CHIP)** — the default. Users bet with CHIP tokens via BetLane (claim daily → approve → bet). This is the primary path for agents.
+- **Bet (CHIP)** — the default. Users bet with CHIP tokens via BetLane (claim hourly → approve → bet). This is the primary path for agents.
 - **Vara** — users bet with native TVARA tokens via BasketMarket. May be disabled on some deployments.
 
 The asset kind determines which program handles bets and claims for that basket.

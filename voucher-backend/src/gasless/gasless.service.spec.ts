@@ -465,10 +465,12 @@ describe('GaslessService (Path B)', () => {
     });
   });
 
-  it('per-IP reservation is released when issue() fails', async () => {
-    // If the chain rejects the issue, the reservation should roll back so the
-    // IP doesn't lose budget from a failed operation. Otherwise: one RPC blip =
-    // 2000 VARA permanently deducted from the IP's 20000/day allowance.
+  it('per-IP reservation is NOT refunded when issue() fails (double-mint defense)', async () => {
+    // Design note: signAndSend timeouts may have landed the tx on-chain. If we
+    // refunded the IP reservation on failure, an attacker could force failures
+    // (or exploit timeouts) to bypass the ceiling by retrying. Honest users
+    // occasionally lose ~dailyCap of budget on transient failures as a tax for
+    // closing the attack vector. Codex review caught this in PR #23.
     voucherSvc.getVoucher.mockResolvedValueOnce(null);
     voucherSvc.issue.mockRejectedValueOnce(new Error('chain down'));
 
@@ -476,14 +478,21 @@ describe('GaslessService (Path B)', () => {
       service.requestVoucher({ account: 'willfail', program: PROGRAM }, IP),
     ).rejects.toThrow();
 
-    // Next request should still have the full budget — prior reservation rolled back.
-    // Fill 9 fresh accounts (18000 of 20000). This would fail if the previous
-    // failed request leaked 2000 of reservation (total would hit 20000 after #8).
-    for (let i = 0; i < 10; i++) {
+    // The failed attempt consumed 2000 of the IP's 20000 daily budget.
+    // Now 9 more successful requests (9 × 2000 = 18000) fit exactly: 2000 + 18000 = 20000.
+    for (let i = 0; i < 9; i++) {
       voucherSvc.getVoucher.mockResolvedValueOnce(null);
       await expect(
         service.requestVoucher({ account: `post${i}`, program: PROGRAM }, IP),
       ).resolves.toBeDefined();
     }
+
+    // The 10th request (would total 22000) must be rejected.
+    voucherSvc.getVoucher.mockResolvedValueOnce(null);
+    await expect(
+      service.requestVoucher({ account: 'overflow', program: PROGRAM }, IP),
+    ).rejects.toMatchObject({
+      status: HttpStatus.TOO_MANY_REQUESTS,
+    });
   });
 });
