@@ -182,6 +182,10 @@ export function getChangeClass(change: number): string {
 }
 
 export function truncateAddress(address: string): string {
+  if (address.startsWith('0x') && address.length > 10) {
+    return `0x${address.slice(2, 6)}...${address.slice(-4)}`;
+  }
+
   if (address.length <= 11) return address;
   return `${address.slice(0, 4)}...${address.slice(-4)}`;
 }
