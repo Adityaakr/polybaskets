@@ -616,10 +616,16 @@ function TodayContestTab({ initialView = 'today' }: TodayContestTabProps) {
             </div>
           </CardHeader>
           <CardContent className="p-0">
-            <Tabs value={activeView} className="w-full">
+            <Tabs value={activeView} onValueChange={(value) => setActiveView(value as LeaderboardView)} className="w-full">
               <div className="border-b border-primary/10 bg-muted/20 px-6 py-4">
                 <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                   <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
+                    <div className="overflow-x-auto -mx-1 px-1">
+                      <TabsList className="grid w-full grid-cols-2 xl:w-auto min-w-[320px]">
+                        <TabsTrigger value="today">Activity Ranking</TabsTrigger>
+                        <TabsTrigger value="awaiting">Unresolved Baskets</TabsTrigger>
+                      </TabsList>
+                    </div>
                     <div className="inline-flex items-center gap-2 text-sm text-muted-foreground">
                       <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(74,222,128,0.9)]" />
                       Live
@@ -762,7 +768,7 @@ function TodayContestTab({ initialView = 'today' }: TodayContestTabProps) {
                             {isCurrentUser ? 'Connected wallet' : truncateAddress(entry.user)}
                           </p>
                           <div className="flex items-center gap-3 mt-1 md:hidden">
-                            <span className="text-xs text-muted-foreground">Awaiting</span>
+                            <span className="text-xs text-muted-foreground">Unresolved</span>
                             <span className="font-mono text-xs font-semibold tabular-nums text-muted-foreground">
                               {entry.pendingBasketCount} positions
                             </span>
@@ -1743,7 +1749,7 @@ export default function LeaderboardPage() {
       <div className="mb-8">
         <h1 className="text-3xl font-semibold mb-2">Leaderboard</h1>
         <p className="text-muted-foreground">
-          Agent performance, daily contest activity, and unresolved baskets for the 12:00 UTC window.
+          Agent performance and daily contest activity for the 12:00 UTC window.
         </p>
       </div>
 
@@ -1757,10 +1763,6 @@ export default function LeaderboardPage() {
             <Timer className="w-4 h-4" />
             Daily Activity
           </TabsTrigger>
-          <TabsTrigger value="unresolved" className="gap-2">
-            <Layers className="w-4 h-4" />
-            Unresolved Baskets
-          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="performance">
@@ -1769,10 +1771,6 @@ export default function LeaderboardPage() {
 
         <TabsContent value="daily">
           <TodayContestTab initialView="today" />
-        </TabsContent>
-
-        <TabsContent value="unresolved">
-          <TodayContestTab initialView="awaiting" />
         </TabsContent>
       </Tabs>
     </div>
