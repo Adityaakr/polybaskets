@@ -71,7 +71,7 @@ type ContestDisplayStatus = 'live' | 'ready' | 'settled' | 'no_winner';
 const CONTEST_QUERY_ERROR =
   'Unable to load the daily contest leaderboard from the indexer.';
 const LEADERBOARD_PAGE_SIZE = 10;
-type LeaderboardView = 'today' | 'awaiting' | 'total';
+type LeaderboardView = 'today' | 'awaiting';
 
 const getContestDisplayStatus = (
   data: TodayContestLeaderboard | undefined,
@@ -342,19 +342,20 @@ function ActivityLeaderboardRow({
   );
 }
 
-function TodayContestTab() {
+type TodayContestTabProps = {
+  initialView?: LeaderboardView;
+};
+
+function TodayContestTab({ initialView = 'today' }: TodayContestTabProps) {
   const [now, setNow] = useState(Date.now());
   const [selectedDayId, setSelectedDayId] = useState(() => getCurrentUtcDayId());
-  const [activeView, setActiveView] = useState<LeaderboardView>('total');
+  const [activeView, setActiveView] = useState<LeaderboardView>(initialView);
   const [expandedEntryUser, setExpandedEntryUser] = useState<string | null>(null);
   const [todayPage, setTodayPage] = useState(1);
   const [awaitingPage, setAwaitingPage] = useState(1);
-  const [totalPage, setTotalPage] = useState(1);
   const [rankedSearchQuery, setRankedSearchQuery] = useState('');
   const [awaitingSearchQuery, setAwaitingSearchQuery] = useState('');
-  const [totalSearchQuery, setTotalSearchQuery] = useState('');
   const leaderboardQuery = useContestLeaderboard(selectedDayId);
-  const allTimeWinnersQuery = useAllTimeContestWinners();
   const { address } = useWallet();
   const { resolveAgentName } = useAgentNames();
   const contest = leaderboardQuery.data;
@@ -369,6 +370,10 @@ function TodayContestTab() {
     const interval = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    setActiveView(initialView);
+  }, [initialView]);
 
   const currentDayId = getCurrentUtcDayId(now);
   const selectedDayLabel = getUtcDayLabel(selectedDayId);
@@ -443,7 +448,6 @@ function TodayContestTab() {
 
   const normalizedRankedSearchQuery = rankedSearchQuery.trim().toLowerCase();
   const normalizedAwaitingSearchQuery = awaitingSearchQuery.trim().toLowerCase();
-  const normalizedTotalSearchQuery = totalSearchQuery.trim().toLowerCase();
 
   const filteredScoredEntries = useMemo(
     () => scoredEntries.filter((entry) => matchesUserQuery(entry.user, rankedSearchQuery)),
@@ -453,24 +457,16 @@ function TodayContestTab() {
     () => awaitingEntries.filter((entry) => matchesUserQuery(entry.user, awaitingSearchQuery)),
     [awaitingEntries, awaitingSearchQuery, resolveAgentName],
   );
-  const filteredTotalEntries = useMemo(
-    () => (allTimeWinnersQuery.data ?? []).filter((entry) => matchesUserQuery(entry.user, totalSearchQuery)),
-    [allTimeWinnersQuery.data, totalSearchQuery, resolveAgentName],
-  );
 
   const todayTotalEntries = filteredScoredEntries.length;
   const awaitingTotalEntries = filteredAwaitingEntries.length;
-  const totalResultsCount = filteredTotalEntries.length;
   const todayTotalPages = Math.max(1, Math.ceil(todayTotalEntries / LEADERBOARD_PAGE_SIZE));
   const awaitingTotalPages = Math.max(1, Math.ceil(awaitingTotalEntries / LEADERBOARD_PAGE_SIZE));
-  const totalResultsPages = Math.max(1, Math.ceil(totalResultsCount / LEADERBOARD_PAGE_SIZE));
 
   useEffect(() => setTodayPage(1), [rankedSearchQuery, selectedDayId]);
   useEffect(() => setAwaitingPage(1), [awaitingSearchQuery, selectedDayId]);
-  useEffect(() => setTotalPage(1), [totalSearchQuery]);
   useEffect(() => setTodayPage((currentPage) => Math.min(currentPage, todayTotalPages)), [todayTotalPages]);
   useEffect(() => setAwaitingPage((currentPage) => Math.min(currentPage, awaitingTotalPages)), [awaitingTotalPages]);
-  useEffect(() => setTotalPage((currentPage) => Math.min(currentPage, totalResultsPages)), [totalResultsPages]);
 
   const pagedTodayEntries = useMemo(() => {
     const startIndex = (todayPage - 1) * LEADERBOARD_PAGE_SIZE;
@@ -480,10 +476,6 @@ function TodayContestTab() {
     const startIndex = (awaitingPage - 1) * LEADERBOARD_PAGE_SIZE;
     return filteredAwaitingEntries.slice(startIndex, startIndex + LEADERBOARD_PAGE_SIZE);
   }, [filteredAwaitingEntries, awaitingPage]);
-  const pagedTotalEntries = useMemo(() => {
-    const startIndex = (totalPage - 1) * LEADERBOARD_PAGE_SIZE;
-    return filteredTotalEntries.slice(startIndex, startIndex + LEADERBOARD_PAGE_SIZE);
-  }, [filteredTotalEntries, totalPage]);
 
   const userPage =
     currentUserEntry === null || currentUserEntry.status !== 'scored'
@@ -548,15 +540,11 @@ function TodayContestTab() {
   const activeSearchValue =
     activeView === 'today'
       ? rankedSearchQuery
-      : activeView === 'awaiting'
-        ? awaitingSearchQuery
-        : totalSearchQuery;
+      : awaitingSearchQuery;
   const activeSearchPlaceholder =
     activeView === 'today'
       ? 'Search ranked agents'
-      : activeView === 'awaiting'
-        ? 'Search awaiting agents'
-        : 'Search total results';
+      : 'Search unresolved agents';
   const activeResultsLabel =
     activeView === 'today'
       ? todayTotalEntries > 0
@@ -564,19 +552,11 @@ function TodayContestTab() {
         : normalizedRankedSearchQuery
           ? 'No matching ranked agents'
           : 'No ranked agents yet'
-      : activeView === 'awaiting'
-        ? awaitingTotalEntries > 0
-          ? `Showing ${(awaitingPage - 1) * LEADERBOARD_PAGE_SIZE + 1}-${Math.min(awaitingPage * LEADERBOARD_PAGE_SIZE, awaitingTotalEntries)} of ${awaitingTotalEntries}`
-          : normalizedAwaitingSearchQuery
-            ? 'No matching awaiting agents'
-            : 'No awaiting agents'
-        : totalResultsCount > 0
-          ? `Showing ${(totalPage - 1) * LEADERBOARD_PAGE_SIZE + 1}-${Math.min(totalPage * LEADERBOARD_PAGE_SIZE, totalResultsCount)} of ${totalResultsCount}`
-          : normalizedTotalSearchQuery
-            ? 'No matching total results'
-            : allTimeWinnersQuery.isLoading
-              ? 'Loading total results'
-              : 'No total results yet';
+      : awaitingTotalEntries > 0
+        ? `Showing ${(awaitingPage - 1) * LEADERBOARD_PAGE_SIZE + 1}-${Math.min(awaitingPage * LEADERBOARD_PAGE_SIZE, awaitingTotalEntries)} of ${awaitingTotalEntries}`
+        : normalizedAwaitingSearchQuery
+          ? 'No matching unresolved agents'
+          : 'No unresolved baskets';
 
   return (
     <div className="space-y-6">
@@ -636,17 +616,10 @@ function TodayContestTab() {
             </div>
           </CardHeader>
           <CardContent className="p-0">
-            <Tabs value={activeView} onValueChange={(value) => setActiveView(value as LeaderboardView)} className="w-full">
+            <Tabs value={activeView} className="w-full">
               <div className="border-b border-primary/10 bg-muted/20 px-6 py-4">
                 <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                   <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
-                    <div className="overflow-x-auto -mx-1 px-1">
-                      <TabsList className="grid w-full grid-cols-3 xl:w-auto min-w-[320px]">
-                        <TabsTrigger value="today">Day activity</TabsTrigger>
-                        <TabsTrigger value="awaiting">Awaiting Results</TabsTrigger>
-                        <TabsTrigger value="total">Total Results</TabsTrigger>
-                      </TabsList>
-                    </div>
                     <div className="inline-flex items-center gap-2 text-sm text-muted-foreground">
                       <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(74,222,128,0.9)]" />
                       Live
@@ -660,10 +633,8 @@ function TodayContestTab() {
                         onChange={(event) => {
                           if (activeView === 'today') {
                             setRankedSearchQuery(event.target.value);
-                          } else if (activeView === 'awaiting') {
-                            setAwaitingSearchQuery(event.target.value);
                           } else {
-                            setTotalSearchQuery(event.target.value);
+                            setAwaitingSearchQuery(event.target.value);
                           }
                         }}
                         placeholder={activeSearchPlaceholder}
@@ -799,7 +770,7 @@ function TodayContestTab() {
                         </div>
                         <div className="hidden md:block text-right">
                           <span className="text-sm font-medium text-muted-foreground">
-                            Awaiting results
+                            Unresolved baskets
                           </span>
                         </div>
                         <div className="hidden md:block text-right font-mono text-sm font-semibold tabular-nums text-muted-foreground">
@@ -813,12 +784,12 @@ function TodayContestTab() {
                   <div className="px-6 py-12 text-center">
                     <Search className="mx-auto mb-4 h-10 w-10 text-muted-foreground" />
                     <p className="text-lg font-medium">
-                      {normalizedAwaitingSearchQuery ? 'No awaiting agents match this search' : 'No awaiting agents'}
+                      {normalizedAwaitingSearchQuery ? 'No unresolved agents match this search' : 'No unresolved baskets'}
                     </p>
                     <p className="mt-2 text-sm text-muted-foreground">
                       {normalizedAwaitingSearchQuery
                         ? 'Try a full public agent address or a registered agent name.'
-                        : 'Unresolved baskets will appear here until settlement.'}
+                        : 'Unresolved baskets created in this contest day will appear here until settlement.'}
                     </p>
                   </div>
                 ) : null}
@@ -851,139 +822,6 @@ function TodayContestTab() {
                 ) : null}
               </TabsContent>
 
-              <TabsContent value="total" className="m-0">
-                {allTimeWinnersQuery.isLoading ? (
-                  <div className="divide-y divide-primary/10">
-                    {Array.from({ length: 5 }).map((_, index) => (
-                      <div
-                        key={`total-results-skeleton-${index}`}
-                        className="grid grid-cols-[72px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_120px] gap-4 px-6 py-4 items-center"
-                      >
-                        <Skeleton className="h-4 w-6 mx-auto" />
-                        <Skeleton className="h-4 w-32" />
-                        <Skeleton className="h-4 w-20 ml-auto" />
-                        <Skeleton className="h-4 w-28 ml-auto" />
-                        <Skeleton className="h-4 w-10 ml-auto" />
-                      </div>
-                    ))}
-                  </div>
-                ) : allTimeWinnersQuery.isError ? (
-                  <div className="px-6 py-12 text-center">
-                    <Loader2 className="mx-auto mb-4 h-10 w-10 text-destructive" />
-                    <p className="text-lg font-medium">Unable to load total results</p>
-                    <p className="mt-2 text-sm text-muted-foreground">
-                      {(allTimeWinnersQuery.error as Error)?.message ?? 'Unknown indexer error'}
-                    </p>
-                  </div>
-                ) : (
-                  <>
-                    <div className="hidden md:grid grid-cols-[72px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_120px] gap-4 border-b border-primary/10 bg-muted/30 px-6 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                      <span className="text-center">#</span>
-                      <span>Agent</span>
-                      <span className="text-right">P&amp;L</span>
-                      <span className="text-right">Total Rewards (VARA)</span>
-                      <span className="text-right">Baskets</span>
-                    </div>
-                    <div className="divide-y divide-primary/10">
-                      {pagedTotalEntries.map((entry: AllTimeTradingPnlEntry) => {
-                        const isCurrentUser =
-                          currentUserActorId !== null && entry.user.toLowerCase() === currentUserActorId;
-
-                        return (
-                          <Link
-                            key={`total-${entry.user}`}
-                            to={`/agents/${encodeURIComponent(entry.user)}`}
-                            className={[
-                              'group grid grid-cols-[40px_1fr] md:grid-cols-[72px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_120px] gap-2 md:gap-4 px-4 md:px-6 py-4 transition-colors',
-                              isCurrentUser ? 'bg-primary/5' : 'hover:bg-muted/20',
-                            ].join(' ')}
-                          >
-                            <div className="flex items-center justify-center">
-                              <span className="font-mono text-lg font-bold tabular-nums text-muted-foreground">
-                                {entry.rank}
-                              </span>
-                            </div>
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2">
-                                <span className="truncate text-sm font-semibold transition-colors group-hover:text-primary">
-                                  {getLeaderboardDisplayName(isCurrentUser, entry.user, resolveAgentName)}
-                                </span>
-                                {isCurrentUser ? (
-                                  <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
-                                    You
-                                  </Badge>
-                                ) : null}
-                              </div>
-                              <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
-                                {isCurrentUser ? 'Connected wallet' : truncateAddress(entry.user)}
-                              </p>
-                              <div className="flex items-center gap-3 mt-1 md:hidden">
-                                <span className="font-mono text-xs font-semibold tabular-nums text-emerald-300">
-                                  P&L: {formatChipAmount(entry.totalRealizedProfit)}
-                                </span>
-                                <span className="font-mono text-xs tabular-nums text-muted-foreground">
-                                  {entry.basketCount} baskets
-                                </span>
-                              </div>
-                            </div>
-                            <div className="hidden md:block text-right font-mono text-sm font-semibold tabular-nums text-emerald-300">
-                              {formatChipAmount(entry.totalRealizedProfit)}
-                            </div>
-                            <div className="hidden md:block text-right font-mono text-sm font-semibold tabular-nums text-amber-300">
-                              {formatVaraAmount(entry.totalRewards)}
-                            </div>
-                            <div className="hidden md:block text-right font-mono text-sm tabular-nums text-muted-foreground">
-                              {entry.basketCount}
-                            </div>
-                          </Link>
-                        );
-                      })}
-                    </div>
-                    {totalResultsCount === 0 ? (
-                      <div className="px-6 py-12 text-center">
-                        <Search className="mx-auto mb-4 h-10 w-10 text-muted-foreground" />
-                        <p className="text-lg font-medium">
-                          {normalizedTotalSearchQuery ? 'No total results match this search' : 'No total results yet'}
-                        </p>
-                        <p className="mt-2 text-sm text-muted-foreground">
-                          {normalizedTotalSearchQuery
-                            ? 'Try a full public agent address or a registered agent name.'
-                            : 'Total results will appear once the indexer has contest history.'}
-                        </p>
-                      </div>
-                    ) : null}
-                    {totalResultsCount > 0 ? (
-                      <div className="flex flex-col gap-3 border-t border-primary/10 px-6 py-4 md:flex-row md:items-center md:justify-between">
-                        <div className="text-sm text-muted-foreground">
-                          Page {totalPage} of {totalResultsPages}
-                        </div>
-                        {totalResultsPages > 1 ? (
-                          <div className="flex items-center gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => setTotalPage((currentPage) => Math.max(1, currentPage - 1))}
-                              disabled={totalPage === 1}
-                            >
-                              <ChevronLeft className="mr-1 h-4 w-4" />
-                              Prev
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => setTotalPage((currentPage) => Math.min(totalResultsPages, currentPage + 1))}
-                              disabled={totalPage === totalResultsPages}
-                            >
-                              Next
-                              <ChevronRight className="ml-1 h-4 w-4" />
-                            </Button>
-                          </div>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </>
-                )}
-              </TabsContent>
             </Tabs>
           </CardContent>
         </Card>
@@ -1887,9 +1725,9 @@ function CommunityLeaderboardTab() {
       <Card className="card-elevated">
         <CardContent className="py-12 text-center">
           <Users className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-          <p className="text-lg font-medium">Community leaderboard is available on Vara only</p>
+          <p className="text-lg font-medium">Performance leaderboard is available on Vara only</p>
           <p className="text-sm text-muted-foreground mt-2">
-            The Daily Contest tab remains available without wallet connection.
+            Daily Activity remains available without wallet connection.
           </p>
         </CardContent>
       </Card>
@@ -1905,28 +1743,36 @@ export default function LeaderboardPage() {
       <div className="mb-8">
         <h1 className="text-3xl font-semibold mb-2">Leaderboard</h1>
         <p className="text-muted-foreground">
-          Daily CHIP activity leaders for the current 12:00 UTC contest window, plus the community leaderboard.
+          Agent performance, daily contest activity, and unresolved baskets for the 12:00 UTC window.
         </p>
       </div>
 
-      <Tabs defaultValue="today" className="space-y-6">
+      <Tabs defaultValue="performance" className="space-y-6">
         <TabsList>
-        <TabsTrigger value="today" className="gap-2">
-          <Timer className="w-4 h-4" />
-          Today
-        </TabsTrigger>
-          <TabsTrigger value="community" className="gap-2">
+          <TabsTrigger value="performance" className="gap-2">
             <Users className="w-4 h-4" />
-            Community
+            Performance
+          </TabsTrigger>
+          <TabsTrigger value="daily" className="gap-2">
+            <Timer className="w-4 h-4" />
+            Daily Activity
+          </TabsTrigger>
+          <TabsTrigger value="unresolved" className="gap-2">
+            <Layers className="w-4 h-4" />
+            Unresolved Baskets
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="today">
-          <TodayContestTab />
+        <TabsContent value="performance">
+          <CommunityLeaderboardTab />
         </TabsContent>
 
-        <TabsContent value="community">
-          <CommunityLeaderboardTab />
+        <TabsContent value="daily">
+          <TodayContestTab initialView="today" />
+        </TabsContent>
+
+        <TabsContent value="unresolved">
+          <TodayContestTab initialView="awaiting" />
         </TabsContent>
       </Tabs>
     </div>
