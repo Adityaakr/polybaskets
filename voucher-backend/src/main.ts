@@ -6,6 +6,13 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  // Trust exactly one forwarding hop (Railway's LB sits directly in front of us).
+  // Without this, Express's request.ip returns the LB's IP — identical for every
+  // client — and the @Throttle and per-IP ceiling gates collapse into one global
+  // quota shared across all agents. Using `1` instead of `true` caps the chain
+  // depth at one hop to prevent header-spoofing attacks via X-Forwarded-For.
+  app.getHttpAdapter().getInstance().set('trust proxy', 1);
+
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }));
 
   const isDev = process.env.NODE_ENV !== 'production';

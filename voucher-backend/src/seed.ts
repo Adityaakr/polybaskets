@@ -9,20 +9,25 @@ import { Voucher } from './entities/voucher.entity';
 
 config();
 
-// PolyBaskets program IDs
-// Weights determine proportional share of DAILY_VARA_CAP (default 100 VARA).
-// Heavier programs (more gas per tx) get higher weight.
-//   BasketMarket: CreateBasket ~2-3B gas (~0.3 VARA/tx)  → weight 1
-//   BetToken:     Claim/Approve ~2B gas (~0.2 VARA/tx)   → weight 1
-//   BetLane:      PlaceBet ~38B gas (~3.8 VARA/tx)        → weight 8
-// With cap=100: BasketMarket=10, BetToken=10, BetLane=80
+/**
+ * PolyBaskets program whitelist for the voucher backend.
+ *
+ * Season 2 (Path B): all three programs share a single voucher per account.
+ * The first POST of a UTC day funds the voucher to `DAILY_VARA_CAP` (env var,
+ * default 2000). Subsequent same-day POSTs for additional programs append to
+ * the same voucher without re-funding.
+ *
+ * `varaToIssue` and `weight` on each row are retained for schema compatibility
+ * but are no longer read by `gasless.service.ts` in Path B — the dailyCap is
+ * applied uniformly across all programs.
+ */
 const PROGRAMS = [
   {
     name: 'BasketMarket',
     address:
       '0xe5dd153b813c768b109094a9e2eb496c38216b1dbe868391f1d20ac927b7d2c2',
     weight: 1,
-    duration: 86400, // 24 hours
+    duration: 86400, // 24h
     oneTime: false,
   },
   {
@@ -37,7 +42,7 @@ const PROGRAMS = [
     name: 'BetLane',
     address:
       '0x35848dea0ab64f283497deaff93b12fe4d17649624b2cd5149f253ef372b29dc',
-    weight: 8,
+    weight: 1,
     duration: 86400,
     oneTime: false,
   },
@@ -58,11 +63,12 @@ async function seed() {
   await ds.initialize();
   const repo = ds.getRepository(GaslessProgram);
 
-  const dailyCap = Number(process.env.DAILY_VARA_CAP || '100');
-  const totalWeight = PROGRAMS.reduce((sum, p) => sum + p.weight, 0);
+  const dailyCap = Number(process.env.DAILY_VARA_CAP || '2000');
 
   for (const p of PROGRAMS) {
-    const varaToIssue = Math.max(Math.floor(dailyCap * p.weight / totalWeight), 1);
+    // varaToIssue is inactive in Path B (kept for schema compat).
+    // Display value tracks dailyCap so the DB state is self-documenting.
+    const varaToIssue = dailyCap;
     const existing = await repo.findOneBy({ address: p.address });
 
     if (existing) {
@@ -70,7 +76,7 @@ async function seed() {
       existing.varaToIssue = varaToIssue;
       existing.duration = p.duration;
       await repo.save(existing);
-      console.log(`[update] ${p.name} weight=${p.weight} → ${varaToIssue} VARA (${p.address.slice(0, 12)}...)`);
+      console.log(`[update] ${p.name} ${p.address.slice(0, 12)}... (cap=${dailyCap} VARA)`);
       continue;
     }
 
@@ -84,7 +90,7 @@ async function seed() {
       oneTime: p.oneTime,
       createdAt: new Date(),
     });
-    console.log(`[seed] ${p.name} weight=${p.weight} → ${varaToIssue} VARA (${p.address.slice(0, 12)}...)`);
+    console.log(`[seed] ${p.name} ${p.address.slice(0, 12)}... (cap=${dailyCap} VARA)`);
   }
 
   console.log('Seed complete.');

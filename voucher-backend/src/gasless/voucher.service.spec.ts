@@ -158,6 +158,35 @@ describe('VoucherService', () => {
     ).rejects.toThrow('Cannot update revoked voucher');
   });
 
+  // ── appendProgramOnly() guard ──────────────────────────────────────────────
+  // Mirrors the update() guard: a revoked voucher should not be resurrectable
+  // by an append. Protects against the same race (revoke cron fires between
+  // getVoucher and appendProgramOnly).
+
+  it('appendProgramOnly() throws when called on a revoked voucher', async () => {
+    const revoked = makeVoucher({ revoked: true });
+    await expect(
+      service.appendProgramOnly(revoked, '0xnewprog' as any),
+    ).rejects.toThrow('Cannot append to revoked voucher');
+  });
+
+  // ── getVoucherBalance() ────────────────────────────────────────────────────
+  // Thin wrapper around api.balance.findOut, used by GET /voucher/:account so
+  // agents can detect drained vouchers mid-session. We just verify it surfaces
+  // the bigint value and doesn't mangle the precision.
+
+  it('getVoucherBalance() returns the on-chain balance as a bigint', async () => {
+    mockBalance.mockResolvedValue({ toBigInt: () => 1_757_000_000_000_000n });
+    const balance = await service.getVoucherBalance('0xvoucher');
+    expect(balance).toBe(1_757_000_000_000_000n);
+    expect(mockBalance).toHaveBeenCalledWith('0xvoucher');
+  });
+
+  it('getVoucherBalance() propagates RPC failures', async () => {
+    mockBalance.mockRejectedValue(new Error('RPC down'));
+    await expect(service.getVoucherBalance('0xvoucher')).rejects.toThrow('RPC down');
+  });
+
   // ── signAndSend timeout ────────────────────────────────────────────────────
 
   it('rejects with timeout error when signAndSend does not settle within 60s', async () => {
