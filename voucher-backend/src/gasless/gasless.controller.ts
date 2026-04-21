@@ -14,12 +14,15 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import { GaslessService } from './gasless.service';
 import { RequestVoucherDto } from './dto/request-voucher.dto';
 
-// POST /voucher — 3 per IP per hour.
-// Agents need at most 3 POSTs in a single UTC day (one per program) so the
-// first POST of a session has headroom; all subsequent ones for that day are
-// cheap appends. An attacker on a single IP caps at ~6,000 VARA/hour drain
-// (3 POSTs × 2,000 VARA), further bounded by PER_IP_DAILY_VARA_CEILING.
-const VOUCHER_THROTTLE = { default: { limit: 3, ttl: 3600000 } };
+// POST /voucher — 6 per IP per hour.
+// Agents need exactly 3 POSTs in a single UTC day (one per program). The
+// throttle counts both failed and successful attempts, so tight limits at 3
+// would turn a single transient 5xx into an hour-long outage. 6 leaves
+// retry headroom while the per-IP daily VARA ceiling
+// (PER_IP_DAILY_VARA_CEILING, default 20,000) still bounds total abuse —
+// no matter how many POSTs, once the IP hits the daily VARA budget it's
+// rejected at the service layer.
+const VOUCHER_THROTTLE = { default: { limit: 6, ttl: 3600000 } };
 
 // GET /voucher/:account — 20 per IP per minute.
 // Read-only state check, no VARA cost. Cheap enough that agents can poll

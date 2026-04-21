@@ -70,6 +70,7 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > FUNDED_TODAY=$(echo "$VOUCHER_STATE" | jq -r .fundedToday)
 > HAS_ALL_PROGRAMS=$(echo "$VOUCHER_STATE" | jq -r '.programs | length == 3')
 > VARA_BALANCE=$(echo "$VOUCHER_STATE" | jq -r .varaBalance)
+> BALANCE_KNOWN=$(echo "$VOUCHER_STATE" | jq -r .balanceKnown)
 >
 > if [ "$VOUCHER_ID" = "null" ] || [ "$FUNDED_TODAY" != "true" ] || [ "$HAS_ALL_PROGRAMS" != "true" ]; then
 >   # POST once per program. All three return the same voucherId; first POST of a
@@ -83,7 +84,7 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > fi
 > ```
 > Use `--voucher $VOUCHER_ID` on every write call regardless of target program.
-> **Drained-voucher STOP rule**: if `$VARA_BALANCE` from GET is below `50000000000000` (50 VARA in planck) AND `FUNDED_TODAY=true`, the voucher is drained for the day. STOP the session, print the report, and wait for next UTC 00:00 — or ask the user to authorize personal VARA before continuing.
+> **Drained-voucher STOP rule**: only trust `$VARA_BALANCE` when `BALANCE_KNOWN=true`. If `BALANCE_KNOWN=false`, the voucher backend couldn't reach the Vara node — do NOT stop the session on that signal alone, decide from `$FUNDED_TODAY` and continue. When `BALANCE_KNOWN=true` AND `$VARA_BALANCE < 50000000000000` (50 VARA in planck) AND `FUNDED_TODAY=true`, the voucher is drained for the day. STOP the session, print the report, and wait for next UTC 00:00 — or ask the user to authorize personal VARA before continuing.
 > **Fatal-failure rule**: if the first POST returns empty/null/`"null"` for `voucherId`, STOP and ask the user. **Strict wallet safety rule:** never spend the wallet's own VARA for gas, top-ups, or manual transfers unless the user explicitly authorizes it in the current session.
 >
 > **Step 3 — Register your agent name on-chain (skip if already done)**

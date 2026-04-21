@@ -364,6 +364,7 @@ describe('GaslessService (Path B)', () => {
       programs: [],
       validUpTo: null,
       varaBalance: '0',
+      balanceKnown: true,
       fundedToday: false,
     });
   });
@@ -376,6 +377,7 @@ describe('GaslessService (Path B)', () => {
     const state = await service.getVoucherState(ACCOUNT);
     expect(state.fundedToday).toBe(false);
     expect(state.varaBalance).toBe('1500');
+    expect(state.balanceKnown).toBe(true);
   });
 
   it('getVoucherState returns fundedToday=true when lastRenewedAt >= midnight', async () => {
@@ -384,17 +386,104 @@ describe('GaslessService (Path B)', () => {
     const state = await service.getVoucherState(ACCOUNT);
     expect(state.fundedToday).toBe(true);
     expect(state.varaBalance).toBe('1800');
+    expect(state.balanceKnown).toBe(true);
   });
 
-  it('getVoucherState gracefully handles chain balance lookup failure', async () => {
-    voucherSvc.getVoucher.mockResolvedValue(makeVoucher());
+  it('getVoucherState reports balanceKnown=false and varaBalance=null on RPC failure', async () => {
+    // Regression: previously returned varaBalance: "0" which triggered the
+    // starter prompt's drained-voucher STOP rule during transient RPC outages.
+    // Codex flagged this in PR review. balanceKnown=false signals "decide
+    // from fundedToday alone, don't stop on the balance number."
+    voucherSvc.getVoucher.mockResolvedValue(makeVoucher({ lastRenewedAt: new Date() }));
     voucherSvc.getVoucherBalance.mockRejectedValue(new Error('RPC down'));
     const state = await service.getVoucherState(ACCOUNT);
     expect(state.voucherId).toBe('0xvoucher');
-    expect(state.varaBalance).toBe('0'); // fallback
+    expect(state.varaBalance).toBe(null);
+    expect(state.balanceKnown).toBe(false);
+    expect(state.fundedToday).toBe(true);
   });
 
   it('getVoucherState throws 400 for invalid address', async () => {
     await expect(service.getVoucherState('invalid')).rejects.toThrow(BadRequestException);
+  });
+
+  // ── Per-IP ceiling race regression ────────────────────────────────────────
+  // Codex caught this in PR review: previously assertIpUnderCeiling ran, then
+  // an `await` yielded the event loop, THEN recordIpIssuance ran. Two parallel
+  // requests from the same IP (different accounts) could both pass the check
+  // and both record, pushing the total over the ceiling.
+  //
+  // The fix: reserveIpCeiling does the check + record in a single synchronous
+  // block with no awaits between. This test simulates the race.
+
+  it('per-IP ceiling is race-safe for concurrent same-IP different-account requests', async () => {
+    // Seed: IP already at 18000 of 20000 (9 prior issuances × 2000).
+    for (let i = 0; i < 9; i++) {
+      voucherSvc.getVoucher.mockResolvedValueOnce(null);
+      await service.requestVoucher({ account: `seed${i}`, program: PROGRAM }, IP);
+    }
+    // Now fire TWO concurrent requests from the same IP. Both target fresh
+    // accounts. Each would charge 2000 (reaching 20000 exactly), but if they
+    // both race past the check they'd charge 22000 total.
+    //
+    // Make voucherSvc.issue hang briefly so the awaits actually overlap —
+    // this simulates real chain latency during concurrent requests.
+    let resolveFirst: (v: string) => void = () => {};
+    let resolveSecond: (v: string) => void = () => {};
+    voucherSvc.getVoucher.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
+    voucherSvc.issue
+      .mockImplementationOnce(
+        () => new Promise<string>((r) => { resolveFirst = r; }),
+      )
+      .mockImplementationOnce(
+        () => new Promise<string>((r) => { resolveSecond = r; }),
+      );
+
+    const req1 = service.requestVoucher({ account: 'racer1', program: PROGRAM }, IP);
+    const req2 = service.requestVoucher({ account: 'racer2', program: PROGRAM }, IP);
+    // Attach no-op error handlers immediately so Node doesn't flag the racing
+    // rejection as unhandled during the setImmediate tick below.
+    req1.catch(() => {});
+    req2.catch(() => {});
+
+    // Let both requests reach the reservation check before any issue() resolves.
+    // By the time we resolve the issues, one request should already have thrown 429.
+    await new Promise((r) => setImmediate(r));
+
+    resolveFirst('0xnewvoucher1');
+    resolveSecond('0xnewvoucher2');
+
+    // Exactly one should succeed, the other should be rejected by the ceiling.
+    const results = await Promise.allSettled([req1, req2]);
+    const fulfilled = results.filter((r) => r.status === 'fulfilled');
+    const rejected = results.filter((r) => r.status === 'rejected');
+
+    expect(fulfilled.length).toBe(1);
+    expect(rejected.length).toBe(1);
+    expect((rejected[0] as PromiseRejectedResult).reason).toMatchObject({
+      status: HttpStatus.TOO_MANY_REQUESTS,
+    });
+  });
+
+  it('per-IP reservation is released when issue() fails', async () => {
+    // If the chain rejects the issue, the reservation should roll back so the
+    // IP doesn't lose budget from a failed operation. Otherwise: one RPC blip =
+    // 2000 VARA permanently deducted from the IP's 20000/day allowance.
+    voucherSvc.getVoucher.mockResolvedValueOnce(null);
+    voucherSvc.issue.mockRejectedValueOnce(new Error('chain down'));
+
+    await expect(
+      service.requestVoucher({ account: 'willfail', program: PROGRAM }, IP),
+    ).rejects.toThrow();
+
+    // Next request should still have the full budget — prior reservation rolled back.
+    // Fill 9 fresh accounts (18000 of 20000). This would fail if the previous
+    // failed request leaked 2000 of reservation (total would hit 20000 after #8).
+    for (let i = 0; i < 10; i++) {
+      voucherSvc.getVoucher.mockResolvedValueOnce(null);
+      await expect(
+        service.requestVoucher({ account: `post${i}`, program: PROGRAM }, IP),
+      ).resolves.toBeDefined();
+    }
   });
 });
