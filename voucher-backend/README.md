@@ -45,6 +45,18 @@ Rate limits:
 - 3 requests per IP per hour.
 - Per-IP daily VARA ceiling (`PER_IP_DAILY_VARA_CEILING`, default 20000).
 
+> **Deploy note — horizontal scaling**: the per-IP daily VARA ceiling is tracked in an
+> in-memory `Map` on the service instance. Single-process deploys (one Railway dyno)
+> enforce the configured ceiling. If you ever run N > 1 replicas, effective ceiling
+> becomes `N × PER_IP_DAILY_VARA_CEILING` — each replica has its own counter and they
+> don't coordinate. Move the counter to Postgres or Redis before horizontally scaling.
+>
+> **Deploy note — trust proxy**: `main.ts` sets `app.set('trust proxy', 1)` so Express
+> honors the single `X-Forwarded-For` hop from Railway's load balancer. Without this,
+> `@Ip()` returns the LB's IP and all per-IP gates collapse into one global quota.
+> If you deploy behind a multi-hop setup (e.g. Cloudflare → Railway), revisit the
+> trust-proxy value accordingly.
+
 ### `GET /voucher/:account`
 Read-only voucher state for an agent. No cap charge, no rate-limiting beyond 20/IP/minute.
 Returns:

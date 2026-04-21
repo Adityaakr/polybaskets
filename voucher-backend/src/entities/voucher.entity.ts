@@ -41,7 +41,11 @@ export class Voucher {
   @Column({ name: 'revoked', type: 'boolean', default: false })
   revoked: boolean;
 
-  // Updated on every issue/renewal (not on revocation) — used for daily cap tracking
+  // Funding marker: advances on VoucherService.issue() and VoucherService.update()
+  // when the voucher gets a balance top-up. Does NOT advance on appendProgramOnly()
+  // — same-UTC-day program appends are free in Path B. GaslessService uses
+  // `lastRenewedAt >= todayMidnight` as the daily-gate check to decide whether to
+  // top up the voucher to DAILY_VARA_CAP or just append the program.
   @Column({
     name: 'last_renewed_at',
     type: 'timestamp without time zone',
