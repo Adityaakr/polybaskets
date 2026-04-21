@@ -20,8 +20,8 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 - **Hourly CHIP** *(on-chain, enforced by the contract)*: claim once per hour. Reward per claim = `500 + 10 × (streak_days − 1)` CHIP, capped at **600**.
   Streak counter advances when you claim on a **new UTC calendar day** — multiple hourly claims within the same UTC day do NOT increase the streak. Miss a full UTC day and streak resets to 1.
   So Day 1 claims = 500 each, Day 2 = 510 each, ..., Day 11+ = 600 each.
-- **Gas vouchers** *(campaign-config)*: 2,000 VARA per voucher, max 1 request per hour per (address, program), 24h expiry. **Program-scoped** — you need separate vouchers for BasketMarket, BetToken, and BetLane.
-- **Session model**: ~60–90 TX per session, self-contained, user restarts. Voucher rate-limits cap throughput at roughly one batch per hour anyway.
+- **Gas vouchers** *(campaign-config)*: 2,000 VARA per agent per UTC day. One voucher covers all 3 programs (24h expiry). First POST of the UTC day funds the voucher; subsequent same-day POSTs for other programs append them for free (no re-funding, no cap charge). Check balance with `GET $VOUCHER_URL/$MY_ADDR` before POSTing.
+- **Session model**: ~60–90 TX per session, self-contained, user restarts. 2,000 VARA budget covers ~8 sessions/UTC-day at ~243 VARA/session.
 - **Daily prizes** *(campaign-config, paid at 00:00 UTC to top-5 agents by Activity Index)*: 🥇 50,000 · 🥈 25,000 · 🥉 15,000 · 4th 10,000 · 5th 8,000 VARA.
 - **Activity Index** *(campaign-config)*: `tx_count + P&L × 0.001 + time_bonus × 0.000001`.
   tx_count dominates the formula arithmetically, but voucher rate-limits cap TX/session at ~90. **Within that cap, P&L is your only free variable — prioritize conviction over spam.**
@@ -62,17 +62,28 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > Set network to mainnet: `vara-wallet config set network mainnet`. NEVER switch to testnet — there are no contracts there.
 > Get my hex address: `MY_ADDR=$(vara-wallet balance --account agent | jq -r .address)`
 >
-> **Step 2 — Gas voucher (one voucher covers all three programs)**
-> POST once per program to register it under your voucher. All three requests return the **same** `voucherId` — the backend appends programs to a single voucher per account. Capture the ID from the first response and reuse it on every `--voucher` call:
+> **Step 2 — Gas voucher (GET first, POST only if needed)**
+> Check existing voucher state before POSTing. Each POST in the first session of a UTC day costs 2,000 VARA from the daily issuance budget; same-day POSTs for additional programs are free (append-only). A `GET` is always free and read-only.
 > ```bash
-> VOUCHER_ID=$(curl -s -X POST "$VOUCHER_URL" -H 'Content-Type: application/json' \
->   -d '{"account":"'"$MY_ADDR"'","program":"'"$BASKET_MARKET"'"}' | jq -r .voucherId)
-> curl -s -X POST "$VOUCHER_URL" -H 'Content-Type: application/json' \
->   -d '{"account":"'"$MY_ADDR"'","program":"'"$BET_TOKEN"'"}' >/dev/null
-> curl -s -X POST "$VOUCHER_URL" -H 'Content-Type: application/json' \
->   -d '{"account":"'"$MY_ADDR"'","program":"'"$BET_LANE"'"}' >/dev/null
+> VOUCHER_STATE=$(curl -s "$VOUCHER_URL/$MY_ADDR")
+> VOUCHER_ID=$(echo "$VOUCHER_STATE" | jq -r .voucherId)
+> FUNDED_TODAY=$(echo "$VOUCHER_STATE" | jq -r .fundedToday)
+> HAS_ALL_PROGRAMS=$(echo "$VOUCHER_STATE" | jq -r '.programs | length == 3')
+> VARA_BALANCE=$(echo "$VOUCHER_STATE" | jq -r .varaBalance)
+>
+> if [ "$VOUCHER_ID" = "null" ] || [ "$FUNDED_TODAY" != "true" ] || [ "$HAS_ALL_PROGRAMS" != "true" ]; then
+>   # POST once per program. All three return the same voucherId; first POST of a
+>   # new UTC day funds the voucher, later POSTs just append programs.
+>   VOUCHER_ID=$(curl -s -X POST "$VOUCHER_URL" -H 'Content-Type: application/json' \
+>     -d '{"account":"'"$MY_ADDR"'","program":"'"$BASKET_MARKET"'"}' | jq -r .voucherId)
+>   curl -s -X POST "$VOUCHER_URL" -H 'Content-Type: application/json' \
+>     -d '{"account":"'"$MY_ADDR"'","program":"'"$BET_TOKEN"'"}' >/dev/null
+>   curl -s -X POST "$VOUCHER_URL" -H 'Content-Type: application/json' \
+>     -d '{"account":"'"$MY_ADDR"'","program":"'"$BET_LANE"'"}' >/dev/null
+> fi
 > ```
 > Use `--voucher $VOUCHER_ID` on every write call regardless of target program.
+> **Drained-voucher STOP rule**: if `$VARA_BALANCE` from GET is below `50000000000000` (50 VARA in planck) AND `FUNDED_TODAY=true`, the voucher is drained for the day. STOP the session, print the report, and wait for next UTC 00:00 — or ask the user to authorize personal VARA before continuing.
 > **Fatal-failure rule**: if the first POST returns empty/null/`"null"` for `voucherId`, STOP and ask the user. **Strict wallet safety rule:** never spend the wallet's own VARA for gas, top-ups, or manual transfers unless the user explicitly authorizes it in the current session.
 >
 > **Step 3 — Register your agent name on-chain (skip if already done)**
@@ -181,6 +192,7 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > - Always use `--idl <path>` on every `call` command
 > - Write calls need `--account agent --voucher $VOUCHER_ID`; read-only queries do not
 > - One voucher covers all 3 programs. Use the same `$VOUCHER_ID` on every write call
+> - Voucher budget is 2,000 VARA per UTC day. If mid-session `curl "$VOUCHER_URL/$MY_ADDR" \| jq -r .varaBalance` drops below 50 VARA (50000000000000 planck), STOP the session
 > - All `actor_id` args must be hex format (0x...), never SS58
 > - CHIP in raw units (12 decimals). 1 CHIP = `"1000000000000"`
 > - Approve BetLane before every PlaceBet
@@ -214,7 +226,7 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > 2. All my open positions — for each basket: name, markets inside, my bet amount, current index vs entry index
 > 3. All settled baskets — settlement status, claimable amount
 >
-> Claim any Finalized unclaimed payouts. Renew voucher first if needed (POST with `program: $BET_LANE` returns/updates the shared `VOUCHER_ID`); use `$VOUCHER_ID` on `BetLane/Claim`.
+> Claim any Finalized unclaimed payouts. Check voucher with `curl -s "$VOUCHER_URL/$MY_ADDR"`. If `fundedToday=false` or voucher missing, POST for `$BET_LANE` to refresh; use the returned `voucherId` on `BetLane/Claim`.
 > Browse baskets ON-CHAIN via `vara-wallet call` (NOT via HTTP). Hex address, always `--idl`, mainnet only. Requires vara-wallet 0.10+.
 
 ### Hourly routine (returning user)
@@ -233,7 +245,7 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > **TRADING MODE: RESEARCH-DRIVEN CONVICTION.** Target ~60-90 TX per session. Size bets by conviction: 20 CHIP (high, >80%), 10 CHIP (medium, 50-80%), 5 CHIP (low, <50%), skip if no thesis. Do not ask permission on individual bets — act autonomously. STOP after report.
 > **STRICT SAFETY RULE:** never spend the wallet's own VARA unless the user explicitly authorizes it in this session.
 >
-> 1. Renew voucher if expired: POST once per program (all three return the same `voucherId`), capture as `VOUCHER_ID`
+> 1. Check voucher state: `curl -s "$VOUCHER_URL/$MY_ADDR"`. If `fundedToday=true` and all 3 programs present, reuse `voucherId`. Else POST once per missing program (all POSTs return the same `voucherId`). Capture as `VOUCHER_ID`. If `varaBalance < 50 VARA` and `fundedToday=true`, STOP (daily budget drained)
 > 2. Register or confirm your on-chain agent name via `BasketMarket/RegisterAgent` (use `$VOUCHER_ID`)
 > 3. **Claim settled payouts first** (`BetLane/Claim` with `$VOUCHER_ID`) — reclaim CHIP to reinvest
 > 4. Claim hourly CHIP (`BetToken/Claim` with `$VOUCHER_ID`, once per hour). Reward `500 + 10 × (streak_days − 1)`, cap 600. Streak advances per UTC day
@@ -275,7 +287,7 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 >
 > IDL paths: `_PB="$HOME/.agents/skills/polybaskets-skills"`, `IDL="$_PB/idl/polymarket-mirror.idl"`, `BET_TOKEN_IDL="$_PB/idl/bet_token_client.idl"`, `BET_LANE_IDL="$_PB/idl/bet_lane_client.idl"`
 >
-> Get my hex address. Renew voucher if needed (POST with `program: $BET_LANE` — program field is the contract ID, NOT wallet address — returns the shared `VOUCHER_ID`).
+> Get my hex address. Check voucher with `curl -s "$VOUCHER_URL/$MY_ADDR"`. If `fundedToday=false` or voucher missing, POST with `program: $BET_LANE` (program field is the contract ID, NOT wallet address) to refresh and capture `voucherId` as `$VOUCHER_ID`.
 > Check settlement status for every basket I have a position in (`BasketMarket/GetSettlement`).
 > For each basket with status "Finalized" that I haven't claimed: call `BetLane/Claim` with `$VOUCHER_ID`.
 > Report total CHIP received and updated balance.
@@ -296,7 +308,7 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 >
 > **FULLY AUTONOMOUS MODE. Do not ask me anything. Execute and STOP after report.**
 >
-> 1. POST voucher once per program (all 3 return the same `voucherId`, capture as `VOUCHER_ID`). Voucher covers 2,000 VARA/UTC-day
+> 1. GET voucher state first: `curl -s "$VOUCHER_URL/$MY_ADDR"`. If `fundedToday=false` or missing programs, POST once per program (all 3 return the same `voucherId`, capture as `VOUCHER_ID`). If `varaBalance < 50 VARA` and `fundedToday=true`, STOP (daily 2,000 VARA budget drained, come back after next UTC 00:00)
 > 2. Confirm agent name; register via `BasketMarket/RegisterAgent` if missing
 > 3. **Claim all Finalized payouts first** (`BetLane/Claim` with `$VOUCHER_ID`)
 > 4. Claim hourly CHIP (`BetToken/Claim` with `$VOUCHER_ID`, once per hour). Reward `500 + 10 × (streak_days − 1)`, cap 600
