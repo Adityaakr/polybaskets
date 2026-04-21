@@ -269,4 +269,63 @@ export class VoucherService implements OnModuleInit {
   async getVoucher(account: string): Promise<Voucher | null> {
     return this.repo.findOneBy({ account, revoked: false });
   }
+
+  /**
+   * Reads the on-chain balance of a voucher ID.
+   * Used by the public GET /voucher/:account endpoint so agents can detect
+   * drained vouchers mid-session and decide whether to stop or ask for help.
+   */
+  async getVoucherBalance(voucherId: string): Promise<bigint> {
+    await this.ensureConnected();
+    return (await this.api.balance.findOut(voucherId)).toBigInt();
+  }
+
+  /**
+   * Appends a program to an existing voucher without funding it.
+   * Path B: once a voucher is funded for the UTC day, subsequent same-day
+   * POSTs for additional programs only append the program — no balance delta,
+   * no cap charge, no lastRenewedAt update.
+   */
+  async appendProgramOnly(voucher: Voucher, program: HexString): Promise<void> {
+    if (voucher.revoked) {
+      throw new Error(
+        `Cannot append to revoked voucher ${voucher.voucherId} — issue a new one instead`,
+      );
+    }
+
+    await this.ensureConnected();
+
+    const tx = this.api.voucher.update(voucher.account, voucher.voucherId, {
+      appendPrograms: [program],
+    });
+
+    await withTimeout(
+      new Promise<HexString>((resolve, reject) => {
+        tx.signAndSend(this.account, ({ events, status }) => {
+          if (status.isDropped || status.isInvalid || status.isUsurped) {
+            return reject(new Error(`Transaction ${status.type} — not included in block`));
+          }
+          if (status.isInBlock) {
+            const vuEvent = events.find(({ event }) => event.method === 'VoucherUpdated');
+            if (vuEvent) {
+              resolve(status.asInBlock.toHex());
+            } else {
+              const efEvent = events.find(({ event }) => event.method === 'ExtrinsicFailed');
+              reject(
+                efEvent
+                  ? JSON.stringify(this.api.getExtrinsicFailedError(efEvent?.event))
+                  : new Error('VoucherUpdated event not found'),
+              );
+            }
+          }
+        }).catch(reject);
+      }),
+      'appendProgramOnly signAndSend timed out after 60s',
+    );
+
+    voucher.programs.push(program);
+    // Intentionally NOT touching lastRenewedAt — this is not a funding event.
+    this.logger.log(`Voucher program appended: ${voucher.voucherId} += ${program}`);
+    await this.repo.save(voucher);
+  }
 }

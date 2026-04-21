@@ -1,4 +1,4 @@
-import { Injectable, Logger, BadRequestException, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, InternalServerErrorException, HttpException, HttpStatus } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { decodeAddress, HexString } from '@gear-js/api';
@@ -10,9 +10,28 @@ import { Voucher } from '../entities/voucher.entity';
 import { VoucherService } from './voucher.service';
 import { ConfigService } from '@nestjs/config';
 
+/**
+ * Season 2 (Path B):
+ *   - One voucher per account, funded once per UTC day to `dailyVaraCap` VARA.
+ *   - First POST of the UTC day: issue or top-up to cap, append program.
+ *   - Subsequent same-day POSTs: append program only (no balance change, no cap charge).
+ *   - Voucher covers all 3 PolyBaskets programs after 3 POSTs, same voucherId throughout.
+ *
+ * Abuse gates (additive):
+ *   1. Per-IP POST throttle (3/hour) at the controller layer.
+ *   2. Per-IP daily VARA ceiling (in-memory Map in this service).
+ *   3. TOCTOU-safe per-account advisory lock (pg_advisory_lock).
+ */
 @Injectable()
 export class GaslessService {
   private logger = new Logger(GaslessService.name);
+
+  /**
+   * In-memory counter: per-IP VARA issued during the current UTC day.
+   * Restart resets the counter (permissive, not restrictive — attacker gains
+   * nothing from restarts; honest users regain budget after transient downtime).
+   */
+  private ipVaraToday = new Map<string, { day: string; varaIssued: number }>();
 
   constructor(
     private readonly voucherService: VoucherService,
@@ -25,30 +44,12 @@ export class GaslessService {
   ) {}
 
   /**
-   * Sum of VARA issued or renewed today (UTC midnight) for a specific agent.
-   * Uses lastRenewedAt so renewals count toward the cap, not just new issuances.
-   */
-  private async getTodayIssuedVara(account: string): Promise<number> {
-    const todayMidnight = new Date();
-    todayMidnight.setUTCHours(0, 0, 0, 0);
-
-    const result = await this.voucherRepo
-      .createQueryBuilder('v')
-      .select('SUM(v.varaToIssue)', 'total')
-      .where('v.account = :account', { account })
-      .andWhere('v.lastRenewedAt >= :since', { since: todayMidnight })
-      .getRawOne();
-
-    return Number(result?.total ?? 0);
-  }
-
-  /**
    * Deterministic integer key for a PostgreSQL advisory lock, keyed on agent
    * address + UTC date. Serializes concurrent requests from the same agent to
-   * prevent TOCTOU races on the per-agent daily cap check.
+   * prevent TOCTOU races on the per-account daily-gate check.
    */
   private getTodayLockKey(account: string): number {
-    const dateStr = new Date().toISOString().slice(0, 10); // e.g. '2026-04-07'
+    const dateStr = new Date().toISOString().slice(0, 10); // e.g. '2026-04-21'
     const key = `${account}:${dateStr}`;
     let hash = 0;
     for (let i = 0; i < key.length; i++) {
@@ -57,26 +58,54 @@ export class GaslessService {
     return Math.abs(hash);
   }
 
+  private getTodayIsoDate(): string {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  private getTodayMidnight(): Date {
+    const d = new Date();
+    d.setUTCHours(0, 0, 0, 0);
+    return d;
+  }
+
   /**
-   * Compute VARA to issue for a program based on its weight relative to all
-   * enabled programs and the daily cap. Heavier programs (higher gas per tx)
-   * get a proportionally larger share.
-   *
-   * Formula: amount = floor(dailyCap * weight / totalWeight)
-   * Minimum 1 VARA per program.
+   * Per-IP daily VARA ceiling enforcement. Call before issuing/funding.
+   * Throws 429 if the IP would exceed the ceiling.
    */
-  private async computeVaraToIssue(program: GaslessProgram): Promise<number> {
-    const dailyCap = this.configService.get<number>('dailyVaraCap');
+  private assertIpUnderCeiling(ip: string, additionalVara: number) {
+    const ceiling = this.configService.get<number>('perIpDailyVaraCeiling');
+    if (!ceiling || ceiling <= 0) return; // disabled
 
-    const programs = await this.programRepo.findBy({
-      status: GaslessProgramStatus.Enabled,
-    });
-    const totalWeight = programs.reduce((sum, p) => sum + p.weight, 0);
+    const today = this.getTodayIsoDate();
+    const existing = this.ipVaraToday.get(ip);
+    const current = existing && existing.day === today ? existing.varaIssued : 0;
 
-    if (totalWeight === 0) return program.varaToIssue; // fallback to DB value
+    if (current + additionalVara > ceiling) {
+      this.logger.warn(
+        `Per-IP ceiling hit for ${ip}: ${current}+${additionalVara} > ${ceiling}`,
+      );
+      throw new HttpException(
+        `Daily VARA ceiling exceeded for this IP. Limit: ${ceiling} VARA/UTC-day.`,
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+  }
 
-    const amount = Math.floor(dailyCap * program.weight / totalWeight);
-    return Math.max(amount, 1);
+  private recordIpIssuance(ip: string, vara: number) {
+    const today = this.getTodayIsoDate();
+    const existing = this.ipVaraToday.get(ip);
+    if (existing && existing.day === today) {
+      existing.varaIssued += vara;
+    } else {
+      this.ipVaraToday.set(ip, { day: today, varaIssued: vara });
+    }
+
+    // Opportunistic eviction: drop entries for stale days whenever the map grows past a threshold.
+    if (this.ipVaraToday.size > 1000) {
+      for (const [k, v] of this.ipVaraToday) {
+        if (v.day !== today) this.ipVaraToday.delete(k);
+      }
+    }
   }
 
   async getVoucherInfo() {
@@ -88,8 +117,48 @@ export class GaslessService {
     };
   }
 
-  async requestVoucher(body: { account: string; program: string }) {
-    this.logger.log(`Voucher request for program ${body.program}`);
+  /**
+   * Read-only voucher state. No cap charge. Used by agents to decide whether
+   * to POST a new voucher request or reuse an existing one this UTC day.
+   */
+  async getVoucherState(account: string) {
+    let address: HexString;
+    try {
+      address = decodeAddress(account);
+    } catch {
+      throw new BadRequestException('Invalid account address');
+    }
+
+    const voucher = await this.voucherService.getVoucher(address);
+    if (!voucher) {
+      return {
+        voucherId: null,
+        programs: [],
+        validUpTo: null,
+        varaBalance: '0',
+        fundedToday: false,
+      };
+    }
+
+    let balance = 0n;
+    try {
+      balance = await this.voucherService.getVoucherBalance(voucher.voucherId);
+    } catch (e) {
+      this.logger.warn(`getVoucherBalance failed for ${voucher.voucherId}: ${e}`);
+      // Fall through with 0 — agent can still decide based on DB state.
+    }
+
+    return {
+      voucherId: voucher.voucherId,
+      programs: voucher.programs,
+      validUpTo: voucher.validUpTo,
+      varaBalance: balance.toString(10),
+      fundedToday: voucher.lastRenewedAt >= this.getTodayMidnight(),
+    };
+  }
+
+  async requestVoucher(body: { account: string; program: string }, ip: string) {
+    this.logger.log(`Voucher request for program ${body.program} from ip ${ip}`);
 
     let address: HexString;
     try {
@@ -98,7 +167,6 @@ export class GaslessService {
       throw new BadRequestException('Invalid account address');
     }
 
-    // Normalize program address to lowercase to avoid case-sensitive mismatch
     const programAddress = body.program.toLowerCase();
 
     const program = await this.programRepo.findOneBy({
@@ -112,65 +180,71 @@ export class GaslessService {
     }
 
     const { duration } = program;
-    const amount = await this.computeVaraToIssue(program);
+    const dailyCap = this.configService.get<number>('dailyVaraCap');
 
-    // Use a QueryRunner to pin lock/unlock + queries to the same DB connection.
+    // QueryRunner to pin advisory lock/unlock + queries to the same DB connection.
     // pg_advisory_lock is session-scoped, so using DataSource.query() risks
     // acquiring and releasing on different pooled connections.
     const qr = this.dataSource.createQueryRunner();
     let lockAcquired = false;
+    // Capture lock key BEFORE any awaited work so we never re-derive it across
+    // a UTC midnight boundary in the finally block (previous bug).
+    const lockKey = this.getTodayLockKey(address);
 
     try {
       await qr.connect();
-      const lockKey = this.getTodayLockKey(address);
       await qr.query('SELECT pg_advisory_lock($1)', [lockKey]);
       lockAcquired = true;
 
-      // Existing voucher lookup inside the locked section to prevent two
-      // concurrent requests from both seeing existing === null and both issuing.
+      // Existing-voucher lookup inside the locked section so two concurrent
+      // requests can't both see existing === null and both issue.
       const existing = await this.voucherService.getVoucher(address);
 
-      // oneTime check: only block if this specific program is already in the voucher
       if (program.oneTime && existing?.programs.includes(programAddress)) {
         throw new BadRequestException('One-time voucher already issued');
       }
 
-      const dailyCap = this.configService.get<number>('dailyVaraCap');
-      const todayTotal = await this.getTodayIssuedVara(address);
-      if (todayTotal + amount > dailyCap) {
-        this.logger.warn(
-          `Daily cap reached for ${address}: ${todayTotal}/${dailyCap} VARA issued today`,
-        );
-        throw new BadRequestException(
-          'Daily voucher budget exhausted. Try again tomorrow.',
-        );
-      }
-
+      // No existing voucher row — brand new agent. Fund to cap, enforce IP ceiling.
       if (!existing) {
+        this.assertIpUnderCeiling(ip, dailyCap);
         const voucherId = await this.voucherService.issue(
           address,
           programAddress as HexString,
-          amount,
+          dailyCap,
           duration,
         );
+        this.recordIpIssuance(ip, dailyCap);
         return { voucherId };
       }
 
-      if (existing.programs.includes(programAddress)) {
-        await this.voucherService.update(existing, amount, duration);
-      } else {
-        await this.voucherService.update(existing, amount, duration, [
+      const alreadyFundedToday = existing.lastRenewedAt >= this.getTodayMidnight();
+
+      if (!alreadyFundedToday) {
+        // First POST of a new UTC day: top voucher back up to cap, append program.
+        this.assertIpUnderCeiling(ip, dailyCap);
+        const addPrograms = existing.programs.includes(programAddress)
+          ? undefined
+          : [programAddress as HexString];
+        await this.voucherService.update(existing, dailyCap, duration, addPrograms);
+        this.recordIpIssuance(ip, dailyCap);
+        return { voucherId: existing.voucherId };
+      }
+
+      // Already funded today — same voucher, just register an extra program if needed.
+      if (!existing.programs.includes(programAddress)) {
+        await this.voucherService.appendProgramOnly(
+          existing,
           programAddress as HexString,
-        ]);
+        );
       }
       return { voucherId: existing.voucherId };
     } catch (error) {
-      if (error instanceof BadRequestException) throw error;
+      if (error instanceof HttpException) throw error;
       this.logger.error('Failed to process voucher request', error);
       throw new InternalServerErrorException('Voucher processing failed — please retry');
     } finally {
       if (lockAcquired) {
-        await qr.query('SELECT pg_advisory_unlock($1)', [this.getTodayLockKey(address)]);
+        await qr.query('SELECT pg_advisory_unlock($1)', [lockKey]);
       }
       await qr.release();
     }
