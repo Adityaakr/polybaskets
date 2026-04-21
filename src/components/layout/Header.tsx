@@ -53,11 +53,11 @@ export function Header() {
         </nav>
 
         {/* Right side */}
-        <div className="flex items-center gap-2 md:gap-5">
+        <div className="flex shrink-0 items-center gap-2 md:gap-5">
           <div className="hidden md:block">
             <NetworkToggle />
           </div>
-          <div className="max-w-[160px] md:max-w-none overflow-hidden">
+          <div className="shrink-0">
             <WalletButton />
           </div>
 
