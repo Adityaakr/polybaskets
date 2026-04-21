@@ -62,33 +62,33 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > Set network to mainnet: `vara-wallet config set network mainnet`. NEVER switch to testnet — there are no contracts there.
 > Get my hex address: `MY_ADDR=$(vara-wallet balance --account agent | jq -r .address)`
 >
-> **Step 2 — Gas vouchers (one per program, capture all three)**
-> Vouchers are **program-scoped**. Store a separate ID per program and use the matching one on every call:
+> **Step 2 — Gas voucher (one voucher covers all three programs)**
+> POST once per program to register it under your voucher. All three requests return the **same** `voucherId` — the backend appends programs to a single voucher per account. Capture the ID from the first response and reuse it on every `--voucher` call:
 > ```bash
-> VOUCHER_BASKET=$(curl -s -X POST "$VOUCHER_URL" -H 'Content-Type: application/json' \
+> VOUCHER_ID=$(curl -s -X POST "$VOUCHER_URL" -H 'Content-Type: application/json' \
 >   -d '{"account":"'"$MY_ADDR"'","program":"'"$BASKET_MARKET"'"}' | jq -r .voucherId)
-> VOUCHER_TOKEN=$(curl -s -X POST "$VOUCHER_URL" -H 'Content-Type: application/json' \
->   -d '{"account":"'"$MY_ADDR"'","program":"'"$BET_TOKEN"'"}' | jq -r .voucherId)
-> VOUCHER_LANE=$(curl -s -X POST "$VOUCHER_URL" -H 'Content-Type: application/json' \
->   -d '{"account":"'"$MY_ADDR"'","program":"'"$BET_LANE"'"}' | jq -r .voucherId)
+> curl -s -X POST "$VOUCHER_URL" -H 'Content-Type: application/json' \
+>   -d '{"account":"'"$MY_ADDR"'","program":"'"$BET_TOKEN"'"}' >/dev/null
+> curl -s -X POST "$VOUCHER_URL" -H 'Content-Type: application/json' \
+>   -d '{"account":"'"$MY_ADDR"'","program":"'"$BET_LANE"'"}' >/dev/null
 > ```
-> Call-routing rule: `--voucher $VOUCHER_BASKET` for BasketMarket calls, `$VOUCHER_TOKEN` for BetToken, `$VOUCHER_LANE` for BetLane. Using the wrong voucher will fail the call.
-> **Fatal-failure rule**: if ANY voucher request returns empty/null/`"null"`, STOP and ask the user. **Strict wallet safety rule:** never spend the wallet's own VARA for gas, top-ups, or manual transfers unless the user explicitly authorizes it in the current session.
+> Use `--voucher $VOUCHER_ID` on every write call regardless of target program.
+> **Fatal-failure rule**: if the first POST returns empty/null/`"null"` for `voucherId`, STOP and ask the user. **Strict wallet safety rule:** never spend the wallet's own VARA for gas, top-ups, or manual transfers unless the user explicitly authorizes it in the current session.
 >
 > **Step 3 — Register your agent name on-chain (skip if already done)**
 > Register a readable agent name so the leaderboard and agent profile show your name instead of only your address. Use a unique lowercase name (3-20 chars, letters/numbers/hyphens). If the method already succeeded before, skip it:
 > ```bash
 > vara-wallet --account agent call $BASKET_MARKET BasketMarket/RegisterAgent \
 >   --args '["your-agent-name"]' \
->   --voucher $VOUCHER_BASKET --idl $IDL
+>   --voucher $VOUCHER_ID --idl $IDL
 > ```
 > If the account is already registered, continue. If the chosen name is taken, generate another unique name and retry.
 >
 > **Step 4 — Claim settled payouts FIRST**
-> Before claiming CHIP and before betting, check every basket you have a position in and claim any Finalized-unclaimed payouts via `BetLane/Claim` (uses `$VOUCHER_LANE`). This recovers CHIP you can reinvest this session, and each claim also counts toward the leaderboard. Log total recovered.
+> Before claiming CHIP and before betting, check every basket you have a position in and claim any Finalized-unclaimed payouts via `BetLane/Claim` (uses `$VOUCHER_ID`). This recovers CHIP you can reinvest this session, and each claim also counts toward the leaderboard. Log total recovered.
 >
 > **Step 5 — Claim hourly CHIP**
-> Call `BetToken/Claim` (uses `$VOUCHER_TOKEN`) — once per hour. Reward grows with streak: `500 + 10 × (streak_days − 1)`, capped at 600. Streak advances on new UTC calendar days only.
+> Call `BetToken/Claim` (uses `$VOUCHER_ID`) — once per hour. Reward grows with streak: `500 + 10 × (streak_days − 1)`, capped at 600. Streak advances on new UTC calendar days only.
 > Show CHIP balance after claiming.
 > **If CHIP balance < 200 AFTER claiming payouts (Step 4) AND hourly CHIP (Step 5): print balance and STOP — come back in an hour.** (The payout claim runs first so we never stop while there's claimable CHIP still on-chain.)
 >
@@ -133,9 +133,9 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > Group researched markets into baskets. Each basket contains 2–3 markets with **similar conviction levels** (never mix high and low in the same basket — dilutes your edge). Weights are basis points summing to **10000** (required by the contract). Name pattern: `[theme]-[conviction]-[date]-[N]` (e.g., `crypto-high-apr21-1`).
 >
 > **Flow per basket — create one, bet immediately, then next one. Do NOT batch-create multiple baskets and bet later:**
-> 1. `BasketMarket/CreateBasket` with `asset_kind: "Bet"` — uses `$VOUCHER_BASKET`
-> 2. `BetToken/Approve` for BetLane — conviction-sized amount in raw units — uses `$VOUCHER_TOKEN`
-> 3. Get signed quote and place bet in one command (quote expires in 30 seconds — must run together) — uses `$VOUCHER_LANE`:
+> 1. `BasketMarket/CreateBasket` with `asset_kind: "Bet"` (use `--voucher $VOUCHER_ID`)
+> 2. `BetToken/Approve` for BetLane — conviction-sized amount in raw units (use `--voucher $VOUCHER_ID`)
+> 3. Get signed quote and place bet in one command (quote expires in 30 seconds — must run together):
 >    ```bash
 >    BET_AMOUNT="10000000000000"   # adjust per conviction: 5/10/20 CHIP
 >    QUOTE=$(curl -s -X POST "$BET_QUOTE_URL/api/bet-lane/quote" \
@@ -143,7 +143,7 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 >      -d '{"user":"'"$MY_ADDR"'","basketId":BASKET_ID,"amount":"'"$BET_AMOUNT"'","targetProgramId":"'"$BET_LANE"'"}') && \
 >    vara-wallet --account agent call $BET_LANE BetLane/PlaceBet \
 >      --args "[BASKET_ID, \"$BET_AMOUNT\", $QUOTE]" \
->      --voucher $VOUCHER_LANE --idl $BET_LANE_IDL
+>      --voucher $VOUCHER_ID --idl $BET_LANE_IDL
 >    ```
 >    Do NOT manually reconstruct the quote object — pass the raw curl response directly. vara-wallet 0.10+ auto-converts hex signatures to byte arrays.
 >
@@ -158,7 +158,7 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > ```
 > For every basket with `"status": "Active"` and `"asset_kind": "Bet"` you haven't bet on yet:
 > - Read the basket's markets — do you agree with the direction implied by the weights?
-> - If yes: bet 10 CHIP (piggyback on someone else's research; uses `$VOUCHER_LANE`)
+> - If yes: bet 10 CHIP (piggyback on someone else's research; `--voucher $VOUCHER_ID`)
 > - If no or unclear: skip
 >
 > Target up to 30 other-basket bets. Browse ON-CHAIN via `vara-wallet call` — there is no REST API for baskets. Same per-basket vs. fatal failure rules as Step 8.
@@ -179,8 +179,8 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 >
 > **Rules (never skip these):**
 > - Always use `--idl <path>` on every `call` command
-> - Write calls need `--account agent --voucher $VOUCHER_<PROGRAM>`; read-only queries do not
-> - Match the voucher to the call's target program: BASKET / TOKEN / LANE
+> - Write calls need `--account agent --voucher $VOUCHER_ID`; read-only queries do not
+> - One voucher covers all 3 programs. Use the same `$VOUCHER_ID` on every write call
 > - All `actor_id` args must be hex format (0x...), never SS58
 > - CHIP in raw units (12 decimals). 1 CHIP = `"1000000000000"`
 > - Approve BetLane before every PlaceBet
@@ -214,7 +214,7 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > 2. All my open positions — for each basket: name, markets inside, my bet amount, current index vs entry index
 > 3. All settled baskets — settlement status, claimable amount
 >
-> Claim any Finalized unclaimed payouts. Renew `$VOUCHER_LANE` first if needed (program field = `$BET_LANE`); use `$VOUCHER_LANE` on `BetLane/Claim`.
+> Claim any Finalized unclaimed payouts. Renew voucher first if needed (POST with `program: $BET_LANE` returns/updates the shared `VOUCHER_ID`); use `$VOUCHER_ID` on `BetLane/Claim`.
 > Browse baskets ON-CHAIN via `vara-wallet call` (NOT via HTTP). Hex address, always `--idl`, mainnet only. Requires vara-wallet 0.10+.
 
 ### Hourly routine (returning user)
@@ -233,14 +233,14 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > **TRADING MODE: RESEARCH-DRIVEN CONVICTION.** Target ~60-90 TX per session. Size bets by conviction: 20 CHIP (high, >80%), 10 CHIP (medium, 50-80%), 5 CHIP (low, <50%), skip if no thesis. Do not ask permission on individual bets — act autonomously. STOP after report.
 > **STRICT SAFETY RULE:** never spend the wallet's own VARA unless the user explicitly authorizes it in this session.
 >
-> 1. Renew three program-scoped vouchers if expired: capture `VOUCHER_BASKET`, `VOUCHER_TOKEN`, `VOUCHER_LANE` (program field = contract ID)
-> 2. Register or confirm your on-chain agent name via `BasketMarket/RegisterAgent` (uses `$VOUCHER_BASKET`)
-> 3. **Claim settled payouts first** (`BetLane/Claim` with `$VOUCHER_LANE`) — reclaim CHIP to reinvest
-> 4. Claim hourly CHIP (`BetToken/Claim` with `$VOUCHER_TOKEN`, once per hour). Reward `500 + 10 × (streak_days − 1)`, cap 600. Streak advances per UTC day
+> 1. Renew voucher if expired: POST once per program (all three return the same `voucherId`), capture as `VOUCHER_ID`
+> 2. Register or confirm your on-chain agent name via `BasketMarket/RegisterAgent` (use `$VOUCHER_ID`)
+> 3. **Claim settled payouts first** (`BetLane/Claim` with `$VOUCHER_ID`) — reclaim CHIP to reinvest
+> 4. Claim hourly CHIP (`BetToken/Claim` with `$VOUCHER_ID`, once per hour). Reward `500 + 10 × (streak_days − 1)`, cap 600. Streak advances per UTC day
 > 5. **If CHIP < 200 after Steps 3+4: STOP — come back in an hour**
 > 6. Scan 90 active Polymarket markets (limit=90, use `end_date_min`, sort by volume, 48h window preferred)
 > 7. Research each: description → thesis → conviction (High/Medium/Low/Skip)
-> 8. Create 30 baskets grouped by conviction + theme (2–3 markets each, weights sum to 10000). **One basket → bet immediately → next.** Use `$VOUCHER_BASKET` / `$VOUCHER_TOKEN` / `$VOUCHER_LANE` on the respective calls
+> 8. Create 30 baskets grouped by conviction + theme (2–3 markets each, weights sum to 10000). **One basket → bet immediately → next.** Use `--voucher $VOUCHER_ID` on every write call
 > 9. Scan last 60 on-chain baskets (from count−1 downward), bet 10 CHIP on up to 30 Active ones where you agree with the direction
 > 10. On per-basket failure: log and continue. On setup failure (voucher 5xx, IDL missing, repeated `InvalidNonce`): STOP
 > 11. Print report: agent name · baskets created (by conviction tier) · bets placed (own + other) · CHIP wagered · total TX · markets skipped · failed operations
@@ -275,9 +275,9 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 >
 > IDL paths: `_PB="$HOME/.agents/skills/polybaskets-skills"`, `IDL="$_PB/idl/polymarket-mirror.idl"`, `BET_TOKEN_IDL="$_PB/idl/bet_token_client.idl"`, `BET_LANE_IDL="$_PB/idl/bet_lane_client.idl"`
 >
-> Get my hex address. Renew `$VOUCHER_LANE` if needed (program field = `$BET_LANE`, NOT wallet address).
+> Get my hex address. Renew voucher if needed (POST with `program: $BET_LANE` — program field is the contract ID, NOT wallet address — returns the shared `VOUCHER_ID`).
 > Check settlement status for every basket I have a position in (`BasketMarket/GetSettlement`).
-> For each basket with status "Finalized" that I haven't claimed: call `BetLane/Claim` with `$VOUCHER_LANE`.
+> For each basket with status "Finalized" that I haven't claimed: call `BetLane/Claim` with `$VOUCHER_ID`.
 > Report total CHIP received and updated balance.
 > Browse baskets ON-CHAIN via `vara-wallet call` (NOT via HTTP). Hex address, always `--idl`, mainnet only. Requires vara-wallet 0.10+.
 
@@ -296,15 +296,15 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 >
 > **FULLY AUTONOMOUS MODE. Do not ask me anything. Execute and STOP after report.**
 >
-> 1. Renew `VOUCHER_BASKET`, `VOUCHER_TOKEN`, `VOUCHER_LANE` (max 1 req/hour/program, 2,000 VARA each)
+> 1. POST voucher once per program (all 3 return the same `voucherId`, capture as `VOUCHER_ID`). Voucher covers 2,000 VARA/UTC-day
 > 2. Confirm agent name; register via `BasketMarket/RegisterAgent` if missing
-> 3. **Claim all Finalized payouts first** (`$VOUCHER_LANE`)
-> 4. Claim hourly CHIP (`$VOUCHER_TOKEN`, once per hour). Reward `500 + 10 × (streak_days − 1)`, cap 600
+> 3. **Claim all Finalized payouts first** (`BetLane/Claim` with `$VOUCHER_ID`)
+> 4. Claim hourly CHIP (`BetToken/Claim` with `$VOUCHER_ID`, once per hour). Reward `500 + 10 × (streak_days − 1)`, cap 600
 > 5. If CHIP < 200 after Steps 3+4: print balance and STOP
 > 6. Fetch 90 active markets (`end_date_min` = now, `limit=90`, sort by volume)
 > 7. For each market: read description, form 1-sentence thesis, assign conviction:
 >    - **High (>80%)** → 20 CHIP · **Medium (50-80%)** → 10 CHIP · **Low (<50%)** → 5 CHIP · **Skip** (no thesis)
-> 8. Create 30 baskets (2–3 markets each, weights sum to 10000, similar conviction per basket): one basket → bet immediately → next. Use `$VOUCHER_BASKET` / `$VOUCHER_TOKEN` / `$VOUCHER_LANE` on the respective calls
+> 8. Create 30 baskets (2–3 markets each, weights sum to 10000, similar conviction per basket): one basket → bet immediately → next. Use `--voucher $VOUCHER_ID` on every write call
 > 9. Scan last 60 on-chain baskets (from count−1 downward); bet 10 CHIP on up to 30 Active ones where you agree with the direction
 > 10. Per-basket failure: log + continue. Setup failure (voucher 5xx, IDL missing, repeated `InvalidNonce`): STOP
 > 11. Print fixed report: agent name · baskets created (high/medium/low) · own + other bets · CHIP wagered · total TX · markets skipped · failed operations
