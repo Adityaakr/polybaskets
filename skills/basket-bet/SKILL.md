@@ -29,54 +29,64 @@ MY_ADDR=$(vara-wallet balance --account agent | jq -r .address)
 VOUCHER_URL="https://voucher-backend-production-5a1b.up.railway.app/voucher"
 ```
 
-## Claim Gas Voucher (required before any on-chain call)
+## Check / Refresh Gas Voucher (Path B — one voucher per agent per UTC day)
 
-Claim a free gas voucher. **The `program` field is the contract program ID, NOT your wallet address.**
+Season 2 flow: **GET first, POST only if needed.** Each agent gets one voucher per UTC day, funded to 2,000 VARA, covering all 3 programs. GETs are free and read-only; POSTs cost from the daily budget.
+
+**The `program` field is the contract program ID, NOT your wallet address.**
 
 ```bash
-# Claim voucher for all 3 programs (re-run anytime to renew expired vouchers)
-# ⚠ "program" = whitelisted contract ID, NOT your agent address
-VOUCHER_ID=$(curl -s -X POST "$VOUCHER_URL" \
-  -H 'Content-Type: application/json' \
-  -d '{"account":"'"$MY_ADDR"'","program":"'"$BASKET_MARKET"'"}' | jq -r .voucherId)
-curl -s -X POST "$VOUCHER_URL" \
-  -H 'Content-Type: application/json' \
-  -d '{"account":"'"$MY_ADDR"'","program":"'"$BET_TOKEN"'"}'
-curl -s -X POST "$VOUCHER_URL" \
-  -H 'Content-Type: application/json' \
-  -d '{"account":"'"$MY_ADDR"'","program":"'"$BET_LANE"'"}'
-echo "Voucher: $VOUCHER_ID"
+# GET current voucher state — free, doesn't consume the daily budget
+VOUCHER_STATE=$(curl -s "$VOUCHER_URL/$MY_ADDR")
+VOUCHER_ID=$(echo "$VOUCHER_STATE" | jq -r .voucherId)
+FUNDED_TODAY=$(echo "$VOUCHER_STATE" | jq -r .fundedToday)
+HAS_ALL_PROGRAMS=$(echo "$VOUCHER_STATE" | jq -r '.programs | length == 3')
+VARA_BALANCE=$(echo "$VOUCHER_STATE" | jq -r .varaBalance)
+BALANCE_KNOWN=$(echo "$VOUCHER_STATE" | jq -r .balanceKnown)
 
-# To check voucher status later:
-# VOUCHER_ID=$(vara-wallet voucher list $MY_ADDR | jq -r '.[0].id // .[0].voucherId')
+# Only POST if we don't have a fully-funded voucher covering all 3 programs today
+if [ "$VOUCHER_ID" = "null" ] || [ "$FUNDED_TODAY" != "true" ] || [ "$HAS_ALL_PROGRAMS" != "true" ]; then
+  # ⚠ "program" = whitelisted contract ID, NOT your agent address
+  VOUCHER_ID=$(curl -s -X POST "$VOUCHER_URL" -H 'Content-Type: application/json' \
+    -d '{"account":"'"$MY_ADDR"'","program":"'"$BASKET_MARKET"'"}' | jq -r .voucherId)
+  curl -s -X POST "$VOUCHER_URL" -H 'Content-Type: application/json' \
+    -d '{"account":"'"$MY_ADDR"'","program":"'"$BET_TOKEN"'"}' >/dev/null
+  curl -s -X POST "$VOUCHER_URL" -H 'Content-Type: application/json' \
+    -d '{"account":"'"$MY_ADDR"'","program":"'"$BET_LANE"'"}' >/dev/null
+fi
+echo "Voucher: $VOUCHER_ID (fundedToday=$FUNDED_TODAY, balance=$VARA_BALANCE, known=$BALANCE_KNOWN)"
 ```
+
+**Drained-voucher STOP rule**: only trust `$VARA_BALANCE` when `BALANCE_KNOWN=true`. If `BALANCE_KNOWN=false`, the voucher backend couldn't reach the Vara node — keep going, decide from `$FUNDED_TODAY` alone. When `BALANCE_KNOWN=true` AND `$VARA_BALANCE < 50000000000000` (50 VARA in planck) AND `FUNDED_TODAY=true`, the voucher is drained for the day. STOP the session and wait for next UTC 00:00 (or ask the user to authorize personal VARA).
 
 ## CHIP Lane (Primary Path)
 
 Most baskets use `asset_kind: "Bet"` (CHIP tokens). This is the default agent workflow.
 
-### Step 1: Claim Daily CHIP
+### Step 1: Claim Hourly CHIP
 
-Agents get free CHIP tokens every day. Consecutive days build a streak that increases the amount (100 CHIP base, +8.33/day streak, max 150 CHIP at 7-day cap).
+Season 2 economy: agents get free CHIP tokens **once per hour**. Reward per claim = `500 + 10 × (streak_days − 1)` CHIP, capped at **600**. The streak counter advances when you claim on a new UTC calendar day — multiple hourly claims within the same UTC day do NOT raise the streak. Miss a full UTC day → streak resets to 1.
+
+So Day 1 claims = 500 each, Day 2 = 510 each, ..., Day 11+ = 600 each.
 
 ```bash
 # Get your hex address (required for actor_id args — SS58 won't work)
 MY_ADDR=$(vara-wallet balance | jq -r .address)
 
-# Get your voucher ID (claim one first — see Quick Start in SKILL.md)
-VOUCHER_ID=$(vara-wallet voucher list $MY_ADDR | jq -r '.[0].id // .[0].voucherId')
+# Get your voucher ID (check with GET first — see Quick Start in SKILL.md)
+VOUCHER_ID=$(curl -s "$VOUCHER_URL/$MY_ADDR" | jq -r .voucherId)
 
 # Check if claim is available and how much you'll get
 vara-wallet call $BET_TOKEN BetToken/GetClaimPreview \
   --args '["'$MY_ADDR'"]' --idl $BET_TOKEN_IDL
 
-# Claim daily CHIP (do this every day to build streak)
+# Claim hourly CHIP (do this once per hour; streak advances per UTC day)
 # NOTE: --voucher is required on ALL write calls (agent has no VARA for gas)
 vara-wallet --account agent call $BET_TOKEN BetToken/Claim \
   --args '[]' --voucher $VOUCHER_ID --idl $BET_TOKEN_IDL
 ```
 
-The response includes your `streak_days` and `total_claimed`. Higher streak = more CHIP per claim.
+The response includes your `streak_days` and `total_claimed`. Higher streak → more CHIP per claim, up to the Day 11 cap.
 
 ### Step 2: Check CHIP Balance
 
@@ -148,9 +158,9 @@ Returns `u256` -- shares received.
 ```bash
 # 0. Vars are set in the Setup block above. If starting fresh:
 # MY_ADDR=$(vara-wallet balance --account agent | jq -r .address)
-# VOUCHER_ID=$(vara-wallet voucher list $MY_ADDR | jq -r '.[0].id // .[0].voucherId')
+# VOUCHER_ID=$(curl -s "$VOUCHER_URL/$MY_ADDR" | jq -r .voucherId)
 
-# 1. Claim daily CHIP
+# 1. Claim hourly CHIP
 vara-wallet --account agent call $BET_TOKEN BetToken/Claim \
   --args '[]' --voucher $VOUCHER_ID --idl $BET_TOKEN_IDL
 

@@ -56,11 +56,12 @@ See **[STARTER_PROMPT.md](STARTER_PROMPT.md)** for copy-paste prompts you can dr
 
 | Prompt | For |
 |--------|-----|
-| **First-Time Setup** | New users — creates wallet, claims CHIP, places first bet |
-| **Daily Claim + Bet** | Returning users — daily CHIP claim and betting flow |
-| **Check Results** | Check positions and claim settled payouts |
-| **Create Basket** | Find Polymarket markets and create a new basket |
-| **Full Autopilot** | Agent picks the best basket and bets autonomously |
+| **Main Prompt — Full Session** | New + returning agents — full Season 2 trading session with hourly CHIP claim, conviction-sized bets, bounded ~60-90 TX |
+| **Check my bets and balances** | Check positions and claim settled payouts |
+| **Hourly routine (returning user)** | Runs the session loop with hourly CHIP + drained-voucher STOP rule |
+| **Explore markets only** | Research active Polymarket markets without betting |
+| **Claim all payouts** | Claim all Finalized basket payouts |
+| **Max volume session** | Fully autonomous — executes the Main Prompt without asking questions |
 
 Works with: Claude Code, Gemini CLI, Cursor, Codex, or any agent with shell access.
 
