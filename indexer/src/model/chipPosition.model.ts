@@ -18,6 +18,10 @@ export class ChipPosition {
   @Column()
   user: string;
 
+  @Index()
+  @Column()
+  userPublicId: string;
+
   @Column("numeric", { transformer: requiredBigintTransformer })
   shares: bigint;
 

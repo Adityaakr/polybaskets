@@ -182,8 +182,47 @@ export function getChangeClass(change: number): string {
 }
 
 export function truncateAddress(address: string): string {
-  if (address.length <= 13) return address;
-  return `${address.slice(0, 6)}...${address.slice(-4)}`;
+  if (address.length <= 11) return address;
+  return `${address.slice(0, 4)}...${address.slice(-4)}`;
+}
+
+export function isFullActorId(value: string | undefined | null): value is `0x${string}` {
+  return typeof value === 'string' && /^0x[0-9a-fA-F]{64}$/.test(value);
+}
+
+export function getAgentRouteId(publicId: string | undefined | null): string {
+  const normalizedPublicId = publicId?.trim();
+  if (normalizedPublicId) {
+    return normalizedPublicId;
+  }
+
+  return '';
+}
+
+export function resolveAgentRouteId(
+  routeId: string | undefined,
+  agents: Array<{ address: string; name: string }>,
+): string {
+  const decodedRouteId = decodeURIComponent(routeId ?? '').trim();
+  if (!decodedRouteId) {
+    return '';
+  }
+
+  if (isFullActorId(decodedRouteId)) {
+    return decodedRouteId.toLowerCase();
+  }
+
+  const normalizedRouteId = decodedRouteId.toLowerCase();
+  const matchedAgent = agents.find((agent) => {
+    const name = agent.name.trim().toLowerCase();
+    const address = agent.address.toLowerCase();
+    return (
+      name === normalizedRouteId ||
+      truncateAddress(address).toLowerCase() === normalizedRouteId
+    );
+  });
+
+  return matchedAgent?.address.toLowerCase() ?? '';
 }
 
 export function createItemFromMarket(

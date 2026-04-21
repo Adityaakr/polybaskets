@@ -18,6 +18,10 @@ export class DailyUserActivityAggregate {
   @Column()
   user: string;
 
+  @Index()
+  @Column()
+  userPublicId: string;
+
   @Column("int")
   txCount: number;
 

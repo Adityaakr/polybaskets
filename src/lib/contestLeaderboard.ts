@@ -26,6 +26,7 @@ type ContestDayProjectionNode = {
 type ContestDayWinnerNode = {
   dayId: string;
   user: string;
+  userPublicId: string;
   realizedProfit: string;
   reward: string | null;
 };
@@ -40,6 +41,7 @@ type BasketNode = {
 type ChipPositionNode = {
   basketId: string;
   user: string;
+  userPublicId: string;
   shares: string;
   claimed: boolean;
   updatedAt: string;
@@ -54,6 +56,7 @@ type BasketSettlementNode = {
 type DailyUserAggregateNode = {
   dayId: string;
   user: string;
+  userPublicId: string;
   realizedProfit: string;
   basketCount: number;
   updatedAt: string;
@@ -62,6 +65,7 @@ type DailyUserAggregateNode = {
 type DailyUserActivityAggregateNode = {
   dayId: string;
   user: string;
+  userPublicId: string;
   txCount: number;
   basketsMade: number;
   betsPlaced: number;
@@ -101,6 +105,7 @@ type TodayContestLeaderboardQuery = {
 
 type DailyUserAggregateProfitNode = {
   user: string;
+  userPublicId: string;
   realizedProfit: string;
   basketCount: number;
 };
@@ -113,6 +118,7 @@ type AllTimeTradingPnlQuery = {
 
 type AllTimeRewardsNode = {
   user: string;
+  userPublicId: string;
   reward: string | null;
 };
 
@@ -125,6 +131,7 @@ type AllTimeRewardsQuery = {
 type DailyBasketContributionNode = {
   basketId: string;
   user: string;
+  userPublicId: string;
   realizedProfit: string;
   payout: string;
   principal: string;
@@ -138,22 +145,23 @@ type AllTimeBasketWinningsQuery = {
 
 type CommunityAgentAddressesQuery = {
   allDailyUserActivityAggregates: {
-    nodes: Array<{ user: string }>;
+    nodes: Array<{ user: string; userPublicId: string }>;
   };
   allDailyUserAggregates: {
-    nodes: Array<{ user: string }>;
+    nodes: Array<{ user: string; userPublicId: string }>;
   };
   allContestDayWinners: {
-    nodes: Array<{ user: string }>;
+    nodes: Array<{ user: string; userPublicId: string }>;
   };
   allBaskets: {
-    nodes: Array<{ creator: string }>;
+    nodes: Array<{ creator: string; creatorPublicId: string }>;
   };
 };
 
 export type ContestLeaderboardDay = ContestDayProjectionNode | null;
 
 export type ContestLeaderboardEntry = DailyUserAggregateNode & {
+  publicId: string;
   txCount: number;
   basketsMade: number;
   betsPlaced: number;
@@ -180,6 +188,7 @@ export type TodayContestLeaderboard = {
 export type AllTimeTradingPnlEntry = {
   rank: number;
   user: string;
+  publicId: string;
   totalRealizedProfit: string;
   totalRewards: string;
   basketCount: number;
@@ -193,6 +202,13 @@ export type AllTimeBasketWinningsEntry = {
   totalPrincipal: string;
   participantCount: number;
 };
+
+export type AgentPublicIdentity = {
+  user: string;
+  publicId: string;
+};
+
+export type CommunityAgentIdentity = AgentPublicIdentity;
 
 const TODAY_CONTEST_LEADERBOARD_QUERY = `
   query TodayContestLeaderboard(
@@ -228,6 +244,7 @@ const TODAY_CONTEST_LEADERBOARD_QUERY = `
       nodes {
         dayId
         user
+        userPublicId
         txCount
         basketsMade
         betsPlaced
@@ -246,6 +263,7 @@ const TODAY_CONTEST_LEADERBOARD_QUERY = `
       nodes {
         dayId
         user
+        userPublicId
         realizedProfit
         basketCount
         updatedAt
@@ -259,6 +277,7 @@ const TODAY_CONTEST_LEADERBOARD_QUERY = `
       nodes {
         dayId
         user
+        userPublicId
         realizedProfit
         reward
       }
@@ -281,6 +300,7 @@ const TODAY_CONTEST_LEADERBOARD_QUERY = `
       nodes {
         basketId
         user
+        userPublicId
         shares
         claimed
         updatedAt
@@ -303,6 +323,7 @@ const TODAY_CONTEST_LEADERBOARD_QUERY = `
       nodes {
         basketId
         user
+        userPublicId
         realizedProfit
         payout
         principal
@@ -320,6 +341,7 @@ const ALL_TIME_TRADING_PNL_QUERY = `
     ) {
       nodes {
         user
+        userPublicId
         realizedProfit
         basketCount
       }
@@ -336,6 +358,7 @@ const ALL_TIME_REWARDS_QUERY = `
     ) {
       nodes {
         user
+        userPublicId
         reward
       }
     }
@@ -352,6 +375,7 @@ const ALL_TIME_BASKET_WINNINGS_QUERY = `
       nodes {
         basketId
         user
+        userPublicId
         realizedProfit
         payout
         principal
@@ -369,6 +393,7 @@ const COMMUNITY_AGENT_ADDRESSES_QUERY = `
     ) {
       nodes {
         user
+        userPublicId
       }
     }
     allDailyUserAggregates(
@@ -378,6 +403,7 @@ const COMMUNITY_AGENT_ADDRESSES_QUERY = `
     ) {
       nodes {
         user
+        userPublicId
       }
     }
     allContestDayWinners(
@@ -387,6 +413,7 @@ const COMMUNITY_AGENT_ADDRESSES_QUERY = `
     ) {
       nodes {
         user
+        userPublicId
       }
     }
     allBaskets(
@@ -396,7 +423,40 @@ const COMMUNITY_AGENT_ADDRESSES_QUERY = `
     ) {
       nodes {
         creator
+        creatorPublicId
       }
+    }
+  }
+`;
+
+type AgentPublicIdentityQuery = {
+  allDailyUserActivityAggregates: { nodes: Array<{ user: string; userPublicId: string }> };
+  allDailyUserAggregates: { nodes: Array<{ user: string; userPublicId: string }> };
+  allContestDayWinners: { nodes: Array<{ user: string; userPublicId: string }> };
+  allChipPositions: { nodes: Array<{ user: string; userPublicId: string }> };
+  allDailyBasketContributions: { nodes: Array<{ user: string; userPublicId: string }> };
+  allBaskets: { nodes: Array<{ creator: string; creatorPublicId: string }> };
+};
+
+const AGENT_PUBLIC_IDENTITY_QUERY = `
+  query AgentPublicIdentity($publicId: String!) {
+    allDailyUserActivityAggregates(filter: { userPublicId: { equalTo: $publicId } }, first: 1) {
+      nodes { user userPublicId }
+    }
+    allDailyUserAggregates(filter: { userPublicId: { equalTo: $publicId } }, first: 1) {
+      nodes { user userPublicId }
+    }
+    allContestDayWinners(filter: { userPublicId: { equalTo: $publicId } }, first: 1) {
+      nodes { user userPublicId }
+    }
+    allChipPositions(filter: { userPublicId: { equalTo: $publicId } }, first: 1) {
+      nodes { user userPublicId }
+    }
+    allDailyBasketContributions(filter: { userPublicId: { equalTo: $publicId } }, first: 1) {
+      nodes { user userPublicId }
+    }
+    allBaskets(filter: { creatorPublicId: { equalTo: $publicId } }, first: 1) {
+      nodes { creator creatorPublicId }
     }
   }
 `;
@@ -729,6 +789,8 @@ export const fetchTodayContestLeaderboard = async (
   const scoredEntries: ContestLeaderboardEntry[] = data.allDailyUserActivityAggregates.nodes.map((entry) => ({
     dayId: entry.dayId,
     user: entry.user,
+    userPublicId: entry.userPublicId,
+    publicId: entry.userPublicId,
     realizedProfit: realizedProfitByUser.get(entry.user.toLowerCase())?.realizedProfit ?? "0",
     basketCount: realizedProfitByUser.get(entry.user.toLowerCase())?.basketCount ?? 0,
     updatedAt: entry.updatedAt,
@@ -762,6 +824,8 @@ export const fetchTodayContestLeaderboard = async (
       return {
         dayId,
         user: matchingPosition?.user ?? userKey,
+        userPublicId: matchingPosition?.userPublicId ?? "",
+        publicId: matchingPosition?.userPublicId ?? "",
         realizedProfit: "0",
         basketCount: pendingBasketCount,
         updatedAt: matchingPosition?.updatedAt ?? new Date(0).toISOString(),
@@ -1002,7 +1066,16 @@ export const fetchAgentProfileSummary = async (
 };
 
 export const fetchAllTimeTradingPnl = async (): Promise<AllTimeTradingPnlEntry[]> => {
-  const profitTotals = new Map<string, { user: string; totalRealizedProfit: bigint; basketCount: number; totalRewards: bigint }>();
+  const profitTotals = new Map<
+    string,
+    {
+      user: string;
+      publicId: string;
+      totalRealizedProfit: bigint;
+      basketCount: number;
+      totalRewards: bigint;
+    }
+  >();
 
   for (let offset = 0; ; offset += ALL_TIME_TRADING_BATCH_SIZE) {
     const data = await graphQLRequest<AllTimeTradingPnlQuery>(
@@ -1025,6 +1098,7 @@ export const fetchAllTimeTradingPnl = async (): Promise<AllTimeTradingPnlEntry[]
       const current = profitTotals.get(key);
 
       if (current) {
+        current.publicId = node.userPublicId;
         current.totalRealizedProfit += realizedProfit;
         current.basketCount += node.basketCount;
         continue;
@@ -1032,6 +1106,7 @@ export const fetchAllTimeTradingPnl = async (): Promise<AllTimeTradingPnlEntry[]
 
       profitTotals.set(key, {
         user: node.user,
+        publicId: node.userPublicId,
         totalRealizedProfit: realizedProfit,
         basketCount: node.basketCount,
         totalRewards: 0n,
@@ -1063,12 +1138,14 @@ export const fetchAllTimeTradingPnl = async (): Promise<AllTimeTradingPnlEntry[]
       const current = profitTotals.get(key);
 
       if (current) {
+        current.publicId = node.userPublicId;
         current.totalRewards += reward;
         continue;
       }
 
       profitTotals.set(key, {
         user: node.user,
+        publicId: node.userPublicId,
         totalRealizedProfit: 0n,
         basketCount: 0,
         totalRewards: reward,
@@ -1091,14 +1168,15 @@ export const fetchAllTimeTradingPnl = async (): Promise<AllTimeTradingPnlEntry[]
     .map((entry, index) => ({
       rank: index + 1,
       user: entry.user,
+      publicId: entry.publicId,
       totalRealizedProfit: entry.totalRealizedProfit.toString(),
       totalRewards: entry.totalRewards.toString(),
       basketCount: entry.basketCount,
     }));
 };
 
-export const fetchCommunityAgentAddresses = async (): Promise<string[]> => {
-  const addressesByKey = new Map<string, string>();
+export const fetchCommunityAgentAddresses = async (): Promise<CommunityAgentIdentity[]> => {
+  const agentsByKey = new Map<string, CommunityAgentIdentity>();
 
   for (let offset = 0; ; offset += ALL_TIME_TRADING_BATCH_SIZE) {
     const data = await graphQLRequest<CommunityAgentAddressesQuery>(
@@ -1115,19 +1193,31 @@ export const fetchCommunityAgentAddresses = async (): Promise<string[]> => {
     const basketNodes = data.allBaskets.nodes;
 
     for (const node of activityNodes) {
-      addressesByKey.set(node.user.toLowerCase(), node.user);
+      agentsByKey.set(node.user.toLowerCase(), {
+        user: node.user,
+        publicId: node.userPublicId,
+      });
     }
 
     for (const node of aggregateNodes) {
-      addressesByKey.set(node.user.toLowerCase(), node.user);
+      agentsByKey.set(node.user.toLowerCase(), {
+        user: node.user,
+        publicId: node.userPublicId,
+      });
     }
 
     for (const node of winnerNodes) {
-      addressesByKey.set(node.user.toLowerCase(), node.user);
+      agentsByKey.set(node.user.toLowerCase(), {
+        user: node.user,
+        publicId: node.userPublicId,
+      });
     }
 
     for (const node of basketNodes) {
-      addressesByKey.set(node.creator.toLowerCase(), node.creator);
+      agentsByKey.set(node.creator.toLowerCase(), {
+        user: node.creator,
+        publicId: node.creatorPublicId,
+      });
     }
 
     if (
@@ -1140,7 +1230,47 @@ export const fetchCommunityAgentAddresses = async (): Promise<string[]> => {
     }
   }
 
-  return Array.from(addressesByKey.values()).sort((left, right) => left.localeCompare(right));
+  return Array.from(agentsByKey.values()).sort((left, right) =>
+    left.user.localeCompare(right.user),
+  );
+};
+
+export const fetchAgentAddressByPublicId = async (
+  publicId: string,
+): Promise<AgentPublicIdentity | null> => {
+  const normalizedPublicId = publicId.trim();
+  if (!normalizedPublicId) {
+    return null;
+  }
+
+  const data = await graphQLRequest<AgentPublicIdentityQuery>(
+    AGENT_PUBLIC_IDENTITY_QUERY,
+    { publicId: normalizedPublicId },
+  );
+
+  const userNode =
+    data.allDailyUserActivityAggregates.nodes[0] ??
+    data.allDailyUserAggregates.nodes[0] ??
+    data.allContestDayWinners.nodes[0] ??
+    data.allChipPositions.nodes[0] ??
+    data.allDailyBasketContributions.nodes[0];
+
+  if (userNode) {
+    return {
+      user: userNode.user,
+      publicId: userNode.userPublicId,
+    };
+  }
+
+  const basketNode = data.allBaskets.nodes[0];
+  if (basketNode) {
+    return {
+      user: basketNode.creator,
+      publicId: basketNode.creatorPublicId,
+    };
+  }
+
+  return null;
 };
 
 export const fetchAllTimeBasketWinnings = async (): Promise<AllTimeBasketWinningsEntry[]> => {

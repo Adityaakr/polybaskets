@@ -6,6 +6,7 @@ import { ArrowLeft, CheckCircle2, Clock, Layers, Search } from 'lucide-react';
 import { useWallet } from '@/contexts/WalletContext';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { useAgentNames } from '@/hooks/useAgentNames';
+import { useAgentRouteAddress } from '@/hooks/useAgentRouteAddress';
 import { useTodayContestLeaderboard } from '@/hooks/useTodayContestLeaderboard';
 import { BasketCard } from '@/components/BasketCard';
 import { Button } from '@/components/ui/button';
@@ -24,7 +25,8 @@ const isAgentBasketView = (value: string | undefined): value is AgentBasketView 
 
 export default function AgentBasketsPage() {
   const { actorId, view } = useParams<{ actorId: string; view: string }>();
-  const normalizedActorId = actorId?.toLowerCase() ?? '';
+  const routeIdentity = useAgentRouteAddress(actorId);
+  const normalizedActorId = routeIdentity.address;
   const currentView: AgentBasketView = isAgentBasketView(view) ? view : 'total';
   const { api, isApiReady } = useApi();
   const { network } = useNetwork();
@@ -190,13 +192,17 @@ export default function AgentBasketsPage() {
 
   const StatusIcon = pageMeta.statusIcon;
   const isLoading =
+    routeIdentity.isLoading ||
     leaderboardQuery.isLoading ||
     basketsQuery.isLoading ||
     (currentView === 'total' && historicalBasketIdsQuery.isLoading);
 
   const isError =
-    basketsQuery.isError || (currentView === 'total' && historicalBasketIdsQuery.isError);
+    routeIdentity.isError ||
+    basketsQuery.isError ||
+    (currentView === 'total' && historicalBasketIdsQuery.isError);
   const errorMessage =
+    (routeIdentity.error as Error | undefined)?.message ||
     (basketsQuery.error as Error | undefined)?.message ||
     (historicalBasketIdsQuery.error as Error | undefined)?.message ||
     'Unknown indexer error';
@@ -236,7 +242,7 @@ export default function AgentBasketsPage() {
             </div>
             <div className="mt-2 break-words text-base font-semibold">{displayName}</div>
             <p className="mt-2 break-all font-mono text-xs leading-5 text-muted-foreground">
-              {displaySourceEntry?.user ?? normalizedActorId}
+              {truncateAddress(displaySourceEntry?.user ?? normalizedActorId)}
             </p>
           </CardContent>
         </Card>

@@ -6,6 +6,7 @@ import { ArrowLeft, Clock, Layers, Search } from 'lucide-react';
 import { useWallet } from '@/contexts/WalletContext';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { useAgentNames } from '@/hooks/useAgentNames';
+import { useAgentRouteAddress } from '@/hooks/useAgentRouteAddress';
 import { useTodayContestLeaderboard } from '@/hooks/useTodayContestLeaderboard';
 import { BasketCard } from '@/components/BasketCard';
 import { Button } from '@/components/ui/button';
@@ -18,7 +19,8 @@ import { isBasketAssetKindEnabled } from '@/env';
 
 export default function AgentAwaitingPage() {
   const { actorId } = useParams<{ actorId: string }>();
-  const normalizedActorId = actorId?.toLowerCase() ?? '';
+  const routeIdentity = useAgentRouteAddress(actorId);
+  const normalizedActorId = routeIdentity.address;
   const { api, isApiReady } = useApi();
   const { network } = useNetwork();
   const { address } = useWallet();
@@ -72,9 +74,10 @@ export default function AgentAwaitingPage() {
     refetchOnWindowFocus: true,
   });
 
-  const isLoading = leaderboardQuery.isLoading || basketsQuery.isLoading;
-  const isError = basketsQuery.isError;
+  const isLoading = routeIdentity.isLoading || leaderboardQuery.isLoading || basketsQuery.isLoading;
+  const isError = routeIdentity.isError || basketsQuery.isError;
   const errorMessage =
+    (routeIdentity.error as Error | undefined)?.message ||
     (basketsQuery.error as Error | undefined)?.message || 'Unknown indexer error';
 
   return (
@@ -113,7 +116,7 @@ export default function AgentAwaitingPage() {
               {displayName}
             </div>
             <p className="mt-2 break-all font-mono text-xs leading-5 text-muted-foreground">
-              {awaitingEntry?.user ?? normalizedActorId}
+              {truncateAddress(awaitingEntry?.user ?? normalizedActorId)}
             </p>
           </CardContent>
         </Card>

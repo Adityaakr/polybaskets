@@ -1,6 +1,7 @@
 import { GearApi } from "@gear-js/api";
 import { FindOptionsWhere } from "typeorm";
 import { DAY_MS, config, emptyDayPolicy } from "../config";
+import { getAgentPublicId } from "../helpers/agent-public-id";
 import { isSailsEvent, isUserMessageSentEvent } from "../helpers/is";
 import {
   Basket,
@@ -546,6 +547,7 @@ export class DailyContestHandler extends BaseHandler {
     messageId: string
   ): Promise<void> {
     const id = basketEntityId(payload.basket_id);
+    const creator = String(payload.creator);
     this.basketsToSave.set(
       id,
       new Basket({
@@ -553,7 +555,8 @@ export class DailyContestHandler extends BaseHandler {
         basketId: String(payload.basket_id),
         basketProgramId: config.basketMarketProgramId,
         assetKind: payload.asset_kind,
-        creator: String(payload.creator),
+        creator,
+        creatorPublicId: getAgentPublicId(creator),
         createdAt: blockTimestamp,
         status: "created",
       })
@@ -561,7 +564,7 @@ export class DailyContestHandler extends BaseHandler {
 
     await this.recordActivity(
       blockTimestamp,
-      String(payload.creator),
+      creator,
       blockHeight,
       messageId,
       { txCount: 1, basketsMade: 1 }
@@ -575,10 +578,12 @@ export class DailyContestHandler extends BaseHandler {
     messageId: string
   ): Promise<void> {
     const basketId = basketEntityId(payload.basket_id);
+    const user = String(payload.user);
     const position = new ChipPosition({
-      id: chipPositionId(basketId, String(payload.user)),
+      id: chipPositionId(basketId, user),
       basketId,
-      user: String(payload.user),
+      user,
+      userPublicId: getAgentPublicId(user),
       shares: toBigIntValue(payload.user_total),
       indexAtCreationBps: payload.position_index_at_creation_bps,
       claimed: false,
@@ -588,7 +593,7 @@ export class DailyContestHandler extends BaseHandler {
     this.chipPositionsToSave.set(position.id, position);
     await this.recordActivity(
       blockTimestamp,
-      String(payload.user),
+      user,
       blockHeight,
       messageId,
       { txCount: 1, betsPlaced: 1 }
@@ -674,6 +679,7 @@ export class DailyContestHandler extends BaseHandler {
         id,
         dayId,
         user,
+        userPublicId: getAgentPublicId(user),
         txCount: 0,
         basketsMade: 0,
         betsPlaced: 0,
@@ -788,6 +794,7 @@ export class DailyContestHandler extends BaseHandler {
         dayId,
         basketId,
         user: position.user,
+        userPublicId: getAgentPublicId(position.user),
         realizedProfit: payout - position.shares,
         payout,
         principal: position.shares,
@@ -837,6 +844,7 @@ export class DailyContestHandler extends BaseHandler {
           id: dailyUserAggregateId(dayId, user),
           dayId,
           user,
+          userPublicId: getAgentPublicId(user),
           realizedProfit: value.realizedProfit,
           basketCount: value.basketIds.size,
           updatedAt: blockTimestamp,
@@ -884,6 +892,7 @@ export class DailyContestHandler extends BaseHandler {
           id: contestWinnerId(dayId, winner.user),
           dayId: contestDayId(dayId),
           user: winner.user,
+          userPublicId: getAgentPublicId(winner.user),
           rank: index + 1,
           realizedProfit: winner.realizedProfit,
           reward: null,
@@ -974,6 +983,7 @@ export class DailyContestHandler extends BaseHandler {
           id: contestWinnerId(dayId, String(payout.account)),
           dayId: contestDayId(dayId),
           user: String(payout.account),
+          userPublicId: getAgentPublicId(String(payout.account)),
           rank: index + 1,
           realizedProfit: toBigIntValue(payout.realized_profit),
           reward: toBigIntValue(payout.reward),

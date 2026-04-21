@@ -26,6 +26,10 @@ export class Basket {
   creator: string;
 
   @Index()
+  @Column()
+  creatorPublicId: string;
+
+  @Index()
   @Column("timestamptz")
   createdAt: Date;
 

@@ -18,6 +18,10 @@ export class DailyUserAggregate {
   @Column()
   user: string;
 
+  @Index()
+  @Column()
+  userPublicId: string;
+
   @Column("numeric", { transformer: requiredBigintTransformer })
   realizedProfit: bigint;
 

@@ -14,6 +14,7 @@ import {
 import { useWallet } from '@/contexts/WalletContext';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { useAgentNames } from '@/hooks/useAgentNames';
+import { useAgentRouteAddress } from '@/hooks/useAgentRouteAddress';
 import { useTodayContestLeaderboard } from '@/hooks/useTodayContestLeaderboard';
 import { BasketCard } from '@/components/BasketCard';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -40,7 +41,7 @@ import {
   toBigIntValue,
 } from '@/lib/betPrograms';
 import { basketMarketProgramFromApi, actorIdFromAddress, fromVara } from '@/lib/varaClient';
-import { truncateAddress } from '@/lib/basket-utils';
+import { getAgentRouteId, truncateAddress } from '@/lib/basket-utils';
 import { isBasketAssetKindEnabled } from '@/env';
 
 type BasketCollection = Awaited<ReturnType<typeof fetchAllOnChainBaskets>>;
@@ -119,7 +120,9 @@ function BasketSection({
 
 export default function AgentProfilePage() {
   const { actorId } = useParams<{ actorId: string }>();
-  const normalizedActorId = actorId?.toLowerCase() ?? '';
+  const routeIdentity = useAgentRouteAddress(actorId);
+  const normalizedActorId = routeIdentity.address;
+  const agentRouteId = getAgentRouteId(routeIdentity.publicId);
   const { api, isApiReady } = useApi();
   const { network } = useNetwork();
   const { address } = useWallet();
@@ -302,12 +305,14 @@ export default function AgentProfilePage() {
   const recentCreatedBaskets = basketCollectionsQuery.data?.createdBaskets.slice(0, 3) ?? [];
 
   const isLoading =
+    routeIdentity.isLoading ||
     leaderboardQuery.isLoading ||
     profileSummaryQuery.isLoading ||
     historicalBasketIdsQuery.isLoading ||
     basketCollectionsQuery.isLoading;
 
   const summaryError =
+    (routeIdentity.error as Error | undefined)?.message ||
     (profileSummaryQuery.error as Error | undefined)?.message ||
     (historicalBasketIdsQuery.error as Error | undefined)?.message ||
     (basketCollectionsQuery.error as Error | undefined)?.message ||
@@ -333,16 +338,16 @@ export default function AgentProfilePage() {
               {scoredEntry?.isCurrentWinner ? <Badge variant="secondary">Today&apos;s leader</Badge> : null}
             </div>
             <p className="mt-3 max-w-3xl text-base text-muted-foreground reveal reveal-delay-1">
-              Detailed activity, balances, basket history, and contest context for this agent address.
+              Detailed activity, balances, basket history, and contest context for this agent.
             </p>
           </div>
         </div>
         <div className="hidden items-center gap-2 md:flex">
           <Button variant="outline" asChild>
-            <Link to={`/agents/${encodeURIComponent(normalizedActorId)}/baskets/total`}>Finalized History</Link>
+            <Link to={`/agents/${encodeURIComponent(agentRouteId)}/baskets/total`}>Finalized History</Link>
           </Button>
           <Button asChild>
-            <Link to={`/agents/${encodeURIComponent(normalizedActorId)}/baskets/awaiting`}>Awaiting Baskets</Link>
+            <Link to={`/agents/${encodeURIComponent(agentRouteId)}/baskets/awaiting`}>Awaiting Baskets</Link>
           </Button>
         </div>
       </div>
@@ -373,7 +378,7 @@ export default function AgentProfilePage() {
                 Address
               </div>
               <p className="mt-2 break-all font-mono text-xs leading-5 text-muted-foreground">
-                {normalizedActorId}
+                {truncateAddress(normalizedActorId)}
               </p>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -489,7 +494,7 @@ export default function AgentProfilePage() {
             <MetricCard
               title="Created baskets"
               value={basketCollectionsQuery.data?.createdBaskets.length ?? 0}
-              description="Visible on-chain baskets created by this address in the current program."
+              description="Visible on-chain baskets created by this agent in the current program."
               icon={Layers}
             />
             <MetricCard
@@ -516,7 +521,7 @@ export default function AgentProfilePage() {
             <MetricCard
               title="Winning days"
               value={profileSummaryQuery.data?.winningDays ?? 0}
-              description="Number of 12:00 UTC contest windows this address finished as the sole winner."
+              description="Number of 12:00 UTC contest windows this agent finished as the sole winner."
               icon={Trophy}
             />
             <MetricCard
@@ -534,22 +539,22 @@ export default function AgentProfilePage() {
             </CardHeader>
             <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               <Button variant="outline" asChild>
-                <Link to={`/agents/${encodeURIComponent(normalizedActorId)}/baskets/today`}>
+                <Link to={`/agents/${encodeURIComponent(agentRouteId)}/baskets/today`}>
                   Today activity baskets
                 </Link>
               </Button>
               <Button variant="outline" asChild>
-                <Link to={`/agents/${encodeURIComponent(normalizedActorId)}/baskets/awaiting`}>
+                <Link to={`/agents/${encodeURIComponent(agentRouteId)}/baskets/awaiting`}>
                   Awaiting baskets
                 </Link>
               </Button>
               <Button variant="outline" asChild>
-                <Link to={`/agents/${encodeURIComponent(normalizedActorId)}/baskets/total`}>
+                <Link to={`/agents/${encodeURIComponent(agentRouteId)}/baskets/total`}>
                   Finalized history
                 </Link>
               </Button>
               <Button variant="outline" asChild>
-                <Link to={`/agents/${encodeURIComponent(normalizedActorId)}/baskets/created`}>
+                <Link to={`/agents/${encodeURIComponent(agentRouteId)}/baskets/created`}>
                   Created baskets
                 </Link>
               </Button>
@@ -557,45 +562,45 @@ export default function AgentProfilePage() {
             <CardContent className="pt-0 text-xs text-muted-foreground">
               {profileSummaryQuery.data?.lastIndexedActivityAt
                 ? `Last indexed activity: ${formatUtcDateTime(profileSummaryQuery.data.lastIndexedActivityAt)} UTC`
-                : 'No indexed activity has been recorded for this address yet.'}
+                : 'No indexed activity has been recorded for this agent yet.'}
             </CardContent>
           </Card>
 
           <div className="space-y-10">
             <BasketSection
               title="Awaiting Baskets"
-              description="Open baskets where the address still has unresolved CHIP exposure."
+              description="Open baskets where the agent still has unresolved CHIP exposure."
               baskets={recentAwaitingBaskets}
-              href={`/agents/${encodeURIComponent(normalizedActorId)}/baskets/awaiting`}
+              href={`/agents/${encodeURIComponent(agentRouteId)}/baskets/awaiting`}
               emptyTitle="No awaiting baskets right now"
-              emptyDescription="This address is not currently present in the awaiting leaderboard."
+              emptyDescription="This agent is not currently present in the awaiting leaderboard."
             />
 
             <BasketSection
               title="Today Activity Baskets"
               description="Resolved baskets contributing to the current 12:00 UTC contest-window activity leaderboard entry."
               baskets={recentTodayBaskets}
-              href={`/agents/${encodeURIComponent(normalizedActorId)}/baskets/today`}
+              href={`/agents/${encodeURIComponent(agentRouteId)}/baskets/today`}
               emptyTitle="No scored baskets for today yet"
               emptyDescription="Once the agent has resolved basket contributions today, they will show up here."
             />
 
             <BasketSection
               title="Finalized History"
-              description="Most recent settled baskets associated with this address in indexed history."
+              description="Most recent settled baskets associated with this agent in indexed history."
               baskets={recentHistoricalBaskets}
-              href={`/agents/${encodeURIComponent(normalizedActorId)}/baskets/total`}
+              href={`/agents/${encodeURIComponent(agentRouteId)}/baskets/total`}
               emptyTitle="No finalized basket history yet"
-              emptyDescription="This address does not have settled basket history available in the indexer."
+              emptyDescription="This agent does not have settled basket history available in the indexer."
             />
 
             <BasketSection
               title="Created Baskets"
-              description="Recently visible baskets curated directly by this address."
+              description="Recently visible baskets curated directly by this agent."
               baskets={recentCreatedBaskets}
-              href={`/agents/${encodeURIComponent(normalizedActorId)}/baskets/created`}
+              href={`/agents/${encodeURIComponent(agentRouteId)}/baskets/created`}
               emptyTitle="No created baskets found"
-              emptyDescription="This address does not currently appear as a basket creator in the on-chain program."
+              emptyDescription="This agent does not currently appear as a basket creator in the on-chain program."
             />
           </div>
         </>

@@ -25,11 +25,12 @@ import {
   getUtcDayLabel,
   type ContestLeaderboardEntry,
   type AllTimeTradingPnlEntry,
+  type CommunityAgentIdentity,
   type TodayContestLeaderboard,
 } from '@/lib/contestLeaderboard.ts';
 import { useAgentNames } from '@/hooks/useAgentNames';
 import { ENV, isBasketAssetKindEnabled } from '@/env';
-import { truncateAddress } from '@/lib/basket-utils.ts';
+import { getAgentRouteId, truncateAddress } from '@/lib/basket-utils.ts';
 import { useContestLeaderboard } from '@/hooks/useTodayContestLeaderboard';
 import { useAllTimeContestWinners } from '@/hooks/useAllTimeContestWinners';
 import { useAllTimeBasketWinnings } from '@/hooks/useAllTimeBasketWinnings';
@@ -247,7 +248,7 @@ function ActivityLeaderboardRow({
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <Link
-                  to={`/agents/${encodeURIComponent(entry.user)}`}
+                  to={`/agents/${encodeURIComponent(getAgentRouteId(entry.publicId))}`}
                   onClick={(event) => event.stopPropagation()}
                   className="truncate text-sm font-semibold transition-colors hover:text-primary"
                 >
@@ -742,7 +743,7 @@ function TodayContestTab({ initialView = 'today' }: TodayContestTabProps) {
                     return (
                       <Link
                         key={`awaiting-panel-${entry.user}`}
-                        to={`/agents/${encodeURIComponent(entry.user)}/baskets/awaiting`}
+                        to={`/agents/${encodeURIComponent(getAgentRouteId(entry.publicId))}/baskets/awaiting`}
                         className={[
                           'group grid grid-cols-[40px_1fr] md:grid-cols-[72px_minmax(0,1.5fr)_140px_160px] gap-2 md:gap-4 px-4 md:px-6 py-4 transition-colors',
                           isCurrentUser ? 'bg-primary/5' : 'hover:bg-muted/20',
@@ -855,7 +856,7 @@ function CommunityVaraLeaderboard() {
   const [winningsPage, setWinningsPage] = useState(1);
   const allTimeWinnersQuery = useAllTimeContestWinners();
   const allTimeBasketWinningsQuery = useAllTimeBasketWinnings();
-  const communityAgentAddressesQuery = useQuery<string[]>({
+  const communityAgentAddressesQuery = useQuery<CommunityAgentIdentity[]>({
     queryKey: ['contest-leaderboard', 'community-agent-addresses'],
     queryFn: fetchCommunityAgentAddresses,
     staleTime: 15_000,
@@ -1007,24 +1008,45 @@ function CommunityVaraLeaderboard() {
   }, [address, allTimeBasketWinningsQuery.data, followVersion, onChainBaskets]);
 
   const communityAgentAddresses = useMemo(() => {
-    const addressesByKey = new Map<string, string>();
+    const agentsByKey = new Map<string, CommunityAgentIdentity>();
 
     for (const agent of agents) {
-      addressesByKey.set(agent.address.toLowerCase(), agent.address);
+      agentsByKey.set(agent.address.toLowerCase(), {
+        user: agent.address,
+        publicId: '',
+      });
     }
 
-    for (const address of communityAgentAddressesQuery.data ?? []) {
-      addressesByKey.set(address.toLowerCase(), address);
+    for (const identity of communityAgentAddressesQuery.data ?? []) {
+      agentsByKey.set(identity.user.toLowerCase(), identity);
     }
 
-    return Array.from(addressesByKey.values());
+    return Array.from(agentsByKey.values());
   }, [agents, communityAgentAddressesQuery.data]);
 
-  const topCurators = useMemo(() => {
-    const curatorMap: Record<string, { totalFollowers: number; basketCount: number }> = {};
+  const publicIdByAddress = useMemo(() => {
+    const publicIds = new Map<string, string>();
+    for (const identity of communityAgentAddresses) {
+      if (identity.publicId) {
+        publicIds.set(identity.user.toLowerCase(), identity.publicId);
+      }
+    }
+    return publicIds;
+  }, [communityAgentAddresses]);
 
-    communityAgentAddresses.forEach((address) => {
-      curatorMap[address.toLowerCase()] = { totalFollowers: 0, basketCount: 0 };
+  const topCurators = useMemo(() => {
+    const curatorMap: Record<string, { publicId: string | null; totalFollowers: number; basketCount: number }> = {};
+
+    communityAgentAddresses.forEach((identity) => {
+      if (!identity.publicId) {
+        return;
+      }
+
+      curatorMap[identity.user.toLowerCase()] = {
+        publicId: identity.publicId,
+        totalFollowers: 0,
+        basketCount: 0,
+      };
     });
 
     onChainBaskets.forEach((basket) => {
@@ -1038,7 +1060,16 @@ function CommunityVaraLeaderboard() {
       })();
 
       if (!curatorMap[owner]) {
-        curatorMap[owner] = { totalFollowers: 0, basketCount: 0 };
+        const publicId = publicIdByAddress.get(owner);
+        if (!publicId) {
+          return;
+        }
+
+        curatorMap[owner] = {
+          publicId,
+          totalFollowers: 0,
+          basketCount: 0,
+        };
       }
 
       curatorMap[owner].totalFollowers += followers;
@@ -1054,7 +1085,7 @@ function CommunityVaraLeaderboard() {
 
         return right.basketCount - left.basketCount;
       });
-  }, [communityAgentAddresses, followVersion, onChainBaskets]);
+  }, [communityAgentAddresses, followVersion, onChainBaskets, publicIdByAddress]);
 
   const handleToggleFollow = async (basket: Basket) => {
     if (!address) {
@@ -1086,20 +1117,26 @@ function CommunityVaraLeaderboard() {
     for (const entry of allTimeWinnersQuery.data ?? []) {
       entriesByUser.set(entry.user.toLowerCase(), {
         user: entry.user,
+        publicId: entry.publicId,
         totalRealizedProfit: entry.totalRealizedProfit,
         totalRewards: entry.totalRewards,
         basketCount: entry.basketCount,
       });
     }
 
-    for (const address of communityAgentAddresses) {
-      const key = address.toLowerCase();
+    for (const identity of communityAgentAddresses) {
+      if (!identity.publicId) {
+        continue;
+      }
+
+      const key = identity.user.toLowerCase();
       if (entriesByUser.has(key)) {
         continue;
       }
 
       entriesByUser.set(key, {
-        user: address,
+        user: identity.user,
+        publicId: identity.publicId,
         totalRealizedProfit: '0',
         totalRewards: '0',
         basketCount: 0,
@@ -1125,15 +1162,20 @@ function CommunityVaraLeaderboard() {
     [address],
   );
 
-  const matchesUserQuery = (user: string, query: string) => {
+  const matchesUserQuery = (user: string, query: string, publicId?: string | null) => {
     const normalizedQuery = query.trim().toLowerCase();
     if (!normalizedQuery) {
       return true;
     }
 
     const normalizedUser = user.toLowerCase();
+    const normalizedPublicId = publicId?.toLowerCase() ?? '';
     const agentName = resolveAgentName(user)?.trim().toLowerCase() ?? '';
-    return normalizedUser.includes(normalizedQuery) || agentName.includes(normalizedQuery);
+    return (
+      normalizedUser.includes(normalizedQuery) ||
+      normalizedPublicId.includes(normalizedQuery) ||
+      agentName.includes(normalizedQuery)
+    );
   };
 
   const filteredCommunityBaskets = useMemo(() => {
@@ -1145,22 +1187,24 @@ function CommunityVaraLeaderboard() {
     return topBaskets.filter((entry) => {
       const basketName = entry.basket.name.toLowerCase();
       const owner = entry.basket.owner.toLowerCase();
+      const ownerPublicId = publicIdByAddress.get(owner)?.toLowerCase() ?? '';
       const ownerName = resolveAgentName(entry.basket.owner)?.trim().toLowerCase() ?? '';
       return (
         basketName.includes(normalizedQuery) ||
         owner.includes(normalizedQuery) ||
+        ownerPublicId.includes(normalizedQuery) ||
         ownerName.includes(normalizedQuery)
       );
     });
-  }, [communityBasketSearchQuery, resolveAgentName, topBaskets]);
+  }, [communityBasketSearchQuery, publicIdByAddress, resolveAgentName, topBaskets]);
 
   const filteredCommunityCurators = useMemo(
-    () => topCurators.filter((entry) => matchesUserQuery(entry.address, communityCuratorSearchQuery)),
+    () => topCurators.filter((entry) => matchesUserQuery(entry.address, communityCuratorSearchQuery, entry.publicId)),
     [communityCuratorSearchQuery, topCurators],
   );
 
   const filteredCommunityWinnings = useMemo(
-    () => topAllTimeWinners.filter((entry) => matchesUserQuery(entry.user, communityWinningsSearchQuery)),
+    () => topAllTimeWinners.filter((entry) => matchesUserQuery(entry.user, communityWinningsSearchQuery, entry.publicId)),
     [communityWinningsSearchQuery, topAllTimeWinners],
   );
 
@@ -1270,7 +1314,7 @@ function CommunityVaraLeaderboard() {
               {topAllTimeWinners.slice(0, 3).map((entry) => (
                 <Link
                   key={entry.user}
-                  to={`/agents/${encodeURIComponent(entry.user)}`}
+                  to={`/agents/${encodeURIComponent(getAgentRouteId(entry.publicId))}`}
                   className="rounded-md border border-primary/10 bg-background/60 p-4 transition-colors hover:bg-muted/20"
                 >
                   <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -1539,7 +1583,7 @@ function CommunityVaraLeaderboard() {
                   return (
                   <Link
                     key={curator.address}
-                    to={`/agents/${encodeURIComponent(curator.address)}`}
+                    to={`/agents/${encodeURIComponent(getAgentRouteId(curator.publicId))}`}
                     className="group grid grid-cols-[72px_minmax(0,1.6fr)_140px_160px] gap-4 px-6 py-4 items-center transition-colors hover:bg-muted/20"
                   >
                     <span className="text-center font-semibold text-muted-foreground">
@@ -1660,7 +1704,7 @@ function CommunityVaraLeaderboard() {
                 {pagedWinnings.map((entry) => (
                   <Link
                     key={entry.user}
-                    to={`/agents/${encodeURIComponent(entry.user)}`}
+                    to={`/agents/${encodeURIComponent(getAgentRouteId(entry.publicId))}`}
                     className="group grid grid-cols-[72px_minmax(0,1.6fr)_160px] gap-4 px-6 py-4 items-center transition-colors hover:bg-muted/20"
                   >
                     <span className="text-center font-semibold text-muted-foreground">

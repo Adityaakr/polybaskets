@@ -4,6 +4,7 @@ type Basket @entity {
   basketProgramId: String! @index
   assetKind: String! @index
   creator: String! @index
+  creatorPublicId: String! @index
   createdAt: DateTime! @index
   status: String! @index
 }
@@ -21,6 +22,7 @@ type ChipPosition @entity {
   id: ID!
   basketId: String! @index
   user: String! @index
+  userPublicId: String! @index
   shares: BigInt!
   indexAtCreationBps: Int!
   claimed: Boolean!
@@ -32,6 +34,7 @@ type DailyBasketContribution @entity {
   dayId: BigInt! @index
   basketId: String! @index
   user: String! @index
+  userPublicId: String! @index
   realizedProfit: BigInt!
   payout: BigInt!
   principal: BigInt!
@@ -42,6 +45,7 @@ type DailyUserAggregate @entity {
   id: ID!
   dayId: BigInt! @index
   user: String! @index
+  userPublicId: String! @index
   realizedProfit: BigInt!
   basketCount: Int!
   updatedAt: DateTime! @index
@@ -51,6 +55,7 @@ type DailyUserActivityAggregate @entity {
   id: ID!
   dayId: BigInt! @index
   user: String! @index
+  userPublicId: String! @index
   txCount: Int!
   basketsMade: Int!
   betsPlaced: Int!
@@ -85,6 +90,7 @@ type ContestDayWinner @entity {
   id: ID!
   dayId: String! @index
   user: String! @index
+  userPublicId: String! @index
   rank: Int!
   realizedProfit: BigInt!
   reward: BigInt

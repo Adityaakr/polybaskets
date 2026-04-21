@@ -18,6 +18,10 @@ export class ContestDayWinner {
   @Column()
   user: string;
 
+  @Index()
+  @Column()
+  userPublicId: string;
+
   @Column("integer")
   rank: number;
 

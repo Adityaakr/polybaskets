@@ -125,6 +125,7 @@ export const config = {
   settlementGracePeriodMs: BigInt(
     getEnv("CONTEST_GRACE_PERIOD_MS", "1800000")
   ),
+  agentPublicIdSalt: getEnv("AGENT_PUBLIC_ID_SALT", "polybaskets-agent-public-id-v1"),
 };
 
 export const sourceOfTruth = {
