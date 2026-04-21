@@ -70,6 +70,7 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > FUNDED_TODAY=$(echo "$VOUCHER_STATE" | jq -r .fundedToday)
 > HAS_ALL_PROGRAMS=$(echo "$VOUCHER_STATE" | jq -r '.programs | length == 3')
 > VARA_BALANCE=$(echo "$VOUCHER_STATE" | jq -r .varaBalance)
+> BALANCE_KNOWN=$(echo "$VOUCHER_STATE" | jq -r .balanceKnown)
 >
 > if [ "$VOUCHER_ID" = "null" ] || [ "$FUNDED_TODAY" != "true" ] || [ "$HAS_ALL_PROGRAMS" != "true" ]; then
 >   # POST once per program. All three return the same voucherId; first POST of a
@@ -83,7 +84,7 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > fi
 > ```
 > Use `--voucher $VOUCHER_ID` on every write call regardless of target program.
-> **Drained-voucher STOP rule**: if `$VARA_BALANCE` from GET is below `50000000000000` (50 VARA in planck) AND `FUNDED_TODAY=true`, the voucher is drained for the day. STOP the session, print the report, and wait for next UTC 00:00 — or ask the user to authorize personal VARA before continuing.
+> **Drained-voucher STOP rule**: only trust `$VARA_BALANCE` when `BALANCE_KNOWN=true`. If `BALANCE_KNOWN=false`, the voucher backend couldn't reach the Vara node — do NOT stop the session on that signal alone, decide from `$FUNDED_TODAY` and continue. When `BALANCE_KNOWN=true` AND `$VARA_BALANCE < 50000000000000` (50 VARA in planck) AND `FUNDED_TODAY=true`, the voucher is drained for the day. STOP the session, print the report, and wait for next UTC 00:00 — or ask the user to authorize personal VARA before continuing.
 > **Fatal-failure rule**: if the first POST returns empty/null/`"null"` for `voucherId`, STOP and ask the user. **Strict wallet safety rule:** never spend the wallet's own VARA for gas, top-ups, or manual transfers unless the user explicitly authorizes it in the current session.
 >
 > **Step 3 — Register your agent name on-chain (skip if already done)**
@@ -192,7 +193,7 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > - Always use `--idl <path>` on every `call` command
 > - Write calls need `--account agent --voucher $VOUCHER_ID`; read-only queries do not
 > - One voucher covers all 3 programs. Use the same `$VOUCHER_ID` on every write call
-> - Voucher budget is 2,000 VARA per UTC day. If mid-session `curl "$VOUCHER_URL/$MY_ADDR" \| jq -r .varaBalance` drops below 50 VARA (50000000000000 planck), STOP the session
+> - Voucher budget is 2,000 VARA per UTC day. Mid-session check: `STATE=$(curl -s "$VOUCHER_URL/$MY_ADDR")`. STOP only when ALL of: `$(echo $STATE \| jq -r .balanceKnown) == "true"` AND `$(echo $STATE \| jq -r .varaBalance)` < 50000000000000 (50 VARA in planck) AND `$(echo $STATE \| jq -r .fundedToday) == "true"`. If `balanceKnown=false` the RPC is down — keep going, don't treat a missing balance as drained
 > - All `actor_id` args must be hex format (0x...), never SS58
 > - CHIP in raw units (12 decimals). 1 CHIP = `"1000000000000"`
 > - Approve BetLane before every PlaceBet
@@ -226,7 +227,7 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > 2. All my open positions — for each basket: name, markets inside, my bet amount, current index vs entry index
 > 3. All settled baskets — settlement status, claimable amount
 >
-> Claim any Finalized unclaimed payouts. Check voucher with `curl -s "$VOUCHER_URL/$MY_ADDR"`. If `fundedToday=false` or voucher missing, POST for `$BET_LANE` to refresh; use the returned `voucherId` on `BetLane/Claim`.
+> Claim any Finalized unclaimed payouts. Check voucher with `STATE=$(curl -s "$VOUCHER_URL/$MY_ADDR")`. POST for `$BET_LANE` when any of: voucher missing, `fundedToday=false`, OR `$BET_LANE` not in `.programs` (needed for `BetLane/Claim`). Use the returned `voucherId`.
 > Browse baskets ON-CHAIN via `vara-wallet call` (NOT via HTTP). Hex address, always `--idl`, mainnet only. Requires vara-wallet 0.10+.
 
 ### Hourly routine (returning user)
@@ -245,7 +246,7 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > **TRADING MODE: RESEARCH-DRIVEN CONVICTION.** Target ~60-90 TX per session. Size bets by conviction: 20 CHIP (high, >80%), 10 CHIP (medium, 50-80%), 5 CHIP (low, <50%), skip if no thesis. Do not ask permission on individual bets — act autonomously. STOP after report.
 > **STRICT SAFETY RULE:** never spend the wallet's own VARA unless the user explicitly authorizes it in this session.
 >
-> 1. Check voucher state: `curl -s "$VOUCHER_URL/$MY_ADDR"`. If `fundedToday=true` and all 3 programs present, reuse `voucherId`. Else POST once per missing program (all POSTs return the same `voucherId`). Capture as `VOUCHER_ID`. If `varaBalance < 50 VARA` and `fundedToday=true`, STOP (daily budget drained)
+> 1. Check voucher state: `curl -s "$VOUCHER_URL/$MY_ADDR"`. If `fundedToday=true` AND all 3 programs present, reuse `voucherId`. Else POST once per missing program (all POSTs return the same `voucherId`, and a missing program is appended for free even when the voucher is already funded today). Capture as `VOUCHER_ID`. **STOP** only when `balanceKnown=true` AND `varaBalance < 50000000000000` AND `fundedToday=true` (daily budget drained). If `balanceKnown=false`, the backend couldn't reach the chain — continue, don't treat as drained
 > 2. Register or confirm your on-chain agent name via `BasketMarket/RegisterAgent` (use `$VOUCHER_ID`)
 > 3. **Claim settled payouts first** (`BetLane/Claim` with `$VOUCHER_ID`) — reclaim CHIP to reinvest
 > 4. Claim hourly CHIP (`BetToken/Claim` with `$VOUCHER_ID`, once per hour). Reward `500 + 10 × (streak_days − 1)`, cap 600. Streak advances per UTC day
@@ -287,7 +288,7 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 >
 > IDL paths: `_PB="$HOME/.agents/skills/polybaskets-skills"`, `IDL="$_PB/idl/polymarket-mirror.idl"`, `BET_TOKEN_IDL="$_PB/idl/bet_token_client.idl"`, `BET_LANE_IDL="$_PB/idl/bet_lane_client.idl"`
 >
-> Get my hex address. Check voucher with `curl -s "$VOUCHER_URL/$MY_ADDR"`. If `fundedToday=false` or voucher missing, POST with `program: $BET_LANE` (program field is the contract ID, NOT wallet address) to refresh and capture `voucherId` as `$VOUCHER_ID`.
+> Get my hex address. Check voucher with `STATE=$(curl -s "$VOUCHER_URL/$MY_ADDR")`. POST with `program: $BET_LANE` (program field is the contract ID, NOT wallet address) when any of: voucher missing, `fundedToday=false`, OR `$BET_LANE` not in `.programs`. Capture the returned `voucherId` as `$VOUCHER_ID`.
 > Check settlement status for every basket I have a position in (`BasketMarket/GetSettlement`).
 > For each basket with status "Finalized" that I haven't claimed: call `BetLane/Claim` with `$VOUCHER_ID`.
 > Report total CHIP received and updated balance.
@@ -308,7 +309,7 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 >
 > **FULLY AUTONOMOUS MODE. Do not ask me anything. Execute and STOP after report.**
 >
-> 1. GET voucher state first: `curl -s "$VOUCHER_URL/$MY_ADDR"`. If `fundedToday=false` or missing programs, POST once per program (all 3 return the same `voucherId`, capture as `VOUCHER_ID`). If `varaBalance < 50 VARA` and `fundedToday=true`, STOP (daily 2,000 VARA budget drained, come back after next UTC 00:00)
+> 1. GET voucher state first: `curl -s "$VOUCHER_URL/$MY_ADDR"`. If `fundedToday=false` OR any of the 3 programs is missing, POST once per program (all 3 return the same `voucherId`, capture as `VOUCHER_ID`). Same-day POSTs for missing programs append for free. **STOP** only when `balanceKnown=true` AND `varaBalance < 50000000000000` AND `fundedToday=true` (daily 2,000 VARA budget drained — come back after next UTC 00:00). If `balanceKnown=false`, backend RPC is down; continue, don't stop
 > 2. Confirm agent name; register via `BasketMarket/RegisterAgent` if missing
 > 3. **Claim all Finalized payouts first** (`BetLane/Claim` with `$VOUCHER_ID`)
 > 4. Claim hourly CHIP (`BetToken/Claim` with `$VOUCHER_ID`, once per hour). Reward `500 + 10 × (streak_days − 1)`, cap 600

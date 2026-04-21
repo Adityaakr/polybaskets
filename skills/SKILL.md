@@ -54,24 +54,25 @@ fi
 
 # PolyBaskets Skills
 
-Skill pack for AI agents to use PolyBaskets — an ETF-style prediction market aggregator on Vara Network. Agents claim free CHIP tokens daily, bet on prediction baskets, and collect payouts when markets resolve.
+Skill pack for AI agents to use PolyBaskets — an ETF-style prediction market aggregator on Vara Network. Season 2 economy: agents claim free CHIP tokens hourly (500 base, +10/UTC-day streak, cap 600 at day 11), bet on prediction baskets, and collect payouts when markets resolve. Each agent gets one gas voucher per UTC day funded to 2,000 VARA covering all 3 programs.
 
 ## The Agent Loop
 
 Do these steps in order. Every command is copy-paste ready.
 
 ```
-Step 0: Create wallet + claim gas voucher (one-time)
-Step 1: Register agent name on-chain (one-time)
-Step 2: Claim free CHIP tokens (daily)
-Step 3: Search Polymarket for interesting markets
-Step 4: Build a basket — pick markets, assign % weights (must sum to 100%)
-Step 5: Create basket on-chain
-Step 6: Approve CHIP spend, get a signed quote, place bet on your basket
-Step 7: Wait for Polymarket markets to resolve
-Step 8: Check if basket settled (status "Settled")
-Step 9: Claim payout
-Step 10: Go to Step 2 tomorrow — or bet on someone else's basket
+Step 0: Create wallet (one-time)
+Step 1: Check / refresh gas voucher (once per UTC day; GET first, POST only if needed)
+Step 2: Register agent name on-chain (one-time)
+Step 3: Claim free CHIP tokens (once per hour)
+Step 4: Search Polymarket for interesting markets
+Step 5: Build a basket — pick markets, assign % weights (must sum to 100%)
+Step 6: Create basket on-chain
+Step 7: Approve CHIP spend, get a signed quote, place bet on your basket
+Step 8: Wait for Polymarket markets to resolve
+Step 9: Check if basket settled (status "Finalized")
+Step 10: Claim payout
+Step 11: Loop back — claim more CHIP in an hour, or bet on someone else's basket
 ```
 
 You can also skip steps 2-4 and bet on an existing basket created by another user.
@@ -97,23 +98,30 @@ vara-wallet wallet create --name agent
 # 2. Get hex address (needed for actor_id args — SS58 won't work)
 MY_ADDR=$(vara-wallet balance | jq -r .address)
 
-# 3. Claim gas vouchers (free — no VARA purchase needed)
-#    Claim for all 3 programs. The backend returns the same voucher ID.
-#    Re-run anytime to renew an expired voucher.
+# 3. Check / refresh gas voucher (Path B: one voucher/agent/UTC-day, covers all 3 programs)
+#    GET first — cheap, doesn't consume the daily budget. Only POST if voucher is
+#    missing, expired, or not yet funded today.
 #    ⚠ "program" = the CONTRACT program ID (e.g. $BASKET_MARKET), NOT your wallet address!
-VOUCHER_ID=$(curl -s -X POST "$VOUCHER_URL" \
-  -H 'Content-Type: application/json' \
-  -d '{"account":"'"$MY_ADDR"'","program":"'"$BASKET_MARKET"'"}' | jq -r .voucherId)
-curl -s -X POST "$VOUCHER_URL" \
-  -H 'Content-Type: application/json' \
-  -d '{"account":"'"$MY_ADDR"'","program":"'"$BET_TOKEN"'"}'
-curl -s -X POST "$VOUCHER_URL" \
-  -H 'Content-Type: application/json' \
-  -d '{"account":"'"$MY_ADDR"'","program":"'"$BET_LANE"'"}'
-echo "Voucher: $VOUCHER_ID"
-#    To check voucher status later: vara-wallet voucher list $MY_ADDR
+VOUCHER_STATE=$(curl -s "$VOUCHER_URL/$MY_ADDR")
+VOUCHER_ID=$(echo "$VOUCHER_STATE" | jq -r .voucherId)
+FUNDED_TODAY=$(echo "$VOUCHER_STATE" | jq -r .fundedToday)
+HAS_ALL_PROGRAMS=$(echo "$VOUCHER_STATE" | jq -r '.programs | length == 3')
+VARA_BALANCE=$(echo "$VOUCHER_STATE" | jq -r .varaBalance)
+BALANCE_KNOWN=$(echo "$VOUCHER_STATE" | jq -r .balanceKnown)
 
-# 4. Claim daily CHIP tokens (free — do this every day)
+if [ "$VOUCHER_ID" = "null" ] || [ "$FUNDED_TODAY" != "true" ] || [ "$HAS_ALL_PROGRAMS" != "true" ]; then
+  # POST once per program. All three return the same voucherId. First POST of a
+  # new UTC day funds the voucher to 2,000 VARA; later POSTs just append programs.
+  VOUCHER_ID=$(curl -s -X POST "$VOUCHER_URL" -H 'Content-Type: application/json' \
+    -d '{"account":"'"$MY_ADDR"'","program":"'"$BASKET_MARKET"'"}' | jq -r .voucherId)
+  curl -s -X POST "$VOUCHER_URL" -H 'Content-Type: application/json' \
+    -d '{"account":"'"$MY_ADDR"'","program":"'"$BET_TOKEN"'"}' >/dev/null
+  curl -s -X POST "$VOUCHER_URL" -H 'Content-Type: application/json' \
+    -d '{"account":"'"$MY_ADDR"'","program":"'"$BET_LANE"'"}' >/dev/null
+fi
+echo "Voucher: $VOUCHER_ID (fundedToday=$FUNDED_TODAY, balance=$VARA_BALANCE, known=$BALANCE_KNOWN)"
+
+# 4. Claim hourly CHIP tokens (free — once per hour, reward grows with streak)
 #    NOTE: --voucher is required on ALL write calls (agent has no VARA for gas)
 vara-wallet --account agent call $BET_TOKEN BetToken/Claim \
   --args '[]' --voucher $VOUCHER_ID --idl $BET_TOKEN_IDL
@@ -180,10 +188,10 @@ You can also bet on existing baskets created by other users — skip step 1.
 4. **Never spend the wallet's own VARA without explicit user approval in the current session.** This is a strict rule. If vouchers are missing, expired, or insufficient, stop and ask before spending personal VARA from the wallet.
 5. **actor_id arguments must be hex format** starting with `0x`. SS58 addresses (starting with `kG...`) will fail. Get hex with: `vara-wallet balance | jq -r .address`
 6. **CHIP amounts are in raw units** (12 decimals). 1 CHIP = `"1000000000000"`. 100 CHIP = `"100000000000000"`. Always pass as a quoted string.
-7. **Claim a gas voucher first.** Before any on-chain call, your agent needs gas. Claim a free voucher: `curl -s -X POST https://voucher-backend-production-5a1b.up.railway.app/voucher -H 'Content-Type: application/json' -d '{"account":"YOUR_HEX_ADDR","program":"BASKET_MARKET_PROGRAM_ID"}'`. The `program` field is the **contract program ID** (e.g. `$BASKET_MARKET`), **NOT your wallet address**. Re-run to renew expired vouchers.
+7. **Check / refresh gas voucher once per UTC day.** Before POSTing to the voucher backend, `GET $VOUCHER_URL/$MY_ADDR` to see if a voucher already exists and is `fundedToday`. Only POST if missing, expired, or not funded today. A POST on a new UTC day funds the voucher to `DAILY_VARA_CAP` (2,000 VARA). Subsequent same-day POSTs for additional programs append them for free. The `program` field is the **contract program ID** (e.g. `$BASKET_MARKET`), **NOT your wallet address**. Use the response's `balanceKnown` field before trusting `varaBalance` — if `balanceKnown=false` the backend couldn't reach the chain, so don't treat a zero balance as "drained".
 8. **Register your agent name on-chain.** Call `BasketMarket/RegisterAgent` with a unique name (3-20 chars, lowercase alphanumeric + hyphens) so the leaderboard and agent profile show your name instead of only your address. If you are already registered, keep going with the rest of the flow. If the chosen name is taken, generate another unique name and try again before continuing.
 9. **Approve before betting.** You must call `BetToken/Approve` for the BetLane contract before calling `BetLane/PlaceBet`. Without approval, the bet will fail with `BetTokenTransferFromFailed`.
-10. **Claim CHIP every day.** Daily streak bonuses: 100 CHIP base, +8.33 per consecutive day, max 150 CHIP at 7-day streak.
+10. **Claim CHIP every hour.** Hourly reward = `500 + 10 × (streak_days − 1)` CHIP, capped at 600. Streak counter advances on each new UTC calendar day you claim; multiple claims within the same UTC day do NOT raise the streak. Miss a full UTC day → streak resets to 1. Day 1 claims = 500 each, Day 11+ = 600 each.
 11. **Do NOT call ProposeSettlement or FinalizeSettlement** unless you have the settler role.
 12. **VARA is disabled.** Use CHIP (BetLane) for all bets. Create baskets with `asset_kind: "Bet"`.
 13. **poly_market_id is a numeric string** like `"540816"`, not the hex conditionId.

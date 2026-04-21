@@ -69,10 +69,22 @@ export class GaslessService {
   }
 
   /**
-   * Per-IP daily VARA ceiling enforcement. Call before issuing/funding.
-   * Throws 429 if the IP would exceed the ceiling.
+   * Atomically reserve VARA from the per-IP daily ceiling.
+   *
+   * This runs in a single synchronous block — no awaits, no yields — so two
+   * concurrent requests from the same IP cannot both see the same remaining
+   * budget and both pass. Node's event loop guarantees no interleaving within
+   * this block.
+   *
+   * Throws 429 if the IP would exceed the ceiling; otherwise records the
+   * reservation and returns. Callers MUST call `releaseIpReservation` if the
+   * downstream issue()/update() fails so the reservation doesn't leak.
+   *
+   * Was previously split into `assertIpUnderCeiling` + `recordIpIssuance`
+   * with an await between them, which let same-IP-different-account parallel
+   * requests bypass the ceiling. Codex review caught this.
    */
-  private assertIpUnderCeiling(ip: string, additionalVara: number) {
+  private reserveIpCeiling(ip: string, additionalVara: number): void {
     const ceiling = this.configService.get<number>('perIpDailyVaraCeiling');
     if (!ceiling || ceiling <= 0) return; // disabled
 
@@ -89,15 +101,12 @@ export class GaslessService {
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }
-  }
 
-  private recordIpIssuance(ip: string, vara: number) {
-    const today = this.getTodayIsoDate();
-    const existing = this.ipVaraToday.get(ip);
+    // Record NOW (same sync block) — no await between check and record.
     if (existing && existing.day === today) {
-      existing.varaIssued += vara;
+      existing.varaIssued += additionalVara;
     } else {
-      this.ipVaraToday.set(ip, { day: today, varaIssued: vara });
+      this.ipVaraToday.set(ip, { day: today, varaIssued: additionalVara });
     }
 
     // Opportunistic eviction: drop entries for stale days whenever the map grows past a threshold.
@@ -107,6 +116,16 @@ export class GaslessService {
       }
     }
   }
+
+  // NOTE: we intentionally do NOT roll back the IP reservation on issue()/update()
+  // failure. The signAndSend timeout explicitly says the tx may have landed, and
+  // repo.save can fail after the chain accepted the extrinsic. Releasing the
+  // reservation in those paths lets a retry re-fund the voucher — double-mint.
+  //
+  // Trade-off: honest users occasionally lose ~dailyCap worth of IP-level budget
+  // on transient failures. They can retry tomorrow (UTC-day reset) or from a
+  // different IP. The alternative (allowing retries to bypass the ceiling) is a
+  // real security hole. Codex review caught this in PR #23.
 
   async getVoucherInfo() {
     return {
@@ -136,23 +155,31 @@ export class GaslessService {
         programs: [],
         validUpTo: null,
         varaBalance: '0',
+        balanceKnown: true,
         fundedToday: false,
       };
     }
 
-    let balance = 0n;
+    let balance: bigint | null = null;
+    let balanceKnown = true;
     try {
       balance = await this.voucherService.getVoucherBalance(voucher.voucherId);
     } catch (e) {
+      // RPC failure — do NOT fabricate a zero balance. Returning "0" would
+      // make the starter prompt's drained-voucher STOP rule trigger during
+      // a transient Gear node outage, aborting live agents with full vouchers.
+      // balanceKnown=false tells the client "don't trust varaBalance, decide
+      // from fundedToday alone or retry later".
       this.logger.warn(`getVoucherBalance failed for ${voucher.voucherId}: ${e}`);
-      // Fall through with 0 — agent can still decide based on DB state.
+      balanceKnown = false;
     }
 
     return {
       voucherId: voucher.voucherId,
       programs: voucher.programs,
       validUpTo: voucher.validUpTo,
-      varaBalance: balance.toString(10),
+      varaBalance: balance === null ? null : balance.toString(10),
+      balanceKnown,
       fundedToday: voucher.lastRenewedAt >= this.getTodayMidnight(),
     };
   }
@@ -206,14 +233,17 @@ export class GaslessService {
 
       // No existing voucher row — brand new agent. Fund to cap, enforce IP ceiling.
       if (!existing) {
-        this.assertIpUnderCeiling(ip, dailyCap);
+        // Reserve BEFORE the await so concurrent same-IP calls serialize on the counter.
+        this.reserveIpCeiling(ip, dailyCap);
+        // No rollback on failure — see releaseIpReservation note above. If issue()
+        // throws (esp. on signAndSend timeout, which says "may or may not have
+        // landed"), retrying would re-mint if we refunded the reservation.
         const voucherId = await this.voucherService.issue(
           address,
           programAddress as HexString,
           dailyCap,
           duration,
         );
-        this.recordIpIssuance(ip, dailyCap);
         return { voucherId };
       }
 
@@ -221,12 +251,12 @@ export class GaslessService {
 
       if (!alreadyFundedToday) {
         // First POST of a new UTC day: top voucher back up to cap, append program.
-        this.assertIpUnderCeiling(ip, dailyCap);
+        this.reserveIpCeiling(ip, dailyCap);
         const addPrograms = existing.programs.includes(programAddress)
           ? undefined
           : [programAddress as HexString];
+        // No rollback on failure — see note at releaseIpReservation site.
         await this.voucherService.update(existing, dailyCap, duration, addPrograms);
-        this.recordIpIssuance(ip, dailyCap);
         return { voucherId: existing.voucherId };
       }
 

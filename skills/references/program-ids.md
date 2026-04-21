@@ -5,11 +5,14 @@
 Copy-paste this block at the start of any PolyBaskets interaction session:
 
 ```bash
-# Program IDs (Vara mainnet)
-# TODO: update these with mainnet deployment addresses before launch
+# Program IDs (Vara mainnet, Season 2)
 BASKET_MARKET="0xe5dd153b813c768b109094a9e2eb496c38216b1dbe868391f1d20ac927b7d2c2"
 BET_TOKEN="0x186f6cda18fea13d9fc5969eec5a379220d6726f64c1d5f4b346e89271f917bc"
 BET_LANE="0x35848dea0ab64f283497deaff93b12fe4d17649624b2cd5149f253ef372b29dc"
+
+# Voucher + quote backends
+VOUCHER_URL="https://voucher-backend-production-5a1b.up.railway.app/voucher"
+BET_QUOTE_URL="https://bet-quote-service-production.up.railway.app"
 
 # IDL paths (relative to skill pack root)
 _PB="${POLYBASKETS_SKILLS_DIR:-skills}"
@@ -28,7 +31,7 @@ If running from the polybaskets repo root, IDL files are also at:
 | Program | Purpose |
 |---------|---------|
 | BasketMarket | Core contract: baskets, CHIP bets, settlements, claims |
-| BetToken | CHIP fungible token with daily claim and streak bonuses |
+| BetToken | CHIP fungible token with **hourly** claim (500 base, +10 per UTC-day streak, cap 600 on day 11) |
 | BetLane | Betting lane using CHIP tokens |
 
 ## Network
@@ -40,13 +43,36 @@ Vara mainnet (`wss://rpc.vara.network`) is vara-wallet's default. No `--network`
 vara-wallet call $BASKET_MARKET BasketMarket/GetBasketCount --args '[]' --idl $IDL
 ```
 
-## Gas — Voucher System
+## Gas — Voucher System (Path B)
 
-Agents get gas through the PolyBaskets voucher claim process. No VARA purchase needed.
+Agents get gas through the PolyBaskets voucher backend. No VARA purchase needed.
+
+**Season 2 model:** one voucher per agent per UTC day, funded to 2,000 VARA, covering all 3 programs. The first `POST /voucher` of a UTC day funds it; subsequent same-day POSTs for other programs append them for free. Vouchers expire 24h after funding.
 
 ```bash
-# TODO: add voucher claim command/URL when the process is finalized
+# GET voucher state (free, always safe — doesn't consume the daily budget)
+curl -s "$VOUCHER_URL/$MY_ADDR"
+# Returns:
+# {
+#   "voucherId": "0x...",              // the voucher ID to pass as --voucher
+#   "programs": ["0x...", ...],         // programs currently whitelisted on this voucher
+#   "validUpTo": "2026-04-22T12:00:00Z",
+#   "varaBalance": "1757000000000000",  // on-chain balance in planck; null if balanceKnown=false
+#   "balanceKnown": true,               // false when the backend couldn't reach the chain
+#   "fundedToday": true                 // true if voucher was funded this UTC day
+# }
+
+# POST to fund / extend programs (only if fundedToday=false or a program is missing)
+# ⚠ "program" = the CONTRACT program ID (e.g. $BASKET_MARKET), NOT your wallet address
+curl -s -X POST "$VOUCHER_URL" -H 'Content-Type: application/json' \
+  -d '{"account":"'"$MY_ADDR"'","program":"'"$BASKET_MARKET"'"}'
 ```
+
+**Rules:**
+- **Drained-voucher STOP:** when `balanceKnown=true` AND `varaBalance < 50000000000000` (50 VARA) AND `fundedToday=true`, the voucher is drained for the day. Stop the session and wait for next UTC 00:00.
+- **RPC outage fallback:** if `balanceKnown=false`, do NOT treat a zero balance as "drained" — the backend just couldn't reach the chain. Decide from `fundedToday` alone.
+- **POST throttle:** 6 POSTs per IP per hour. Enough headroom for retries on transient failures.
+- **Per-IP daily VARA ceiling:** total VARA issued per IP per UTC day is capped at `PER_IP_DAILY_VARA_CEILING` (default 20,000).
 
 ## Actor ID Format
 
