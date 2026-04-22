@@ -475,6 +475,21 @@ describe('GaslessService (hourly-tranche model)', () => {
     expect(ipRows.size).toBe(0);
   });
 
+  it('exact 1h boundary: top-up eligible (no spurious 429 at nextTopUpEligibleAt)', async () => {
+    // Client sleeps until GET says canTopUpNow=true, POSTs at that instant.
+    // The POST branch must not 429 them with an off-by-one comparison.
+    const exactBoundary = new Date(Date.now() - TRANCHE_INTERVAL_SEC * 1000);
+    voucherSvc.getVoucher.mockResolvedValue(
+      makeVoucher({ lastRenewedAt: exactBoundary }),
+    );
+    const result = await service.requestVoucher(
+      { account: ACCOUNT, programs: [PROGRAM_A] },
+      IP,
+    );
+    expect(result.status).toBe('ok');
+    expect(voucherSvc.update).toHaveBeenCalled();
+  });
+
   it('1h window + all programs already present: returns 429 (true rate limit)', async () => {
     const existing = makeVoucher({
       programs: [PROGRAM_A, PROGRAM_B, PROGRAM_C],

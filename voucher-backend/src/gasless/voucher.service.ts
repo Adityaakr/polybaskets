@@ -202,38 +202,6 @@ export class VoucherService implements OnModuleInit {
       params.balanceTopUp = BigInt(amountToAdd) * PLANCK_PER_VARA;
     }
 
-    // Pre-persist the INTENDED post-chain state in a SINGLE save BEFORE
-    // signAndSend. This covers three failure modes:
-    //
-    //  1. Chain succeeds + later save fails: impossible now — there is no
-    //     later save. DB row already reflects the new validUpTo + programs.
-    //  2. Chain fails cleanly (ExtrinsicFailed, timeout after drop): the
-    //     lastRenewedAt write still blocks the 1h top-up (no double-mint);
-    //     validUpTo drift means cron may revoke slightly early, which is
-    //     acceptable because the chain-side voucher never got extended.
-    //  3. Chain succeeds + process crashes between confirmation and a
-    //     post-chain block-number refinement: the pre-chain validUpTo is
-    //     approximate (wall-clock + duration vs block + duration), but
-    //     still in the future, so the cron race Codex flagged can't
-    //     revoke a just-topped-up voucher.
-    //
-    // Trade-off accepted: (a) a cleanly failed chain call still locks the
-    // wallet for 1h, (b) validUpToBlock may be off by a few blocks from
-    // the actual inclusion block (not load-bearing — cron uses validUpTo
-    // Date, not validUpToBlock).
-    const now = new Date();
-    voucher.lastRenewedAt = now;
-    if (addPrograms && addPrograms.length) {
-      voucher.programs.push(...addPrograms);
-    }
-    if (prolongDurationInSec) {
-      voucher.validUpTo = new Date(now.getTime() + prolongDurationInSec * 1000);
-      // validUpToBlock gets refined post-chain with the real block number.
-      // Pre-chain estimate: (current + duration_in_blocks) — off by at most
-      // a few blocks depending on when inclusion actually lands.
-    }
-    await this.repo.save(voucher);
-
     this.logger.log(
       `Updating voucher: ${voucher.voucherId} for ${voucher.account} (+${amountToAdd} VARA, +${prolongDurationInSec ?? 0}s)`,
     );
@@ -264,23 +232,60 @@ export class VoucherService implements OnModuleInit {
       'signAndSend timed out after 60s',
     );
 
-    // Chain confirmed. Best-effort refinement of validUpToBlock using the
-    // real inclusion block. If this save fails, the pre-chain row is still
-    // consistent (just with a slightly-off validUpToBlock estimate).
-    if (durationInBlocks) {
-      try {
-        const blockNumber = (await this.api.blocks.getBlockNumber(blockHash)).toNumber();
-        voucher.validUpToBlock = BigInt(blockNumber + durationInBlocks);
-        await this.repo.save(voucher);
-      } catch (e) {
-        this.logger.warn(
-          `Post-chain validUpToBlock refinement failed for ${voucher.voucherId}; DB state is still consistent`,
-          e,
-        );
-      }
+    // Chain confirmed. Persist new state with retry — a DB save failure here
+    // would let the next request read stale lastRenewedAt and mint another
+    // tranche (double-mint). Retry 3× with backoff to cover transient DB
+    // blips. If we still can't save after retries, we log and re-throw:
+    // the caller returns 500, but the per-wallet advisory lock prevented
+    // concurrent mints while we were trying.
+    //
+    // We intentionally DO NOT pre-save before signAndSend: a cleanly failed
+    // chain call (dropped extrinsic, ExtrinsicFailed) with a pre-save would
+    // strand the wallet on a DB row that permanently disagrees with chain
+    // state, which is much worse than the narrow double-mint window.
+    const now = new Date();
+    if (addPrograms && addPrograms.length) {
+      voucher.programs.push(...addPrograms);
     }
+    if (durationInBlocks) {
+      const blockNumber = (await this.api.blocks.getBlockNumber(blockHash)).toNumber();
+      voucher.validUpToBlock = BigInt(blockNumber + durationInBlocks);
+      voucher.validUpTo = new Date(Date.now() + prolongDurationInSec * 1000);
+    }
+    voucher.lastRenewedAt = now;
+
+    await this.saveWithRetry(voucher, `update ${voucher.voucherId}`);
 
     this.logger.log(`Voucher updated: ${voucher.voucherId} valid until ${voucher.validUpTo.toISOString()}`);
+  }
+
+  /**
+   * Save a voucher row with bounded retries. Used after a confirmed on-chain
+   * operation to close the narrow window where a transient DB blip could
+   * let the next request see stale state. Retries 3× with 200ms, 500ms,
+   * 1500ms backoff. Throws if all attempts fail — the per-wallet advisory
+   * lock held by the caller prevents double-mint during the retry loop.
+   */
+  private async saveWithRetry(voucher: Voucher, context: string): Promise<void> {
+    const delays = [200, 500, 1500];
+    let lastErr: unknown;
+    for (let i = 0; i <= delays.length; i++) {
+      try {
+        await this.repo.save(voucher);
+        if (i > 0) {
+          this.logger.log(`DB save succeeded on retry ${i} (${context})`);
+        }
+        return;
+      } catch (e) {
+        lastErr = e;
+        if (i < delays.length) {
+          this.logger.warn(`DB save failed (attempt ${i + 1}, ${context}), retrying in ${delays[i]}ms`);
+          await new Promise((r) => setTimeout(r, delays[i]));
+        }
+      }
+    }
+    this.logger.error(`DB save failed after ${delays.length + 1} attempts (${context})`, lastErr);
+    throw lastErr;
   }
 
   /**
@@ -305,11 +310,6 @@ export class VoucherService implements OnModuleInit {
     if (!programIds.length) return;
 
     await this.ensureConnected();
-
-    // Pre-persist intended program list so a mid-flight crash can't lose
-    // the append. See rationale in update() — same single-save pattern.
-    voucher.programs.push(...programIds);
-    await this.repo.save(voucher);
 
     this.logger.log(
       `Appending programs (no fund) to voucher ${voucher.voucherId}: ${programIds.join(', ')}`,
@@ -342,6 +342,13 @@ export class VoucherService implements OnModuleInit {
       }),
       'appendProgramsFreeOfCharge signAndSend timed out after 60s',
     );
+
+    // Chain confirmed. Persist program list with retry — same reasoning as
+    // update(): pre-saving before chain success would strand the DB ahead
+    // of chain on a failed append, so the next request would see all
+    // programs already registered and stop retrying the append.
+    voucher.programs.push(...programIds);
+    await this.saveWithRetry(voucher, `appendPrograms ${voucher.voucherId}`);
   }
 
   async revoke(voucher: Voucher) {

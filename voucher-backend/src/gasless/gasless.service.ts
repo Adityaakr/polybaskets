@@ -365,7 +365,11 @@ export class GaslessService implements OnModuleInit {
       const lastRenewedMs = existing.lastRenewedAt.getTime();
 
       // Branch (b): eligible for top-up.
-      if (lastRenewedMs < cutoffMs) {
+      // Boundary is inclusive (<=) so clients that sleep until
+      // `nextTopUpEligibleAt` and POST exactly at that instant don't hit a
+      // spurious 429 — matches getVoucherState's `now >= nextEligibleMs`
+      // semantics for canTopUpNow.
+      if (lastRenewedMs <= cutoffMs) {
         const newPrograms = programs.filter(
           (p) => !existing.programs.includes(p),
         );
