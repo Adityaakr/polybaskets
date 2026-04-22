@@ -721,4 +721,20 @@ describe('GaslessService (hourly-tranche model)', () => {
       ),
     ).rejects.toThrow(/programs: string\[\]/);
   });
+
+  // ── Codex round-4 regression: mixed old+new payload must NOT crash 500 ───
+  // Scenario: buggy client during migration sends BOTH `program` (old) AND a
+  // malformed `programs` field (e.g., non-array). The service must not assume
+  // `programs` is an array without checking. DTO layer catches non-array via
+  // @IsArray before it reaches the service, but defensively we also handle
+  // non-array at runtime (in case DTO is bypassed in some future test harness).
+
+  it('non-array programs field returns 400, never crashes the service', async () => {
+    await expect(
+      service.requestVoucher(
+        { account: ACCOUNT, programs: 'not-an-array' as any, program: PROGRAM_A } as any,
+        IP,
+      ),
+    ).rejects.toThrow(BadRequestException);
+  });
 });

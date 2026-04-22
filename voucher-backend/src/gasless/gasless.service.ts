@@ -259,21 +259,29 @@ export class GaslessService implements OnModuleInit {
    * drift between pods with no correctness gain.
    */
   async requestVoucher(
-    body: { account: string; programs: string[]; program?: string },
+    body: { account: string; programs?: string[]; program?: string },
     ip: string,
   ): Promise<RequestVoucherResult> {
-    this.logger.log(
-      `Voucher request for programs [${body.programs?.join(', ')}] from ip ${ip}`,
-    );
+    // Shape validation FIRST — before any logging or processing that would
+    // assume `programs` is an array. DTO layer catches this normally, but
+    // the guard here keeps the service safe if the ValidationPipe is ever
+    // bypassed (tests, custom decorators, future refactors).
+    if (body.programs !== undefined && !Array.isArray(body.programs)) {
+      throw new BadRequestException('programs must be an array of contract program IDs');
+    }
 
     // Backward-compat hint: old clients sent { account, program: string }.
     // DTO validation rejects that payload with a generic "programs must be
     // an array" error; this check surfaces a specific migration message.
-    if (body.program && !body.programs) {
+    if (body.program && (body.programs === undefined || body.programs === null)) {
       throw new BadRequestException(
         'API change: `program: string` was renamed to `programs: string[]`. Send `{ account, programs: [<address>, ...] }` instead.',
       );
     }
+
+    this.logger.log(
+      `Voucher request for programs [${body.programs?.join(', ') ?? ''}] from ip ${ip}`,
+    );
 
     let address: HexString;
     try {

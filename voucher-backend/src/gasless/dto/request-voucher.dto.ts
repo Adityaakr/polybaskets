@@ -1,12 +1,10 @@
 import {
   ArrayMaxSize,
-  ArrayNotEmpty,
   IsArray,
   IsNotEmpty,
   IsOptional,
   IsString,
   MaxLength,
-  ValidateIf,
 } from 'class-validator';
 
 export class RequestVoucherDto {
@@ -22,14 +20,20 @@ export class RequestVoucherDto {
    *
    * Cap of 10 = current PolyBaskets program surface (BasketMarket, BetToken,
    * BetLane) with headroom. Raise via env only if operationally required.
+   *
+   * Technically optional at the DTO layer so the service can emit a specific
+   * migration hint when a legacy caller sends only the old `program` field.
+   * The service enforces "must be a non-empty array if present" at request
+   * time. Shape validation (@IsArray, @IsString each) ALWAYS runs so a
+   * malformed payload like `programs: 123` returns a structured 400 from
+   * class-validator instead of crashing in the service.
    */
-  @ValidateIf((o) => o.program === undefined) // skip if old-shape compat path fires
+  @IsOptional()
   @IsArray()
-  @ArrayNotEmpty()
   @ArrayMaxSize(10)
   @IsString({ each: true })
   @MaxLength(66, { each: true })
-  programs: string[];
+  programs?: string[];
 
   /**
    * DEPRECATED: legacy `{ account, program: string }` shape. Accepted only so
