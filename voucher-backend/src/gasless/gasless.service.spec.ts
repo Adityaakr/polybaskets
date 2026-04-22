@@ -236,8 +236,8 @@ describe('GaslessService (hourly-tranche model)', () => {
     voucherSvc.getVoucher.mockResolvedValue(null);
     await service.requestVoucher({ account: ACCOUNT, programs: [PROGRAM_A] }, IP);
     const calls = qrQuery.mock.calls.map((c) => c[0]);
-    expect(calls).toContain('SELECT pg_advisory_lock($1)');
-    expect(calls).toContain('SELECT pg_advisory_unlock($1)');
+    expect(calls).toContain('SELECT pg_advisory_lock($1, $2)');
+    expect(calls).toContain('SELECT pg_advisory_unlock($1, $2)');
     expect(qrRelease).toHaveBeenCalled();
   });
 
@@ -246,19 +246,19 @@ describe('GaslessService (hourly-tranche model)', () => {
     jest.useFakeTimers();
     jest.setSystemTime(new Date('2026-04-22T23:59:58Z').getTime());
     await service.requestVoucher({ account: ACCOUNT, programs: [PROGRAM_A] }, IP);
-    const firstKey = qrQuery.mock.calls.filter((c) =>
-      c[0] === 'SELECT pg_advisory_lock($1)',
-    )[0][1][0];
+    const firstKeyPair = qrQuery.mock.calls.filter((c) =>
+      c[0] === 'SELECT pg_advisory_lock($1, $2)',
+    )[0][1];
     qrQuery.mockClear();
     voucherSvc.getVoucher.mockResolvedValue(
       makeVoucher({ lastRenewedAt: new Date(Date.now() - 2 * 3600_000) }),
     );
     jest.setSystemTime(new Date('2026-04-23T00:00:05Z').getTime());
     await service.requestVoucher({ account: ACCOUNT, programs: [PROGRAM_A] }, IP);
-    const secondKey = qrQuery.mock.calls.filter((c) =>
-      c[0] === 'SELECT pg_advisory_lock($1)',
-    )[0][1][0];
-    expect(firstKey).toBe(secondKey);
+    const secondKeyPair = qrQuery.mock.calls.filter((c) =>
+      c[0] === 'SELECT pg_advisory_lock($1, $2)',
+    )[0][1];
+    expect(firstKeyPair).toEqual(secondKeyPair);
     jest.useRealTimers();
   });
 
@@ -269,7 +269,7 @@ describe('GaslessService (hourly-tranche model)', () => {
       service.requestVoucher({ account: ACCOUNT, programs: [PROGRAM_A] }, IP),
     ).rejects.toThrow(InternalServerErrorException);
     const calls = qrQuery.mock.calls.map((c) => c[0]);
-    expect(calls).toContain('SELECT pg_advisory_unlock($1)');
+    expect(calls).toContain('SELECT pg_advisory_unlock($1, $2)');
     expect(qrRelease).toHaveBeenCalled();
   });
 
@@ -416,12 +416,15 @@ describe('GaslessService (hourly-tranche model)', () => {
       ).resolves.toMatchObject({ status: 'ok' });
     }
     voucherSvc.getVoucher.mockResolvedValueOnce(null);
-    await expect(
-      service.requestVoucher(
-        { account: 'overflow', programs: [PROGRAM_A] },
-        IP,
-      ),
-    ).rejects.toMatchObject({ status: HttpStatus.TOO_MANY_REQUESTS });
+    const result = await service.requestVoucher(
+      { account: 'overflow', programs: [PROGRAM_A] },
+      IP,
+    );
+    expect(result.status).toBe('rate_limited');
+    if (result.status !== 'rate_limited') throw new Error('expected rate_limited');
+    expect(result.body.statusCode).toBe(429);
+    expect(result.body.message).toMatch(/Daily voucher tranche ceiling/);
+    expect(result.retryAfterSec).toBeGreaterThan(0);
   });
 
   it('ceiling is scoped per-IP — different IP gets its own budget', async () => {
@@ -468,13 +471,17 @@ describe('GaslessService (hourly-tranche model)', () => {
     resolveSecond('0xnewvoucher2');
 
     const results = await Promise.allSettled([req1, req2]);
-    const fulfilled = results.filter((r) => r.status === 'fulfilled');
-    const rejected = results.filter((r) => r.status === 'rejected');
-    expect(fulfilled.length).toBe(1);
-    expect(rejected.length).toBe(1);
-    expect((rejected[0] as PromiseRejectedResult).reason).toMatchObject({
-      status: HttpStatus.TOO_MANY_REQUESTS,
-    });
+    // Exactly one wins the synchronous ceiling reservation and proceeds to
+    // issue() (fulfilled with status:'ok'); the other returns early with a
+    // rate_limited discriminated union (also fulfilled, but different status).
+    // Neither rejects — the ceiling is now a structured response, not a throw.
+    expect(results.every((r) => r.status === 'fulfilled')).toBe(true);
+    const values = results.map((r) => (r as PromiseFulfilledResult<any>).value);
+    const ok = values.filter((v) => v.status === 'ok');
+    const limited = values.filter((v) => v.status === 'rate_limited');
+    expect(ok.length).toBe(1);
+    expect(limited.length).toBe(1);
+    expect(limited[0].body.statusCode).toBe(429);
   });
 
   it('per-IP reservation is NOT refunded when issue() fails (double-mint defense)', async () => {
@@ -494,9 +501,13 @@ describe('GaslessService (hourly-tranche model)', () => {
       );
     }
     voucherSvc.getVoucher.mockResolvedValueOnce(null);
-    await expect(
-      service.requestVoucher({ account: 'overflow', programs: [PROGRAM_A] }, IP),
-    ).rejects.toMatchObject({ status: HttpStatus.TOO_MANY_REQUESTS });
+    const result = await service.requestVoucher(
+      { account: 'overflow', programs: [PROGRAM_A] },
+      IP,
+    );
+    expect(result.status).toBe('rate_limited');
+    if (result.status !== 'rate_limited') throw new Error('expected rate_limited');
+    expect(result.body.statusCode).toBe(429);
   });
 
   // ── CRITICAL regression: mid-cycle migration ──────────────────────────────
@@ -590,13 +601,22 @@ describe('GaslessService (hourly-tranche model)', () => {
     ).rejects.toThrow(InternalServerErrorException);
   });
 
-  it('passes HttpException (ceiling) through without wrapping as 500', async () => {
-    cfgOverrides.perIpTranchesPerDay = 1;
-    voucherSvc.getVoucher.mockResolvedValueOnce(null);
-    await service.requestVoucher({ account: 'a0', programs: [PROGRAM_A] }, IP);
-    voucherSvc.getVoucher.mockResolvedValueOnce(null);
+  it('BadRequest (invalid input) is NOT wrapped as 500', async () => {
+    // BadRequestException in the flow must pass through untouched so clients
+    // get the correct 400 with a specific message.
     await expect(
-      service.requestVoucher({ account: 'a1', programs: [PROGRAM_A] }, IP),
-    ).rejects.toBeInstanceOf(HttpException);
+      service.requestVoucher({ account: 'invalid', programs: [PROGRAM_A] }, IP),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  // ── Backward compat (old { account, program } shape) ──────────────────────
+
+  it('returns a specific 400 when caller sends the old { program } field', async () => {
+    await expect(
+      service.requestVoucher(
+        { account: ACCOUNT, program: PROGRAM_A } as any,
+        IP,
+      ),
+    ).rejects.toThrow(/programs: string\[\]/);
   });
 });

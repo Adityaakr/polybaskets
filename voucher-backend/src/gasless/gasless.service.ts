@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
+import { createHash } from 'crypto';
 import { decodeAddress, HexString } from '@gear-js/api';
 import {
   GaslessProgram,
@@ -45,9 +46,15 @@ export interface RateLimitedBody {
   retryAfterSec: number;
 }
 
+export interface RateLimitedResult {
+  status: 'rate_limited';
+  body: RateLimitedBody;
+  retryAfterSec: number;
+}
+
 export type RequestVoucherResult =
   | { status: 'ok'; voucherId: string }
-  | { status: 'rate_limited'; body: RateLimitedBody; retryAfterSec: number };
+  | RateLimitedResult;
 
 @Injectable()
 export class GaslessService {
@@ -71,21 +78,39 @@ export class GaslessService {
   ) {}
 
   /**
-   * Deterministic integer key for a PostgreSQL advisory lock, keyed on the
-   * agent address. Serializes concurrent requests from the same agent so the
-   * DB-state check (`lastRenewedAt < cutoff`) is race-free. No date suffix —
-   * hourly semantics don't need midnight roll-over.
+   * Deterministic pair of int32 keys for `pg_advisory_lock(k1, k2)` —
+   * 64 bits of key space from SHA-256(account). Serializes concurrent
+   * requests from the same agent so the DB-state check
+   * (`lastRenewedAt < cutoff`) is race-free. Two-key form avoids the
+   * birthday-collision DoS vector of a 32-bit homemade hash at ~65k
+   * active wallets.
    */
-  private getWalletLockKey(account: string): number {
-    let hash = 0;
-    for (let i = 0; i < account.length; i++) {
-      hash = (hash * 31 + account.charCodeAt(i)) | 0;
-    }
-    return Math.abs(hash);
+  private getWalletLockKey(account: string): [number, number] {
+    const digest = createHash('sha256').update(account).digest();
+    // Read two signed int32s from the first 8 bytes. PostgreSQL advisory
+    // locks accept int4 args (signed 32-bit).
+    const k1 = digest.readInt32BE(0);
+    const k2 = digest.readInt32BE(4);
+    return [k1, k2];
   }
 
   private getTodayIsoDate(): string {
     return new Date().toISOString().slice(0, 10);
+  }
+
+  /**
+   * Seconds until next UTC midnight — used as `Retry-After` when the per-IP
+   * ceiling is hit (reset happens at 00:00 UTC).
+   */
+  private secondsUntilUtcMidnight(): number {
+    const now = new Date();
+    const nextMidnight = new Date(Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate() + 1,
+      0, 0, 0, 0,
+    ));
+    return Math.max(1, Math.ceil((nextMidnight.getTime() - now.getTime()) / 1000));
   }
 
   /**
@@ -95,14 +120,17 @@ export class GaslessService {
    * concurrent requests from the same IP cannot both see the same remaining
    * budget and both pass.
    *
-   * Throws 429 if the IP would exceed the ceiling; otherwise records the
-   * reservation and returns. Reservation is NOT refunded on downstream
-   * failure (signAndSend timeout may have landed the tx on-chain; refunding
-   * would let retries re-mint).
+   * Returns `null` when the reservation succeeds. Returns a `rate_limited`
+   * shape when the IP would exceed the ceiling so the caller can surface a
+   * consistent 429 response (same body + Retry-After header as the per-wallet
+   * path).
+   *
+   * Reservation is NOT refunded on downstream failure (signAndSend timeout
+   * may have landed the tx on-chain; refunding would let retries re-mint).
    */
-  private reserveIpTrancheCount(ip: string): void {
+  private reserveIpTrancheCount(ip: string): RateLimitedResult | null {
     const ceiling = this.configService.get<number>('perIpTranchesPerDay');
-    if (!ceiling || ceiling <= 0) return; // disabled
+    if (!ceiling || ceiling <= 0) return null; // disabled
 
     const today = this.getTodayIsoDate();
     const existing = this.ipTranchesToday.get(ip);
@@ -112,10 +140,19 @@ export class GaslessService {
       this.logger.warn(
         `Per-IP tranche ceiling hit for ${ip}: ${current}+1 > ${ceiling}`,
       );
-      throw new HttpException(
-        `Daily voucher tranche ceiling exceeded for this IP. Limit: ${ceiling} tranches/UTC-day.`,
-        HttpStatus.TOO_MANY_REQUESTS,
-      );
+      const retryAfterSec = this.secondsUntilUtcMidnight();
+      const nextEligibleAt = new Date(Date.now() + retryAfterSec * 1000).toISOString();
+      return {
+        status: 'rate_limited',
+        retryAfterSec,
+        body: {
+          statusCode: 429,
+          error: 'Too Many Requests',
+          message: `Daily voucher tranche ceiling exceeded for this IP. Limit: ${ceiling} tranches/UTC-day.`,
+          nextEligibleAt,
+          retryAfterSec,
+        },
+      };
     }
 
     if (existing && existing.day === today) {
@@ -130,6 +167,7 @@ export class GaslessService {
         if (v.day !== today) this.ipTranchesToday.delete(k);
       }
     }
+    return null;
   }
 
   async getVoucherInfo() {
@@ -220,12 +258,21 @@ export class GaslessService {
    * drift between pods with no correctness gain.
    */
   async requestVoucher(
-    body: { account: string; programs: string[] },
+    body: { account: string; programs: string[]; program?: string },
     ip: string,
   ): Promise<RequestVoucherResult> {
     this.logger.log(
       `Voucher request for programs [${body.programs?.join(', ')}] from ip ${ip}`,
     );
+
+    // Backward-compat hint: old clients sent { account, program: string }.
+    // DTO validation rejects that payload with a generic "programs must be
+    // an array" error; this check surfaces a specific migration message.
+    if (body.program && !body.programs) {
+      throw new BadRequestException(
+        'API change: `program: string` was renamed to `programs: string[]`. Send `{ account, programs: [<address>, ...] }` instead.',
+      );
+    }
 
     let address: HexString;
     try {
@@ -270,11 +317,11 @@ export class GaslessService {
     // acquiring and releasing on different pooled connections.
     const qr = this.dataSource.createQueryRunner();
     let lockAcquired = false;
-    const lockKey = this.getWalletLockKey(address);
+    const [lockKey1, lockKey2] = this.getWalletLockKey(address);
 
     try {
       await qr.connect();
-      await qr.query('SELECT pg_advisory_lock($1)', [lockKey]);
+      await qr.query('SELECT pg_advisory_lock($1, $2)', [lockKey1, lockKey2]);
       lockAcquired = true;
 
       const existing = await this.voucherService.getVoucher(address);
@@ -294,7 +341,8 @@ export class GaslessService {
 
       // Branch (a): no existing voucher → fresh issue.
       if (!existing) {
-        this.reserveIpTrancheCount(ip);
+        const ipLimit = this.reserveIpTrancheCount(ip);
+        if (ipLimit) return ipLimit;
         const voucherId = await this.voucherService.issue(
           address,
           programs as HexString[],
@@ -312,7 +360,8 @@ export class GaslessService {
         const newPrograms = programs.filter(
           (p) => !existing.programs.includes(p),
         );
-        this.reserveIpTrancheCount(ip);
+        const ipLimit = this.reserveIpTrancheCount(ip);
+        if (ipLimit) return ipLimit;
         await this.voucherService.update(
           existing,
           trancheVara,
@@ -347,7 +396,7 @@ export class GaslessService {
       throw new InternalServerErrorException('Voucher processing failed — please retry');
     } finally {
       if (lockAcquired) {
-        await qr.query('SELECT pg_advisory_unlock($1)', [lockKey]);
+        await qr.query('SELECT pg_advisory_unlock($1, $2)', [lockKey1, lockKey2]);
       }
       await qr.release();
     }

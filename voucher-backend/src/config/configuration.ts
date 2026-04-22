@@ -8,11 +8,27 @@ const required = (name: string): string => {
   return val;
 };
 
+/**
+ * Parse a positive integer env var with a default. Fails fast on NaN, <=0,
+ * or non-integer input so a typo in `HOURLY_TRANCHE_VARA=abc` crashes the
+ * boot instead of silently running with `BigInt(NaN)` at request time.
+ */
+const posInt = (name: string, defaultValue: string): number => {
+  const raw = process.env[name] ?? defaultValue;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) {
+    throw new Error(
+      `${name} must be a positive integer (got "${raw}"). Fix the env and redeploy.`,
+    );
+  }
+  return n;
+};
+
 export default () => ({
-  port: Number(process.env.PORT || '3001'),
+  port: posInt('PORT', '3001'),
   database: {
     host: process.env.DB_HOST || 'localhost',
-    port: parseInt(process.env.DB_PORT || '5432', 10),
+    port: posInt('DB_PORT', '5432'),
     user: required('DB_USER'),
     password: required('DB_PASSWORD'),
     name: required('DB_NAME'),
@@ -20,14 +36,14 @@ export default () => ({
   nodeUrl: required('NODE_URL'),
   voucherAccount: required('VOUCHER_ACCOUNT'),
   // Per-tranche VARA amount added on issue() and every hourly top-up.
-  hourlyTrancheVara: Number(process.env.HOURLY_TRANCHE_VARA || '500'),
+  hourlyTrancheVara: posInt('HOURLY_TRANCHE_VARA', '500'),
   // Max tranches per IP per UTC day (second abuse gate — the only aggregate limit).
   // 40 × 500 = 20,000 VARA/day/IP at current tranche size.
-  perIpTranchesPerDay: Number(process.env.PER_IP_TRANCHES_PER_DAY || '40'),
+  perIpTranchesPerDay: posInt('PER_IP_TRANCHES_PER_DAY', '40'),
   // Seconds between eligible top-ups per wallet.
-  trancheIntervalSec: Number(process.env.TRANCHE_INTERVAL_SEC || '3600'),
+  trancheIntervalSec: posInt('TRANCHE_INTERVAL_SEC', '3600'),
   // Voucher validity duration. Extended by trancheDurationSec on every top-up
   // (sliding window — voucher expires only if user abandons ≥24h).
-  trancheDurationSec: Number(process.env.TRANCHE_DURATION_SEC || '86400'),
+  trancheDurationSec: posInt('TRANCHE_DURATION_SEC', '86400'),
   infoApiKey: process.env.INFO_API_KEY || '',
 });
