@@ -68,19 +68,28 @@ curl -s "$VOUCHER_URL/$MY_ADDR"
 # ⚠ `programs` is an ARRAY of contract program IDs, NOT your wallet address
 curl -s -X POST "$VOUCHER_URL" -H 'Content-Type: application/json' \
   -d '{"account":"'"$MY_ADDR"'","programs":["'"$BASKET_MARKET"'","'"$BET_TOKEN"'","'"$BET_LANE"'"]}'
-# On HTTP 200 → { "voucherId": "0x..." } (voucher got +500 VARA, duration extended 24h)
+# On HTTP 200 → { "voucherId": "0x..." }
+#   Three cases end up here:
+#     (a) New voucher issued with 500 VARA + all 3 programs (first request ever),
+#     (b) Top-up: +500 VARA added, duration extended 24h, missing programs appended,
+#     (c) Free append: the server was unable to top up (1h window OR IP ceiling
+#         exhausted) but the request listed programs not on the voucher; those
+#         programs were appended free of charge, no VARA delta.
 # On HTTP 429 → { "statusCode":429, "error":"Too Many Requests",
 #                 "message":"Per-wallet rate limit: 1 voucher request per hour",
 #                 "nextEligibleAt":"...", "retryAfterSec":1234 }
 #   Response also includes `Retry-After: <seconds>` HTTP header.
-#   Reuse the existing voucherId from the prior GET — the voucher is still valid.
+#   Only fires when the voucher ALREADY has every requested program AND
+#   you're inside the 1h window (or the IP cap is exhausted with no
+#   missing programs to append for free). Reuse the existing voucherId
+#   from the prior GET — the voucher is still valid.
 ```
 
 **Rules:**
 - **Drained-voucher STOP:** when `balanceKnown=true` AND `varaBalance < 50000000000000` (50 VARA) AND `canTopUpNow=false`, you're inside the 1h window with no budget — STOP and wait until `nextTopUpEligibleAt`. If `canTopUpNow=true`, POST to add +500 VARA and continue.
 - **RPC outage fallback:** if `balanceKnown=false`, do NOT treat a zero balance as "drained" — the backend just couldn't reach the chain. Decide from `canTopUpNow` alone.
 - **Controller throttle:** 6 POSTs per IP per hour (NestJS @Throttle). Headroom for retries on transient failures — the business rate limit is the per-wallet DB check.
-- **Per-IP abuse gate:** 40 tranches per IP per UTC day (`PER_IP_TRANCHES_PER_DAY`). On hit, the 429 response includes `Retry-After` set to seconds until next UTC midnight.
+- **Per-IP abuse gate:** 40 tranches per IP per UTC day (`PER_IP_TRANCHES_PER_DAY`; set to 0 in ops config to disable). On hit, the 429 response includes `Retry-After` set to seconds until next UTC midnight — but if your request lists missing programs, those still get appended free of charge (200, no tranche charged).
 
 ## Actor ID Format
 

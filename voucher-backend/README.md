@@ -67,14 +67,26 @@ a prior `GET` — the voucher is still valid.
 Same shape is returned when the per-IP daily tranche ceiling is hit, with
 `retryAfterSec` set to seconds until next UTC midnight.
 
-Behavior:
+Behavior (in order of precedence):
 - **No existing voucher:** issue a fresh voucher with the listed programs
   and `HOURLY_TRANCHE_VARA` VARA. Charges one tranche against the per-IP counter.
-- **Existing voucher, `lastRenewedAt` ≥ 1h ago:** add `HOURLY_TRANCHE_VARA` VARA,
-  extend `validUpTo` by 24h, append any programs in the request not already
-  registered. Charges one tranche.
-- **Existing voucher, `lastRenewedAt` < 1h ago:** 429 rate limit response.
-  Neither the voucher nor the IP counter is modified.
+- **Existing voucher, `lastRenewedAt` ≥ `TRANCHE_INTERVAL_SEC`:** add
+  `HOURLY_TRANCHE_VARA` VARA, extend `validUpTo` by `TRANCHE_DURATION_SEC`,
+  append any programs in the request not already registered. Charges one tranche.
+  - *Fallback when the per-IP ceiling is already exhausted AND the request
+    has missing programs:* skip the top-up (no VARA added, no `lastRenewedAt`
+    update) but still append the missing programs free of charge. Covers
+    migrated legacy vouchers whose agents need program coverage even after
+    their IP hit the daily cap. No tranche charged.
+- **Existing voucher, `lastRenewedAt` < `TRANCHE_INTERVAL_SEC`** (inside the
+  1h window; boundary is inclusive — exact-instant POSTs at
+  `nextTopUpEligibleAt` are allowed through branch above):
+  - If the request lists any programs NOT already on the voucher → append
+    them free of charge. No tranche charged, no VARA added, no duration bump.
+    Covers migrated legacy vouchers funded <1h before deploy with a partial
+    program set.
+  - Otherwise → 429 rate limit response. Neither voucher nor IP counter
+    is modified.
 
 ### `GET /voucher/:account`
 Read-only voucher state for an agent. No cap charge, no business rate-limit
@@ -121,20 +133,34 @@ Voucher issuer account address and balance. Requires `x-api-key: <INFO_API_KEY>`
   via `INSERT ... ON CONFLICT DO UPDATE ... RETURNING count`. Runs correctly
   across any number of pods and survives restarts. (In-memory Map was
   replaced in the hourly-tranche migration.)
+- **Self-healing DDL.** `GaslessService.onModuleInit` runs
+  `CREATE TABLE IF NOT EXISTS ip_tranche_usage (...)` on boot. Safe with
+  production's `synchronize: false` — no hand-run migration required.
+  Idempotent, fails boot if DDL errors (the per-IP ceiling is a hard gate).
 - **Per-wallet serialization is cluster-wide.** Uses `pg_advisory_lock(k1, k2)`
   keyed on SHA-256(account). Concurrent same-wallet requests serialize
-  across pods; the cron revoke path takes the same lock to avoid revoking
-  a voucher a user just topped up.
+  across pods; the cron revoke path takes the same lock and re-reads the
+  row under the lock to avoid revoking a voucher a user just topped up.
 - **Trust proxy.** `main.ts` sets `app.set('trust proxy', 1)` so Express
   honors the single `X-Forwarded-For` hop from Railway's load balancer.
   Without this, `@Ip()` returns the LB's IP and all per-IP gates collapse
   into one global quota. If you deploy behind multi-hop (e.g. Cloudflare →
   Railway), revisit the trust-proxy value accordingly.
-- **Env validation fails fast.** Startup throws on `NaN`, `≤0`, or
+- **Env validation fails fast.** Startup throws on `NaN`, `<0`, or
   non-integer values for any numeric env var (`HOURLY_TRANCHE_VARA`,
-  `PER_IP_TRANCHES_PER_DAY`, `TRANCHE_INTERVAL_SEC`, `TRANCHE_DURATION_SEC`,
-  `PORT`, `DB_PORT`). Typo in the env crashes boot instead of silently
-  running with broken economics.
+  `TRANCHE_INTERVAL_SEC`, `TRANCHE_DURATION_SEC`, `PORT`, `DB_PORT` require
+  positive; `PER_IP_TRANCHES_PER_DAY` accepts 0 as "disable"). A typo
+  crashes boot instead of silently running with broken economics.
+- **Cross-field check.** Startup also enforces
+  `TRANCHE_DURATION_SEC >= TRANCHE_INTERVAL_SEC`. A duration shorter than
+  the interval would let vouchers expire on-chain before the next top-up
+  is eligible, stranding agents between expiry and refill.
+- **Post-chain save with retry.** After `signAndSend` confirmation,
+  `VoucherService` persists the new DB state with 3 retries (200ms / 500ms
+  / 1500ms backoff) before giving up. Closes the narrow "chain success +
+  DB outage" window where a prior request's save could be lost before the
+  next request observed stale state. The per-wallet advisory lock held
+  across retries prevents concurrent mints during the window.
 
 ## Environment Variables
 
@@ -144,10 +170,10 @@ Voucher issuer account address and balance. Requires `x-api-key: <INFO_API_KEY>`
 | `VOUCHER_ACCOUNT` | Seed phrase or hex seed for the voucher issuer account |
 | `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` | Postgres connection |
 | `PORT` | Server port (default: 3001) |
-| `HOURLY_TRANCHE_VARA` | VARA added to the voucher on each POST (default: 500) |
-| `PER_IP_TRANCHES_PER_DAY` | Max tranches an IP can claim per UTC day (default: 40) |
-| `TRANCHE_INTERVAL_SEC` | Minimum seconds between funded POSTs per wallet (default: 3600) |
-| `TRANCHE_DURATION_SEC` | Voucher validity window added on each top-up (default: 86400) |
+| `HOURLY_TRANCHE_VARA` | VARA added to the voucher on each funded POST (default: 500; must be a positive integer) |
+| `PER_IP_TRANCHES_PER_DAY` | Max tranches an IP can claim per UTC day (default: 40; set to `0` to disable the per-IP ceiling for dev / internal environments) |
+| `TRANCHE_INTERVAL_SEC` | Minimum seconds between funded POSTs per wallet (default: 3600; positive integer) |
+| `TRANCHE_DURATION_SEC` | Voucher validity window added on each top-up (default: 86400; must be ≥ `TRANCHE_INTERVAL_SEC`) |
 | `INFO_API_KEY` | API key for `GET /info`. Requests without `x-api-key` header return 403. |
 
 ## Migration from Path B (daily model)
