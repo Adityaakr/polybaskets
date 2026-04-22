@@ -490,6 +490,57 @@ describe('GaslessService (hourly-tranche model)', () => {
     expect(voucherSvc.update).toHaveBeenCalled();
   });
 
+  // Codex round-5 regression: legacy voucher >1h old + partial programs
+  // + IP ceiling exhausted. Before this fix, branch (b) reserved the IP
+  // tranche, got a 429, and returned early — leaving the voucher with a
+  // subset of programs until UTC midnight. Writes to the missing programs
+  // failed for the entire day.
+
+  it('branch (b) with IP ceiling hit falls back to free append when programs missing', async () => {
+    cfgOverrides.perIpTranchesPerDay = 1;
+    // Exhaust the IP quota first.
+    voucherSvc.getVoucher.mockResolvedValueOnce(null);
+    await service.requestVoucher({ account: 'fresh1', programs: [PROGRAM_A] }, IP);
+
+    // Now a legacy wallet (>1h old, partial programs) POSTs from the same IP.
+    const legacy = makeVoucher({
+      programs: [PROGRAM_A],
+      lastRenewedAt: hoursAgo(2),
+    });
+    voucherSvc.getVoucher.mockResolvedValueOnce(legacy);
+    const result = await service.requestVoucher(
+      { account: ACCOUNT, programs: [PROGRAM_A, PROGRAM_B, PROGRAM_C] },
+      IP,
+    );
+    expect(result).toEqual({ status: 'ok', voucherId: '0xvoucher' });
+    expect(voucherSvc.appendProgramsFreeOfCharge).toHaveBeenCalledWith(
+      legacy,
+      [PROGRAM_B, PROGRAM_C],
+    );
+    // No top-up — we're over the IP cap, so update() must NOT run.
+    expect(voucherSvc.update).not.toHaveBeenCalled();
+  });
+
+  it('branch (b) with IP ceiling hit AND no missing programs: returns 429 (true rate limit)', async () => {
+    cfgOverrides.perIpTranchesPerDay = 1;
+    voucherSvc.getVoucher.mockResolvedValueOnce(null);
+    await service.requestVoucher({ account: 'fresh1', programs: [PROGRAM_A] }, IP);
+
+    voucherSvc.getVoucher.mockResolvedValueOnce(
+      makeVoucher({
+        programs: [PROGRAM_A, PROGRAM_B, PROGRAM_C],
+        lastRenewedAt: hoursAgo(2),
+      }),
+    );
+    const result = await service.requestVoucher(
+      { account: ACCOUNT, programs: [PROGRAM_A, PROGRAM_B, PROGRAM_C] },
+      IP,
+    );
+    expect(result.status).toBe('rate_limited');
+    expect(voucherSvc.appendProgramsFreeOfCharge).not.toHaveBeenCalled();
+    expect(voucherSvc.update).not.toHaveBeenCalled();
+  });
+
   it('1h window + all programs already present: returns 429 (true rate limit)', async () => {
     const existing = makeVoucher({
       programs: [PROGRAM_A, PROGRAM_B, PROGRAM_C],

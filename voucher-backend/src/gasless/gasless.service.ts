@@ -371,6 +371,9 @@ export class GaslessService implements OnModuleInit {
 
       const cutoffMs = Date.now() - trancheIntervalSec * 1000;
       const lastRenewedMs = existing.lastRenewedAt.getTime();
+      const missingPrograms = programs.filter(
+        (p) => !existing.programs.includes(p),
+      );
 
       // Branch (b): eligible for top-up.
       // Boundary is inclusive (<=) so clients that sleep until
@@ -378,17 +381,28 @@ export class GaslessService implements OnModuleInit {
       // spurious 429 — matches getVoucherState's `now >= nextEligibleMs`
       // semantics for canTopUpNow.
       if (lastRenewedMs <= cutoffMs) {
-        const newPrograms = programs.filter(
-          (p) => !existing.programs.includes(p),
-        );
         const ipLimit = await this.reserveIpTrancheCount(ip);
-        if (ipLimit) return ipLimit;
+        if (ipLimit) {
+          // IP daily tranche budget exhausted. A funded top-up isn't
+          // possible right now, but widening the program whitelist costs
+          // no VARA — let migrated legacy vouchers with partial programs
+          // escape the "stuck until midnight" trap. If there's nothing to
+          // append, surface the 429 as usual.
+          if (missingPrograms.length > 0) {
+            await this.voucherService.appendProgramsFreeOfCharge(
+              existing,
+              missingPrograms as HexString[],
+            );
+            return { status: 'ok', voucherId: existing.voucherId };
+          }
+          return ipLimit;
+        }
         await this.voucherService.update(
           existing,
           trancheVara,
           trancheDurationSec,
-          newPrograms.length
-            ? (newPrograms as HexString[])
+          missingPrograms.length
+            ? (missingPrograms as HexString[])
             : undefined,
         );
         return { status: 'ok', voucherId: existing.voucherId };
@@ -405,10 +419,6 @@ export class GaslessService implements OnModuleInit {
       //
       // If all requested programs are already on the voucher, it's a true
       // rate-limit violation → 429.
-      const missingPrograms = programs.filter(
-        (p) => !existing.programs.includes(p),
-      );
-
       if (missingPrograms.length > 0) {
         await this.voucherService.appendProgramsFreeOfCharge(
           existing,
