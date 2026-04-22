@@ -8,6 +8,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { GaslessProgram } from './entities/gasless-program.entity';
 import { Voucher } from './entities/voucher.entity';
+import { IpTrancheUsage } from './entities/ip-tranche-usage.entity';
 import { GaslessModule } from './gasless/gasless.module';
 import configuration from './config/configuration';
 
@@ -29,7 +30,7 @@ if (!globalThis.crypto) {
         username: config.get('database.user'),
         password: config.get('database.password'),
         database: config.get('database.name'),
-        entities: [GaslessProgram, Voucher],
+        entities: [GaslessProgram, Voucher, IpTrancheUsage],
         // synchronize:true is safe for initial dev/deploy. Disable for production
         // once the schema is stable and switch to explicit migrations.
         synchronize: process.env.NODE_ENV !== 'production',

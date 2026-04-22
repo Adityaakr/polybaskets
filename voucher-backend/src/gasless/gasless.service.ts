@@ -8,13 +8,14 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
-import { createHash } from 'crypto';
 import { decodeAddress, HexString } from '@gear-js/api';
+import { getWalletLockKey } from './wallet-lock';
 import {
   GaslessProgram,
   GaslessProgramStatus,
 } from '../entities/gasless-program.entity';
 import { Voucher } from '../entities/voucher.entity';
+import { IpTrancheUsage } from '../entities/ip-tranche-usage.entity';
 import { VoucherService } from './voucher.service';
 import { ConfigService } from '@nestjs/config';
 
@@ -60,13 +61,6 @@ export type RequestVoucherResult =
 export class GaslessService {
   private logger = new Logger(GaslessService.name);
 
-  /**
-   * In-memory counter: per-IP tranche count during the current UTC day.
-   * Restart resets the counter (permissive, not restrictive — attacker gains
-   * nothing from restarts; honest users regain budget after transient downtime).
-   */
-  private ipTranchesToday = new Map<string, { day: string; trancheCount: number }>();
-
   constructor(
     private readonly voucherService: VoucherService,
     private readonly configService: ConfigService,
@@ -75,24 +69,9 @@ export class GaslessService {
     private readonly programRepo: Repository<GaslessProgram>,
     @InjectRepository(Voucher)
     private readonly voucherRepo: Repository<Voucher>,
+    @InjectRepository(IpTrancheUsage)
+    private readonly ipUsageRepo: Repository<IpTrancheUsage>,
   ) {}
-
-  /**
-   * Deterministic pair of int32 keys for `pg_advisory_lock(k1, k2)` —
-   * 64 bits of key space from SHA-256(account). Serializes concurrent
-   * requests from the same agent so the DB-state check
-   * (`lastRenewedAt < cutoff`) is race-free. Two-key form avoids the
-   * birthday-collision DoS vector of a 32-bit homemade hash at ~65k
-   * active wallets.
-   */
-  private getWalletLockKey(account: string): [number, number] {
-    const digest = createHash('sha256').update(account).digest();
-    // Read two signed int32s from the first 8 bytes. PostgreSQL advisory
-    // locks accept int4 args (signed 32-bit).
-    const k1 = digest.readInt32BE(0);
-    const k2 = digest.readInt32BE(4);
-    return [k1, k2];
-  }
 
   private getTodayIsoDate(): string {
     return new Date().toISOString().slice(0, 10);
@@ -114,11 +93,9 @@ export class GaslessService {
   }
 
   /**
-   * Atomically reserve one tranche from the per-IP daily ceiling.
-   *
-   * Runs in a single synchronous block — no awaits, no yields — so two
-   * concurrent requests from the same IP cannot both see the same remaining
-   * budget and both pass.
+   * Atomically increment the per-IP per-UTC-day tranche counter via a single
+   * SQL statement (`INSERT ... ON CONFLICT DO UPDATE ... RETURNING count`).
+   * No read-then-write race, no process-local state, cluster-wide correct.
    *
    * Returns `null` when the reservation succeeds. Returns a `rate_limited`
    * shape when the IP would exceed the ceiling so the caller can surface a
@@ -128,17 +105,27 @@ export class GaslessService {
    * Reservation is NOT refunded on downstream failure (signAndSend timeout
    * may have landed the tx on-chain; refunding would let retries re-mint).
    */
-  private reserveIpTrancheCount(ip: string): RateLimitedResult | null {
+  private async reserveIpTrancheCount(ip: string): Promise<RateLimitedResult | null> {
     const ceiling = this.configService.get<number>('perIpTranchesPerDay');
     if (!ceiling || ceiling <= 0) return null; // disabled
 
     const today = this.getTodayIsoDate();
-    const existing = this.ipTranchesToday.get(ip);
-    const current = existing && existing.day === today ? existing.trancheCount : 0;
 
-    if (current + 1 > ceiling) {
+    // Atomic increment: the ON CONFLICT branch returns the post-increment count.
+    // Use a raw query so the increment + return happens in one round-trip with
+    // no read-modify-write race between concurrent requests from the same IP.
+    const rows: Array<{ count: number | string }> = await this.ipUsageRepo.query(
+      `INSERT INTO ip_tranche_usage (ip, utc_day, count)
+       VALUES ($1, $2, 1)
+       ON CONFLICT (ip, utc_day) DO UPDATE SET count = ip_tranche_usage.count + 1
+       RETURNING count`,
+      [ip, today],
+    );
+    const newCount = Number(rows[0]?.count ?? 0);
+
+    if (newCount > ceiling) {
       this.logger.warn(
-        `Per-IP tranche ceiling hit for ${ip}: ${current}+1 > ${ceiling}`,
+        `Per-IP tranche ceiling hit for ${ip}: ${newCount} > ${ceiling}`,
       );
       const retryAfterSec = this.secondsUntilUtcMidnight();
       const nextEligibleAt = new Date(Date.now() + retryAfterSec * 1000).toISOString();
@@ -155,18 +142,6 @@ export class GaslessService {
       };
     }
 
-    if (existing && existing.day === today) {
-      existing.trancheCount += 1;
-    } else {
-      this.ipTranchesToday.set(ip, { day: today, trancheCount: 1 });
-    }
-
-    // Opportunistic eviction: drop entries for stale days whenever the map grows past a threshold.
-    if (this.ipTranchesToday.size > 1000) {
-      for (const [k, v] of this.ipTranchesToday) {
-        if (v.day !== today) this.ipTranchesToday.delete(k);
-      }
-    }
     return null;
   }
 
@@ -317,7 +292,7 @@ export class GaslessService {
     // acquiring and releasing on different pooled connections.
     const qr = this.dataSource.createQueryRunner();
     let lockAcquired = false;
-    const [lockKey1, lockKey2] = this.getWalletLockKey(address);
+    const [lockKey1, lockKey2] = getWalletLockKey(address);
 
     try {
       await qr.connect();
@@ -328,6 +303,14 @@ export class GaslessService {
 
       // oneTime enforcement across the batch: if any requested program is
       // oneTime AND already in the voucher, reject.
+      //
+      // KNOWN LIMITATION (accepted for this PR, no oneTime programs in
+      // seed.ts today): this only inspects the current non-revoked voucher.
+      // If the cron revokes a voucher carrying a oneTime program, `existing`
+      // becomes null and the next POST re-issues that oneTime program on a
+      // fresh voucher. When any program is actually marked oneTime,
+      // introduce a separate `one_time_claim(account, program_address)` row
+      // with a unique constraint so the check spans the full history.
       const oneTimeConflicts = programRows
         .filter(
           (r) => r.oneTime && existing?.programs.includes(r.address),
@@ -341,7 +324,7 @@ export class GaslessService {
 
       // Branch (a): no existing voucher → fresh issue.
       if (!existing) {
-        const ipLimit = this.reserveIpTrancheCount(ip);
+        const ipLimit = await this.reserveIpTrancheCount(ip);
         if (ipLimit) return ipLimit;
         const voucherId = await this.voucherService.issue(
           address,
@@ -360,7 +343,7 @@ export class GaslessService {
         const newPrograms = programs.filter(
           (p) => !existing.programs.includes(p),
         );
-        const ipLimit = this.reserveIpTrancheCount(ip);
+        const ipLimit = await this.reserveIpTrancheCount(ip);
         if (ipLimit) return ipLimit;
         await this.voucherService.update(
           existing,

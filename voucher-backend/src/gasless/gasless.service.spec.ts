@@ -13,6 +13,7 @@ import { GaslessService } from './gasless.service';
 import { VoucherService } from './voucher.service';
 import { GaslessProgram, GaslessProgramStatus } from '../entities/gasless-program.entity';
 import { Voucher } from '../entities/voucher.entity';
+import { IpTrancheUsage } from '../entities/ip-tranche-usage.entity';
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
@@ -77,14 +78,32 @@ describe('GaslessService (hourly-tranche model)', () => {
   >;
   let programRepo: { findBy: jest.Mock; findOneBy: jest.Mock };
   let voucherRepo: Record<string, never>;
+  let ipUsageRepo: { query: jest.Mock };
   let ds: { createQueryRunner: jest.Mock };
   let qrQuery: jest.Mock;
   let qrRelease: jest.Mock;
   let cfg: { get: jest.Mock };
   let cfgOverrides: Partial<Record<string, number | string>>;
+  // In-memory simulation of the ip_tranche_usage table for tests. Mirrors the
+  // `INSERT ... ON CONFLICT DO UPDATE ... RETURNING count` atomic semantic.
+  let ipRows: Map<string, number>;
 
   beforeEach(async () => {
     cfgOverrides = {};
+    ipRows = new Map<string, number>();
+    ipUsageRepo = {
+      query: jest.fn().mockImplementation(async (sql: string, params: any[]) => {
+        // Match the atomic UPSERT+RETURNING that production code issues.
+        if (sql.includes('INSERT INTO ip_tranche_usage')) {
+          const [ip, day] = params;
+          const key = `${ip}|${day}`;
+          const next = (ipRows.get(key) ?? 0) + 1;
+          ipRows.set(key, next);
+          return [{ count: next }];
+        }
+        return [];
+      }),
+    };
     programRepo = {
       findBy: jest.fn().mockImplementation(async ({ address }) => {
         // `address` is a TypeORM `In([...])` FindOperator. We reach into its
@@ -136,6 +155,7 @@ describe('GaslessService (hourly-tranche model)', () => {
         { provide: DataSource, useValue: ds },
         { provide: getRepositoryToken(GaslessProgram), useValue: programRepo },
         { provide: getRepositoryToken(Voucher), useValue: voucherRepo },
+        { provide: getRepositoryToken(IpTrancheUsage), useValue: ipUsageRepo },
       ],
     }).compile();
 

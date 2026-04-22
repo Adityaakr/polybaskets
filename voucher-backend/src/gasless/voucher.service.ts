@@ -197,11 +197,20 @@ export class VoucherService implements OnModuleInit {
     if (durationInBlocks) params.prolongDuration = durationInBlocks;
     if (addPrograms && addPrograms.length) {
       params.appendPrograms = addPrograms;
-      voucher.programs.push(...addPrograms);
     }
     if (amountToAdd > 0) {
       params.balanceTopUp = BigInt(amountToAdd) * PLANCK_PER_VARA;
     }
+
+    // Pre-persist `lastRenewedAt=now` BEFORE signAndSend so the per-wallet
+    // 1h rate limit holds even if the chain call or a subsequent save fails.
+    // Without this, a DB failure after a successful signAndSend lets the
+    // next request read a stale lastRenewedAt and mint another +500 tranche
+    // — unbounded double-mint per wallet while DB remains unreachable.
+    // Trade-off (accepted): if signAndSend fails cleanly, the wallet loses
+    // its 1h window for nothing. Next tranche works at T+1h.
+    voucher.lastRenewedAt = new Date();
+    await this.repo.save(voucher);
 
     this.logger.log(
       `Updating voucher: ${voucher.voucherId} for ${voucher.account} (+${amountToAdd} VARA, +${prolongDurationInSec ?? 0}s)`,
@@ -233,13 +242,16 @@ export class VoucherService implements OnModuleInit {
       'signAndSend timed out after 60s',
     );
 
-    const now = new Date();
+    // Chain confirmed. Persist the chain-side state (new validUpTo, programs).
+    // lastRenewedAt is already saved from the pre-chain write above.
+    if (addPrograms && addPrograms.length) {
+      voucher.programs.push(...addPrograms);
+    }
     if (durationInBlocks) {
       const blockNumber = (await this.api.blocks.getBlockNumber(blockHash)).toNumber();
       voucher.validUpToBlock = BigInt(blockNumber + durationInBlocks);
       voucher.validUpTo = new Date(Date.now() + prolongDurationInSec * 1000);
     }
-    voucher.lastRenewedAt = now;
 
     this.logger.log(`Voucher updated: ${voucher.voucherId} valid until ${voucher.validUpTo.toISOString()}`);
     await this.repo.save(voucher);
