@@ -21,23 +21,6 @@ type BasketAssetKind = enum {
   Bet,
 };
 
-type ItemResolution = struct {
-  item_index: u8,
-  resolved: Outcome,
-  poly_slug: str,
-  poly_condition_id: opt str,
-  poly_price_yes: u16,
-  poly_price_no: u16,
-};
-
-type BasketMarketConfig = struct {
-  admin_role: actor_id,
-  settler_role: actor_id,
-  liveness_ms: u64,
-  vara_enabled: bool,
-  min_items_per_basket: u32,
-};
-
 type AgentInfo = struct {
   address: actor_id,
   name: str,
@@ -62,8 +45,53 @@ type BasketStatus = enum {
   Settled,
 };
 
+type Position = struct {
+  basket_id: u64,
+  user: actor_id,
+  shares: u128,
+  claimed: bool,
+  index_at_creation_bps: u16,
+};
+
+type Settlement = struct {
+  basket_id: u64,
+  proposer: actor_id,
+  item_resolutions: vec ItemResolution,
+  payout_per_share: u128,
+  payload: str,
+  proposed_at: u64,
+  challenge_deadline: u64,
+  finalized_at: opt u64,
+  status: SettlementStatus,
+};
+
+type ItemResolution = struct {
+  item_index: u8,
+  resolved: Outcome,
+  poly_slug: str,
+  poly_condition_id: opt str,
+  poly_price_yes: u16,
+  poly_price_no: u16,
+};
+
+type SettlementStatus = enum {
+  Proposed,
+  Finalized,
+};
+
+type BasketMarketConfig = struct {
+  admin_role: actor_id,
+  settler_role: actor_id,
+  liveness_ms: u64,
+  vara_enabled: bool,
+  min_items_per_basket: u32,
+};
+
 type BasketMarketError = enum {
   Unauthorized,
+  Paused,
+  MigrationRequiresPause,
+  MigrationBatchTooLarge,
   BasketNotFound,
   BasketNotActive,
   BasketAssetMismatch,
@@ -103,29 +131,11 @@ type BasketMarketError = enum {
   AgentRenameCooldown,
 };
 
-type Position = struct {
-  basket_id: u64,
-  user: actor_id,
-  shares: u128,
-  claimed: bool,
-  index_at_creation_bps: u16,
-};
-
-type Settlement = struct {
-  basket_id: u64,
-  proposer: actor_id,
-  item_resolutions: vec ItemResolution,
-  payout_per_share: u128,
-  payload: str,
-  proposed_at: u64,
-  challenge_deadline: u64,
-  finalized_at: opt u64,
-  status: SettlementStatus,
-};
-
-type SettlementStatus = enum {
-  Proposed,
-  Finalized,
+type MigrationEntityKind = enum {
+  Baskets,
+  Settlements,
+  Positions,
+  Agents,
 };
 
 constructor {
@@ -137,11 +147,17 @@ service BasketMarket {
   Claim : (basket_id: u64) -> u128;
   CreateBasket : (name: str, description: str, items: vec BasketItem, asset_kind: BasketAssetKind) -> u64;
   FinalizeSettlement : (basket_id: u64) -> null;
+  ImportAgents : (agents: vec AgentInfo) -> u32;
+  ImportBaskets : (baskets: vec Basket) -> u32;
+  ImportPositions : (positions: vec Position) -> u32;
+  ImportSettlements : (settlements: vec Settlement) -> u32;
+  Pause : () -> null;
   ProposeSettlement : (basket_id: u64, item_resolutions: vec ItemResolution, payload: str) -> null;
   /// Register an agent with a display name, or rename if already registered.
   /// Input is normalized to lowercase. Names must be 3-20 chars, alphanumeric
   /// and hyphens only, no leading/trailing hyphens. Rename has a 7-day cooldown.
   RegisterAgent : (name: str) -> null;
+  Resume : () -> null;
   SetConfig : (config: BasketMarketConfig) -> null;
   SetVaraEnabled : (enabled: bool) -> null;
   query GetAgent : (address: actor_id) -> opt AgentInfo;
@@ -152,6 +168,7 @@ service BasketMarket {
   query GetConfig : () -> BasketMarketConfig;
   query GetPositions : (user: actor_id) -> vec Position;
   query GetSettlement : (basket_id: u64) -> result (Settlement, BasketMarketError);
+  query IsPaused : () -> bool;
   query IsVaraEnabled : () -> bool;
 
   events {
@@ -200,5 +217,12 @@ service BasketMarket {
     ConfigUpdated: struct {
       config: BasketMarketConfig
     };
+    Paused;
+    Resumed;
+    MigrationBatchImported: struct {
+      entity: MigrationEntityKind,
+      count: u32,
+    };
   }
 };
+
