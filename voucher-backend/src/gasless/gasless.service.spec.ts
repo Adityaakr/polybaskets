@@ -23,22 +23,25 @@ jest.mock('@gear-js/api', () => ({
   }),
 }));
 
-const PROGRAM = '0x4d47cb784a0b1e3788181a6cedb52db11aad0cef';
-const OTHER_PROGRAM = '0xdeadbeef00000000000000000000000000000000';
+const PROGRAM_A = '0x4d47cb784a0b1e3788181a6cedb52db11aad0cef';
+const PROGRAM_B = '0xdeadbeef00000000000000000000000000000000';
+const PROGRAM_C = '0xc0ffee00000000000000000000000000000000dd';
 const ACCOUNT = 'validaccount';
 const DECODED = `0x${ACCOUNT}`;
 const IP = '127.0.0.1';
-const DAILY_CAP = 2000;
-const IP_CEILING = 20000;
+const TRANCHE_VARA = 500;
+const TRANCHES_PER_IP = 40;
+const TRANCHE_INTERVAL_SEC = 3600;
+const TRANCHE_DURATION_SEC = 86400;
 
-function makeProgram(overrides: Partial<GaslessProgram> = {}): GaslessProgram {
+function makeProgram(address: string, overrides: Partial<GaslessProgram> = {}): GaslessProgram {
   return {
-    id: 'p1',
-    name: 'BasketMarket',
-    address: PROGRAM,
-    varaToIssue: DAILY_CAP,
+    id: `p-${address.slice(0, 6)}`,
+    name: 'TestProgram',
+    address,
+    varaToIssue: TRANCHE_VARA,
     weight: 1,
-    duration: 86400,
+    duration: TRANCHE_DURATION_SEC,
     status: GaslessProgramStatus.Enabled,
     oneTime: false,
     createdAt: new Date(),
@@ -51,40 +54,44 @@ function makeVoucher(overrides: Partial<Voucher> = {}): Voucher {
     id: 'v1',
     voucherId: '0xvoucher',
     account: DECODED,
-    programs: [PROGRAM],
-    varaToIssue: DAILY_CAP,
+    programs: [PROGRAM_A],
+    varaToIssue: TRANCHE_VARA,
     validUpToBlock: 1000n,
-    validUpTo: new Date(Date.now() + 86400_000),
+    validUpTo: new Date(Date.now() + TRANCHE_DURATION_SEC * 1000),
     lastRenewedAt: new Date(),
     revoked: false,
     ...overrides,
   } as Voucher;
 }
 
-function yesterdayMidnightMinusOneSec(): Date {
-  const d = new Date();
-  d.setUTCHours(0, 0, 0, 0);
-  d.setUTCSeconds(d.getUTCSeconds() - 1);
-  return d;
+function hoursAgo(n: number): Date {
+  return new Date(Date.now() - n * 3600_000);
 }
 
 // ── Setup ──────────────────────────────────────────────────────────────────────
 
-describe('GaslessService (Path B)', () => {
+describe('GaslessService (hourly-tranche model)', () => {
   let service: GaslessService;
   let voucherSvc: jest.Mocked<
-    Pick<VoucherService, 'getVoucher' | 'issue' | 'update' | 'appendProgramOnly' | 'getVoucherBalance'>
+    Pick<VoucherService, 'getVoucher' | 'issue' | 'update' | 'getVoucherBalance'>
   >;
-  let programRepo: { findOneBy: jest.Mock };
+  let programRepo: { findBy: jest.Mock; findOneBy: jest.Mock };
   let voucherRepo: Record<string, never>;
   let ds: { createQueryRunner: jest.Mock };
   let qrQuery: jest.Mock;
   let qrRelease: jest.Mock;
   let cfg: { get: jest.Mock };
+  let cfgOverrides: Partial<Record<string, number | string>>;
 
   beforeEach(async () => {
+    cfgOverrides = {};
     programRepo = {
-      findOneBy: jest.fn().mockResolvedValue(makeProgram()),
+      findBy: jest.fn().mockImplementation(async ({ address }) => {
+        // `address` is an In([...]) FindOperator. Extract its values.
+        const addrs: string[] = address._value ?? address.value ?? [];
+        return addrs.map((a) => makeProgram(a));
+      }),
+      findOneBy: jest.fn(),
     };
     voucherRepo = {};
     qrQuery = jest.fn().mockResolvedValue([]);
@@ -98,8 +105,11 @@ describe('GaslessService (Path B)', () => {
     };
     cfg = {
       get: jest.fn().mockImplementation((key: string) => {
-        if (key === 'dailyVaraCap') return DAILY_CAP;
-        if (key === 'perIpDailyVaraCeiling') return IP_CEILING;
+        if (cfgOverrides[key] !== undefined) return cfgOverrides[key];
+        if (key === 'hourlyTrancheVara') return TRANCHE_VARA;
+        if (key === 'perIpTranchesPerDay') return TRANCHES_PER_IP;
+        if (key === 'trancheIntervalSec') return TRANCHE_INTERVAL_SEC;
+        if (key === 'trancheDurationSec') return TRANCHE_DURATION_SEC;
         return undefined;
       }),
     };
@@ -107,7 +117,6 @@ describe('GaslessService (Path B)', () => {
       getVoucher: jest.fn().mockResolvedValue(null),
       issue: jest.fn().mockResolvedValue('0xnewvoucher'),
       update: jest.fn().mockResolvedValue(undefined),
-      appendProgramOnly: jest.fn().mockResolvedValue(undefined),
       getVoucherBalance: jest.fn().mockResolvedValue(0n),
     };
 
@@ -125,309 +134,311 @@ describe('GaslessService (Path B)', () => {
     service = module.get(GaslessService);
   });
 
-  // ── Input validation ───────────────────────────────────────────────────────
+  // ── Input / DTO validation ────────────────────────────────────────────────
 
   it('throws 400 for invalid account address', async () => {
     await expect(
-      service.requestVoucher({ account: 'invalid', program: PROGRAM }, IP),
+      service.requestVoucher({ account: 'invalid', programs: [PROGRAM_A] }, IP),
     ).rejects.toThrow(BadRequestException);
   });
 
-  it('throws 400 when program not in whitelist', async () => {
-    programRepo.findOneBy.mockResolvedValue(null);
+  it('throws 400 when programs array is empty', async () => {
     await expect(
-      service.requestVoucher({ account: ACCOUNT, program: PROGRAM }, IP),
-    ).rejects.toThrow(BadRequestException);
+      service.requestVoucher({ account: ACCOUNT, programs: [] }, IP),
+    ).rejects.toThrow(/non-empty/);
   });
 
-  it('throws 400 when program is disabled', async () => {
-    programRepo.findOneBy.mockResolvedValue(
-      makeProgram({ status: GaslessProgramStatus.Disabled }),
+  it('throws 400 naming the program when one is not whitelisted', async () => {
+    programRepo.findBy.mockResolvedValue([makeProgram(PROGRAM_A)]);
+    await expect(
+      service.requestVoucher({ account: ACCOUNT, programs: [PROGRAM_A, PROGRAM_B] }, IP),
+    ).rejects.toThrow(new RegExp(PROGRAM_B.slice(2, 10)));
+  });
+
+  it('throws 400 naming the program when one is disabled', async () => {
+    programRepo.findBy.mockResolvedValue([
+      makeProgram(PROGRAM_A),
+      makeProgram(PROGRAM_B, { status: GaslessProgramStatus.Disabled }),
+    ]);
+    await expect(
+      service.requestVoucher({ account: ACCOUNT, programs: [PROGRAM_A, PROGRAM_B] }, IP),
+    ).rejects.toThrow(new RegExp(PROGRAM_B.slice(2, 10)));
+  });
+
+  it('lowercases programs before whitelist lookup and passes lowercase to issue()', async () => {
+    voucherSvc.getVoucher.mockResolvedValue(null);
+    await service.requestVoucher(
+      { account: ACCOUNT, programs: [PROGRAM_A.toUpperCase()] },
+      IP,
+    );
+    const lookupArg = (programRepo.findBy.mock.calls[0][0] as any).address;
+    const lookedUp: string[] = lookupArg._value ?? lookupArg.value;
+    expect(lookedUp).toEqual([PROGRAM_A]);
+    expect(voucherSvc.issue).toHaveBeenCalledWith(
+      DECODED,
+      [PROGRAM_A],
+      TRANCHE_VARA,
+      TRANCHE_DURATION_SEC,
+    );
+  });
+
+  it('dedupes programs array before whitelist lookup', async () => {
+    voucherSvc.getVoucher.mockResolvedValue(null);
+    await service.requestVoucher(
+      { account: ACCOUNT, programs: [PROGRAM_A, PROGRAM_A, PROGRAM_B] },
+      IP,
+    );
+    expect(voucherSvc.issue).toHaveBeenCalledWith(
+      DECODED,
+      [PROGRAM_A, PROGRAM_B],
+      TRANCHE_VARA,
+      TRANCHE_DURATION_SEC,
+    );
+  });
+
+  // ── oneTime across batch ───────────────────────────────────────────────────
+
+  it('throws 400 naming the oneTime program already in existing voucher', async () => {
+    programRepo.findBy.mockResolvedValue([
+      makeProgram(PROGRAM_A, { oneTime: true }),
+    ]);
+    voucherSvc.getVoucher.mockResolvedValue(
+      makeVoucher({ programs: [PROGRAM_A], lastRenewedAt: hoursAgo(2) }),
     );
     await expect(
-      service.requestVoucher({ account: ACCOUNT, program: PROGRAM }, IP),
-    ).rejects.toThrow(BadRequestException);
+      service.requestVoucher({ account: ACCOUNT, programs: [PROGRAM_A] }, IP),
+    ).rejects.toThrow(/One-time/);
   });
 
-  it('normalizes program address to lowercase before DB lookup', async () => {
-    await service.requestVoucher({ account: ACCOUNT, program: PROGRAM.toUpperCase() }, IP);
-    expect(programRepo.findOneBy).toHaveBeenCalledWith({
-      address: PROGRAM.toLowerCase(),
-    });
-  });
-
-  // ── oneTime logic ──────────────────────────────────────────────────────────
-
-  it('throws 400 when oneTime program is already in existing voucher', async () => {
-    programRepo.findOneBy.mockResolvedValue(makeProgram({ oneTime: true }));
-    voucherSvc.getVoucher.mockResolvedValue(makeVoucher({ programs: [PROGRAM] }));
+  it('allows oneTime program when not yet in voucher', async () => {
+    programRepo.findBy.mockResolvedValue([
+      makeProgram(PROGRAM_A, { oneTime: true }),
+    ]);
+    voucherSvc.getVoucher.mockResolvedValue(
+      makeVoucher({ programs: [PROGRAM_B], lastRenewedAt: hoursAgo(2) }),
+    );
     await expect(
-      service.requestVoucher({ account: ACCOUNT, program: PROGRAM }, IP),
-    ).rejects.toThrow('One-time voucher already issued');
-  });
-
-  it('allows oneTime for a different program even when another is present', async () => {
-    // Voucher exists for OTHER_PROGRAM, funded today, so append-only path runs.
-    programRepo.findOneBy.mockResolvedValue(makeProgram({ oneTime: true }));
-    const existing = makeVoucher({
-      programs: [OTHER_PROGRAM],
-      lastRenewedAt: new Date(),
-    });
-    voucherSvc.getVoucher.mockResolvedValue(existing);
-    const result = await service.requestVoucher({ account: ACCOUNT, program: PROGRAM }, IP);
-    expect(voucherSvc.issue).not.toHaveBeenCalled();
-    expect(voucherSvc.update).not.toHaveBeenCalled(); // funded today, no top-up
-    expect(voucherSvc.appendProgramOnly).toHaveBeenCalledWith(existing, PROGRAM);
-    expect(result).toEqual({ voucherId: '0xvoucher' });
-  });
-
-  // ── Path B daily-gate branches ─────────────────────────────────────────────
-
-  it('issues a brand-new voucher at dailyCap when no row exists', async () => {
-    voucherSvc.getVoucher.mockResolvedValue(null);
-    const result = await service.requestVoucher({ account: ACCOUNT, program: PROGRAM }, IP);
-    expect(voucherSvc.issue).toHaveBeenCalledWith(DECODED, PROGRAM, DAILY_CAP, 86400);
-    expect(voucherSvc.update).not.toHaveBeenCalled();
-    expect(voucherSvc.appendProgramOnly).not.toHaveBeenCalled();
-    expect(result).toEqual({ voucherId: '0xnewvoucher' });
-  });
-
-  it('tops up existing voucher when lastRenewedAt is yesterday (first POST of a new UTC day)', async () => {
-    const existing = makeVoucher({
-      programs: [PROGRAM],
-      lastRenewedAt: yesterdayMidnightMinusOneSec(),
-    });
-    voucherSvc.getVoucher.mockResolvedValue(existing);
-    const result = await service.requestVoucher({ account: ACCOUNT, program: PROGRAM }, IP);
-    expect(voucherSvc.update).toHaveBeenCalledWith(existing, DAILY_CAP, 86400, undefined);
-    expect(voucherSvc.appendProgramOnly).not.toHaveBeenCalled();
-    expect(result).toEqual({ voucherId: '0xvoucher' });
-  });
-
-  it('tops up AND appends program when program is new and voucher is stale', async () => {
-    const existing = makeVoucher({
-      programs: [OTHER_PROGRAM],
-      lastRenewedAt: yesterdayMidnightMinusOneSec(),
-    });
-    voucherSvc.getVoucher.mockResolvedValue(existing);
-    await service.requestVoucher({ account: ACCOUNT, program: PROGRAM }, IP);
-    expect(voucherSvc.update).toHaveBeenCalledWith(existing, DAILY_CAP, 86400, [PROGRAM]);
-  });
-
-  it('same-day POST for a NEW program: append-only, no balance change', async () => {
-    const existing = makeVoucher({
-      programs: [OTHER_PROGRAM],
-      lastRenewedAt: new Date(),
-    });
-    voucherSvc.getVoucher.mockResolvedValue(existing);
-    const result = await service.requestVoucher({ account: ACCOUNT, program: PROGRAM }, IP);
-    expect(voucherSvc.appendProgramOnly).toHaveBeenCalledWith(existing, PROGRAM);
-    expect(voucherSvc.update).not.toHaveBeenCalled();
-    expect(voucherSvc.issue).not.toHaveBeenCalled();
-    expect(result).toEqual({ voucherId: '0xvoucher' });
-  });
-
-  it('same-day POST for SAME program: no-op, returns same voucherId', async () => {
-    const existing = makeVoucher({
-      programs: [PROGRAM],
-      lastRenewedAt: new Date(),
-    });
-    voucherSvc.getVoucher.mockResolvedValue(existing);
-    const result = await service.requestVoucher({ account: ACCOUNT, program: PROGRAM }, IP);
-    expect(voucherSvc.appendProgramOnly).not.toHaveBeenCalled();
-    expect(voucherSvc.update).not.toHaveBeenCalled();
-    expect(voucherSvc.issue).not.toHaveBeenCalled();
-    expect(result).toEqual({ voucherId: '0xvoucher' });
-  });
-
-  // ── Per-IP daily VARA ceiling ─────────────────────────────────────────────
-
-  it('allows issuance up to the per-IP ceiling', async () => {
-    // Ten fresh addresses from same IP, each gets a full dailyCap voucher.
-    // 10 × 2000 = 20000 = ceiling exactly.
-    for (let i = 0; i < 10; i++) {
-      voucherSvc.getVoucher.mockResolvedValueOnce(null);
-      await expect(
-        service.requestVoucher({ account: `fresh${i}`, program: PROGRAM }, IP),
-      ).resolves.toBeDefined();
-    }
-    expect(voucherSvc.issue).toHaveBeenCalledTimes(10);
-  });
-
-  it('rejects the next issuance once per-IP ceiling is reached', async () => {
-    for (let i = 0; i < 10; i++) {
-      voucherSvc.getVoucher.mockResolvedValueOnce(null);
-      await service.requestVoucher({ account: `fresh${i}`, program: PROGRAM }, IP);
-    }
-    voucherSvc.getVoucher.mockResolvedValueOnce(null);
-    await expect(
-      service.requestVoucher({ account: 'eleventh', program: PROGRAM }, IP),
-    ).rejects.toMatchObject({
-      status: HttpStatus.TOO_MANY_REQUESTS,
-    });
-  });
-
-  it('append-only path does NOT charge the IP ceiling', async () => {
-    // Pre-fund the IP up to ceiling minus headroom.
-    for (let i = 0; i < 10; i++) {
-      voucherSvc.getVoucher.mockResolvedValueOnce(null);
-      await service.requestVoucher({ account: `fresh${i}`, program: PROGRAM }, IP);
-    }
-    // Now an append-only request from same IP must succeed (no cap charge).
-    const existing = makeVoucher({ programs: [OTHER_PROGRAM], lastRenewedAt: new Date() });
-    voucherSvc.getVoucher.mockResolvedValueOnce(existing);
-    await expect(
-      service.requestVoucher({ account: 'someoneelse', program: PROGRAM }, IP),
-    ).resolves.toEqual({ voucherId: '0xvoucher' });
-  });
-
-  it('ceiling is scoped per-IP — different IP gets its own budget', async () => {
-    for (let i = 0; i < 10; i++) {
-      voucherSvc.getVoucher.mockResolvedValueOnce(null);
-      await service.requestVoucher({ account: `a${i}`, program: PROGRAM }, IP);
-    }
-    // Second IP is fresh.
-    voucherSvc.getVoucher.mockResolvedValueOnce(null);
-    await expect(
-      service.requestVoucher({ account: 'otheraccount', program: PROGRAM }, '10.0.0.2'),
-    ).resolves.toBeDefined();
+      service.requestVoucher({ account: ACCOUNT, programs: [PROGRAM_A] }, IP),
+    ).resolves.toEqual({ status: 'ok', voucherId: '0xvoucher' });
   });
 
   // ── Advisory lock ──────────────────────────────────────────────────────────
 
-  it('acquires pg advisory lock via QueryRunner before issuing', async () => {
-    await service.requestVoucher({ account: ACCOUNT, program: PROGRAM }, IP);
+  it('acquires + releases pg advisory lock on success', async () => {
+    voucherSvc.getVoucher.mockResolvedValue(null);
+    await service.requestVoucher({ account: ACCOUNT, programs: [PROGRAM_A] }, IP);
     const calls = qrQuery.mock.calls.map((c) => c[0]);
     expect(calls).toContain('SELECT pg_advisory_lock($1)');
-  });
-
-  it('releases pg advisory lock and releases QueryRunner after success', async () => {
-    await service.requestVoucher({ account: ACCOUNT, program: PROGRAM }, IP);
-    const calls = qrQuery.mock.calls.map((c) => c[0]);
     expect(calls).toContain('SELECT pg_advisory_unlock($1)');
     expect(qrRelease).toHaveBeenCalled();
   });
 
-  it('lock/unlock use the SAME key captured before async work (midnight stability)', async () => {
-    await service.requestVoucher({ account: ACCOUNT, program: PROGRAM }, IP);
-    const lockArgs = qrQuery.mock.calls
-      .filter((c) => c[0] === 'SELECT pg_advisory_lock($1)' || c[0] === 'SELECT pg_advisory_unlock($1)')
-      .map((c) => c[1][0]);
-    expect(lockArgs.length).toBe(2);
-    expect(lockArgs[0]).toBe(lockArgs[1]); // same key used for both
+  it('lock key is account-hash only (stable across midnight step)', async () => {
+    voucherSvc.getVoucher.mockResolvedValue(null);
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-04-22T23:59:58Z').getTime());
+    await service.requestVoucher({ account: ACCOUNT, programs: [PROGRAM_A] }, IP);
+    const firstKey = qrQuery.mock.calls.filter((c) =>
+      c[0] === 'SELECT pg_advisory_lock($1)',
+    )[0][1][0];
+    qrQuery.mockClear();
+    voucherSvc.getVoucher.mockResolvedValue(
+      makeVoucher({ lastRenewedAt: new Date(Date.now() - 2 * 3600_000) }),
+    );
+    jest.setSystemTime(new Date('2026-04-23T00:00:05Z').getTime());
+    await service.requestVoucher({ account: ACCOUNT, programs: [PROGRAM_A] }, IP);
+    const secondKey = qrQuery.mock.calls.filter((c) =>
+      c[0] === 'SELECT pg_advisory_lock($1)',
+    )[0][1][0];
+    expect(firstKey).toBe(secondKey);
+    jest.useRealTimers();
   });
 
-  it('releases pg advisory lock and QueryRunner even when issuance throws', async () => {
+  it('releases lock even when issue() throws', async () => {
+    voucherSvc.getVoucher.mockResolvedValue(null);
     voucherSvc.issue.mockRejectedValue(new Error('chain error'));
     await expect(
-      service.requestVoucher({ account: ACCOUNT, program: PROGRAM }, IP),
+      service.requestVoucher({ account: ACCOUNT, programs: [PROGRAM_A] }, IP),
     ).rejects.toThrow(InternalServerErrorException);
     const calls = qrQuery.mock.calls.map((c) => c[0]);
     expect(calls).toContain('SELECT pg_advisory_unlock($1)');
     expect(qrRelease).toHaveBeenCalled();
-  });
-
-  it('wraps infrastructure errors as 500 InternalServerErrorException', async () => {
-    voucherSvc.issue.mockRejectedValue(new Error('RPC timeout'));
-    await expect(
-      service.requestVoucher({ account: ACCOUNT, program: PROGRAM }, IP),
-    ).rejects.toThrow(InternalServerErrorException);
-  });
-
-  it('passes HttpException (ceiling) through without wrapping as 500', async () => {
-    // Pre-fill ceiling
-    for (let i = 0; i < 10; i++) {
-      voucherSvc.getVoucher.mockResolvedValueOnce(null);
-      await service.requestVoucher({ account: `a${i}`, program: PROGRAM }, IP);
-    }
-    voucherSvc.getVoucher.mockResolvedValueOnce(null);
-    await expect(
-      service.requestVoucher({ account: 'next', program: PROGRAM }, IP),
-    ).rejects.toBeInstanceOf(HttpException);
   });
 
   it('releases QueryRunner even when lock acquisition fails', async () => {
     qrQuery.mockRejectedValueOnce(new Error('DB connection lost'));
+    voucherSvc.getVoucher.mockResolvedValue(null);
     await expect(
-      service.requestVoucher({ account: ACCOUNT, program: PROGRAM }, IP),
+      service.requestVoucher({ account: ACCOUNT, programs: [PROGRAM_A] }, IP),
     ).rejects.toThrow();
     expect(qrRelease).toHaveBeenCalled();
   });
 
-  // ── getVoucherState (read-only) ────────────────────────────────────────────
+  // ── Branch (a): no existing voucher ───────────────────────────────────────
 
-  it('getVoucherState returns null voucherId for unknown account', async () => {
+  it('issues a fresh voucher with full programs array and charges +1 tranche', async () => {
     voucherSvc.getVoucher.mockResolvedValue(null);
-    const state = await service.getVoucherState(ACCOUNT);
-    expect(state).toEqual({
-      voucherId: null,
-      programs: [],
-      validUpTo: null,
-      varaBalance: '0',
-      balanceKnown: true,
-      fundedToday: false,
-    });
-  });
-
-  it('getVoucherState returns fundedToday=false when lastRenewedAt < midnight', async () => {
-    voucherSvc.getVoucher.mockResolvedValue(
-      makeVoucher({ lastRenewedAt: yesterdayMidnightMinusOneSec() }),
+    const result = await service.requestVoucher(
+      { account: ACCOUNT, programs: [PROGRAM_A, PROGRAM_B, PROGRAM_C] },
+      IP,
     );
-    voucherSvc.getVoucherBalance.mockResolvedValue(1500n);
-    const state = await service.getVoucherState(ACCOUNT);
-    expect(state.fundedToday).toBe(false);
-    expect(state.varaBalance).toBe('1500');
-    expect(state.balanceKnown).toBe(true);
+    expect(voucherSvc.issue).toHaveBeenCalledWith(
+      DECODED,
+      [PROGRAM_A, PROGRAM_B, PROGRAM_C],
+      TRANCHE_VARA,
+      TRANCHE_DURATION_SEC,
+    );
+    expect(voucherSvc.update).not.toHaveBeenCalled();
+    expect(result).toEqual({ status: 'ok', voucherId: '0xnewvoucher' });
   });
 
-  it('getVoucherState returns fundedToday=true when lastRenewedAt >= midnight', async () => {
-    voucherSvc.getVoucher.mockResolvedValue(makeVoucher({ lastRenewedAt: new Date() }));
-    voucherSvc.getVoucherBalance.mockResolvedValue(1800n);
-    const state = await service.getVoucherState(ACCOUNT);
-    expect(state.fundedToday).toBe(true);
-    expect(state.varaBalance).toBe('1800');
-    expect(state.balanceKnown).toBe(true);
+  // ── Branch (b): existing voucher past 1h ──────────────────────────────────
+
+  it('tops up existing voucher when >1h since last renewal', async () => {
+    const existing = makeVoucher({
+      programs: [PROGRAM_A],
+      lastRenewedAt: hoursAgo(2),
+    });
+    voucherSvc.getVoucher.mockResolvedValue(existing);
+    await service.requestVoucher({ account: ACCOUNT, programs: [PROGRAM_A] }, IP);
+    expect(voucherSvc.update).toHaveBeenCalledWith(
+      existing,
+      TRANCHE_VARA,
+      TRANCHE_DURATION_SEC,
+      undefined,
+    );
   });
 
-  it('getVoucherState reports balanceKnown=false and varaBalance=null on RPC failure', async () => {
-    // Regression: previously returned varaBalance: "0" which triggered the
-    // starter prompt's drained-voucher STOP rule during transient RPC outages.
-    // Codex flagged this in PR review. balanceKnown=false signals "decide
-    // from fundedToday alone, don't stop on the balance number."
-    voucherSvc.getVoucher.mockResolvedValue(makeVoucher({ lastRenewedAt: new Date() }));
-    voucherSvc.getVoucherBalance.mockRejectedValue(new Error('RPC down'));
-    const state = await service.getVoucherState(ACCOUNT);
-    expect(state.voucherId).toBe('0xvoucher');
-    expect(state.varaBalance).toBe(null);
-    expect(state.balanceKnown).toBe(false);
-    expect(state.fundedToday).toBe(true);
+  it('top-up filters to only NEW programs (subset already registered)', async () => {
+    const existing = makeVoucher({
+      programs: [PROGRAM_A],
+      lastRenewedAt: hoursAgo(2),
+    });
+    voucherSvc.getVoucher.mockResolvedValue(existing);
+    await service.requestVoucher(
+      { account: ACCOUNT, programs: [PROGRAM_A, PROGRAM_B] },
+      IP,
+    );
+    expect(voucherSvc.update).toHaveBeenCalledWith(
+      existing,
+      TRANCHE_VARA,
+      TRANCHE_DURATION_SEC,
+      [PROGRAM_B],
+    );
   });
 
-  it('getVoucherState throws 400 for invalid address', async () => {
-    await expect(service.getVoucherState('invalid')).rejects.toThrow(BadRequestException);
+  it('top-up passes undefined for addPrograms when no new programs', async () => {
+    const existing = makeVoucher({
+      programs: [PROGRAM_A, PROGRAM_B],
+      lastRenewedAt: hoursAgo(2),
+    });
+    voucherSvc.getVoucher.mockResolvedValue(existing);
+    await service.requestVoucher(
+      { account: ACCOUNT, programs: [PROGRAM_A, PROGRAM_B] },
+      IP,
+    );
+    expect(voucherSvc.update).toHaveBeenCalledWith(
+      existing,
+      TRANCHE_VARA,
+      TRANCHE_DURATION_SEC,
+      undefined,
+    );
   });
 
-  // ── Per-IP ceiling race regression ────────────────────────────────────────
-  // Codex caught this in PR review: previously assertIpUnderCeiling ran, then
-  // an `await` yielded the event loop, THEN recordIpIssuance ran. Two parallel
-  // requests from the same IP (different accounts) could both pass the check
-  // and both record, pushing the total over the ceiling.
-  //
-  // The fix: reserveIpCeiling does the check + record in a single synchronous
-  // block with no awaits between. This test simulates the race.
+  // ── Branch (c): within 1h → 429 ───────────────────────────────────────────
 
-  it('per-IP ceiling is race-safe for concurrent same-IP different-account requests', async () => {
-    // Seed: IP already at 18000 of 20000 (9 prior issuances × 2000).
-    for (let i = 0; i < 9; i++) {
-      voucherSvc.getVoucher.mockResolvedValueOnce(null);
-      await service.requestVoucher({ account: `seed${i}`, program: PROGRAM }, IP);
+  it('returns rate-limited result when within 1h with Retry-After seconds', async () => {
+    jest.useFakeTimers();
+    const now = new Date('2026-04-22T12:00:00Z');
+    jest.setSystemTime(now.getTime());
+    const lastRenewed = new Date(now.getTime() - 20 * 60_000); // 20 min ago
+    voucherSvc.getVoucher.mockResolvedValue(
+      makeVoucher({ lastRenewedAt: lastRenewed }),
+    );
+    const result = await service.requestVoucher(
+      { account: ACCOUNT, programs: [PROGRAM_A] },
+      IP,
+    );
+    expect(result.status).toBe('rate_limited');
+    if (result.status !== 'rate_limited') throw new Error('expected rate_limited');
+    expect(result.retryAfterSec).toBe(40 * 60); // 40 min remaining
+    expect(result.body.statusCode).toBe(429);
+    expect(result.body.nextEligibleAt).toBe(
+      new Date(lastRenewed.getTime() + 3600_000).toISOString(),
+    );
+    expect(result.body.retryAfterSec).toBe(40 * 60);
+    expect(voucherSvc.issue).not.toHaveBeenCalled();
+    expect(voucherSvc.update).not.toHaveBeenCalled();
+    jest.useRealTimers();
+  });
+
+  it('rate-limited path does NOT charge the IP tranche ceiling', async () => {
+    cfgOverrides.perIpTranchesPerDay = 2;
+    voucherSvc.getVoucher.mockResolvedValue(
+      makeVoucher({ lastRenewedAt: hoursAgo(0.1) }),
+    );
+    // Fire 5 same-wallet requests — all hit 429, none should charge tranches.
+    for (let i = 0; i < 5; i++) {
+      const r = await service.requestVoucher(
+        { account: ACCOUNT, programs: [PROGRAM_A] },
+        IP,
+      );
+      expect(r.status).toBe('rate_limited');
     }
-    // Now fire TWO concurrent requests from the same IP. Both target fresh
-    // accounts. Each would charge 2000 (reaching 20000 exactly), but if they
-    // both race past the check they'd charge 22000 total.
-    //
-    // Make voucherSvc.issue hang briefly so the awaits actually overlap —
-    // this simulates real chain latency during concurrent requests.
+    // A fresh-account request should still succeed (ceiling still has budget).
+    voucherSvc.getVoucher.mockResolvedValueOnce(null);
+    const ok = await service.requestVoucher(
+      { account: 'fresh1', programs: [PROGRAM_A] },
+      IP,
+    );
+    expect(ok.status).toBe('ok');
+  });
+
+  // ── Per-IP tranche count ceiling ──────────────────────────────────────────
+
+  it('enforces per-IP tranche ceiling (41st charge rejected)', async () => {
+    cfgOverrides.perIpTranchesPerDay = 3;
+    for (let i = 0; i < 3; i++) {
+      voucherSvc.getVoucher.mockResolvedValueOnce(null);
+      await expect(
+        service.requestVoucher(
+          { account: `fresh${i}`, programs: [PROGRAM_A] },
+          IP,
+        ),
+      ).resolves.toMatchObject({ status: 'ok' });
+    }
+    voucherSvc.getVoucher.mockResolvedValueOnce(null);
+    await expect(
+      service.requestVoucher(
+        { account: 'overflow', programs: [PROGRAM_A] },
+        IP,
+      ),
+    ).rejects.toMatchObject({ status: HttpStatus.TOO_MANY_REQUESTS });
+  });
+
+  it('ceiling is scoped per-IP — different IP gets its own budget', async () => {
+    cfgOverrides.perIpTranchesPerDay = 2;
+    for (let i = 0; i < 2; i++) {
+      voucherSvc.getVoucher.mockResolvedValueOnce(null);
+      await service.requestVoucher(
+        { account: `a${i}`, programs: [PROGRAM_A] },
+        IP,
+      );
+    }
+    voucherSvc.getVoucher.mockResolvedValueOnce(null);
+    await expect(
+      service.requestVoucher(
+        { account: 'other', programs: [PROGRAM_A] },
+        '10.0.0.2',
+      ),
+    ).resolves.toMatchObject({ status: 'ok' });
+  });
+
+  // ── Per-IP ceiling race safety ────────────────────────────────────────────
+
+  it('per-IP tranche count is race-safe for concurrent same-IP different-account requests', async () => {
+    jest.setTimeout(15000);
+    cfgOverrides.perIpTranchesPerDay = 1;
     let resolveFirst: (v: string) => void = () => {};
     let resolveSecond: (v: string) => void = () => {};
     voucherSvc.getVoucher.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
@@ -439,25 +450,18 @@ describe('GaslessService (Path B)', () => {
         () => new Promise<string>((r) => { resolveSecond = r; }),
       );
 
-    const req1 = service.requestVoucher({ account: 'racer1', program: PROGRAM }, IP);
-    const req2 = service.requestVoucher({ account: 'racer2', program: PROGRAM }, IP);
-    // Attach no-op error handlers immediately so Node doesn't flag the racing
-    // rejection as unhandled during the setImmediate tick below.
+    const req1 = service.requestVoucher({ account: 'racer1', programs: [PROGRAM_A] }, IP);
+    const req2 = service.requestVoucher({ account: 'racer2', programs: [PROGRAM_A] }, IP);
     req1.catch(() => {});
     req2.catch(() => {});
 
-    // Let both requests reach the reservation check before any issue() resolves.
-    // By the time we resolve the issues, one request should already have thrown 429.
     await new Promise((r) => setImmediate(r));
-
     resolveFirst('0xnewvoucher1');
     resolveSecond('0xnewvoucher2');
 
-    // Exactly one should succeed, the other should be rejected by the ceiling.
     const results = await Promise.allSettled([req1, req2]);
     const fulfilled = results.filter((r) => r.status === 'fulfilled');
     const rejected = results.filter((r) => r.status === 'rejected');
-
     expect(fulfilled.length).toBe(1);
     expect(rejected.length).toBe(1);
     expect((rejected[0] as PromiseRejectedResult).reason).toMatchObject({
@@ -466,33 +470,119 @@ describe('GaslessService (Path B)', () => {
   });
 
   it('per-IP reservation is NOT refunded when issue() fails (double-mint defense)', async () => {
-    // Design note: signAndSend timeouts may have landed the tx on-chain. If we
-    // refunded the IP reservation on failure, an attacker could force failures
-    // (or exploit timeouts) to bypass the ceiling by retrying. Honest users
-    // occasionally lose ~dailyCap of budget on transient failures as a tax for
-    // closing the attack vector. Codex review caught this in PR #23.
+    cfgOverrides.perIpTranchesPerDay = 3;
     voucherSvc.getVoucher.mockResolvedValueOnce(null);
     voucherSvc.issue.mockRejectedValueOnce(new Error('chain down'));
-
     await expect(
-      service.requestVoucher({ account: 'willfail', program: PROGRAM }, IP),
+      service.requestVoucher({ account: 'willfail', programs: [PROGRAM_A] }, IP),
     ).rejects.toThrow();
 
-    // The failed attempt consumed 2000 of the IP's 20000 daily budget.
-    // Now 9 more successful requests (9 × 2000 = 18000) fit exactly: 2000 + 18000 = 20000.
-    for (let i = 0; i < 9; i++) {
+    // Two more successes (uses 2/3 remaining). Then overflow.
+    for (let i = 0; i < 2; i++) {
       voucherSvc.getVoucher.mockResolvedValueOnce(null);
-      await expect(
-        service.requestVoucher({ account: `post${i}`, program: PROGRAM }, IP),
-      ).resolves.toBeDefined();
+      await service.requestVoucher(
+        { account: `post${i}`, programs: [PROGRAM_A] },
+        IP,
+      );
     }
-
-    // The 10th request (would total 22000) must be rejected.
     voucherSvc.getVoucher.mockResolvedValueOnce(null);
     await expect(
-      service.requestVoucher({ account: 'overflow', program: PROGRAM }, IP),
-    ).rejects.toMatchObject({
-      status: HttpStatus.TOO_MANY_REQUESTS,
+      service.requestVoucher({ account: 'overflow', programs: [PROGRAM_A] }, IP),
+    ).rejects.toMatchObject({ status: HttpStatus.TOO_MANY_REQUESTS });
+  });
+
+  // ── CRITICAL regression: mid-cycle migration ──────────────────────────────
+  // Guards against a silent re-introduction of "top up to target" semantic.
+  // Existing voucher with lastRenewedAt > 1h ago must get +500 exactly,
+  // regardless of any on-chain balance reading.
+
+  it('CRITICAL: mid-cycle migration calls update() with amountToAdd=500, NOT a diff', async () => {
+    const existing = makeVoucher({
+      programs: [PROGRAM_A],
+      lastRenewedAt: hoursAgo(25), // old 2000-VARA voucher from yesterday
     });
+    voucherSvc.getVoucher.mockResolvedValue(existing);
+    // Even though on-chain balance might be 1800 VARA, update() receives 500.
+    voucherSvc.getVoucherBalance.mockResolvedValue(1800n * 10n ** 12n);
+    await service.requestVoucher({ account: ACCOUNT, programs: [PROGRAM_A] }, IP);
+    expect(voucherSvc.update).toHaveBeenCalledWith(
+      existing,
+      500, // NOT (500 - 1800) = -1300; NOT "top up to 500"; always +500
+      TRANCHE_DURATION_SEC,
+      undefined,
+    );
+  });
+
+  // ── getVoucherState ────────────────────────────────────────────────────────
+
+  it('getVoucherState returns null + canTopUpNow=true for unknown account', async () => {
+    voucherSvc.getVoucher.mockResolvedValue(null);
+    const state = await service.getVoucherState(ACCOUNT);
+    expect(state).toEqual({
+      voucherId: null,
+      programs: [],
+      validUpTo: null,
+      varaBalance: '0',
+      balanceKnown: true,
+      lastRenewedAt: null,
+      nextTopUpEligibleAt: null,
+      canTopUpNow: true,
+    });
+  });
+
+  it('getVoucherState returns canTopUpNow=false when within 1h', async () => {
+    const existing = makeVoucher({ lastRenewedAt: hoursAgo(0.5) });
+    voucherSvc.getVoucher.mockResolvedValue(existing);
+    voucherSvc.getVoucherBalance.mockResolvedValue(1500n);
+    const state = await service.getVoucherState(ACCOUNT);
+    expect(state.canTopUpNow).toBe(false);
+    expect(state.lastRenewedAt).toBe(existing.lastRenewedAt.toISOString());
+    expect(state.nextTopUpEligibleAt).toBe(
+      new Date(existing.lastRenewedAt.getTime() + 3600_000).toISOString(),
+    );
+    expect(state.varaBalance).toBe('1500');
+  });
+
+  it('getVoucherState returns canTopUpNow=true when >1h', async () => {
+    voucherSvc.getVoucher.mockResolvedValue(
+      makeVoucher({ lastRenewedAt: hoursAgo(2) }),
+    );
+    voucherSvc.getVoucherBalance.mockResolvedValue(1500n);
+    const state = await service.getVoucherState(ACCOUNT);
+    expect(state.canTopUpNow).toBe(true);
+  });
+
+  it('getVoucherState reports balanceKnown=false on RPC failure (ported)', async () => {
+    voucherSvc.getVoucher.mockResolvedValue(
+      makeVoucher({ lastRenewedAt: hoursAgo(0.5) }),
+    );
+    voucherSvc.getVoucherBalance.mockRejectedValue(new Error('RPC down'));
+    const state = await service.getVoucherState(ACCOUNT);
+    expect(state.varaBalance).toBe(null);
+    expect(state.balanceKnown).toBe(false);
+  });
+
+  it('getVoucherState throws 400 for invalid address', async () => {
+    await expect(service.getVoucherState('invalid')).rejects.toThrow(BadRequestException);
+  });
+
+  // ── Error wrapping ─────────────────────────────────────────────────────────
+
+  it('wraps chain errors as 500 InternalServerErrorException', async () => {
+    voucherSvc.getVoucher.mockResolvedValue(null);
+    voucherSvc.issue.mockRejectedValue(new Error('RPC timeout'));
+    await expect(
+      service.requestVoucher({ account: ACCOUNT, programs: [PROGRAM_A] }, IP),
+    ).rejects.toThrow(InternalServerErrorException);
+  });
+
+  it('passes HttpException (ceiling) through without wrapping as 500', async () => {
+    cfgOverrides.perIpTranchesPerDay = 1;
+    voucherSvc.getVoucher.mockResolvedValueOnce(null);
+    await service.requestVoucher({ account: 'a0', programs: [PROGRAM_A] }, IP);
+    voucherSvc.getVoucher.mockResolvedValueOnce(null);
+    await expect(
+      service.requestVoucher({ account: 'a1', programs: [PROGRAM_A] }, IP),
+    ).rejects.toBeInstanceOf(HttpException);
   });
 });

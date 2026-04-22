@@ -19,7 +19,15 @@ export default () => ({
   },
   nodeUrl: required('NODE_URL'),
   voucherAccount: required('VOUCHER_ACCOUNT'),
-  dailyVaraCap: Number(process.env.DAILY_VARA_CAP || '2000'),
-  perIpDailyVaraCeiling: Number(process.env.PER_IP_DAILY_VARA_CEILING || '20000'),
+  // Per-tranche VARA amount added on issue() and every hourly top-up.
+  hourlyTrancheVara: Number(process.env.HOURLY_TRANCHE_VARA || '500'),
+  // Max tranches per IP per UTC day (second abuse gate — the only aggregate limit).
+  // 40 × 500 = 20,000 VARA/day/IP at current tranche size.
+  perIpTranchesPerDay: Number(process.env.PER_IP_TRANCHES_PER_DAY || '40'),
+  // Seconds between eligible top-ups per wallet.
+  trancheIntervalSec: Number(process.env.TRANCHE_INTERVAL_SEC || '3600'),
+  // Voucher validity duration. Extended by trancheDurationSec on every top-up
+  // (sliding window — voucher expires only if user abandons ≥24h).
+  trancheDurationSec: Number(process.env.TRANCHE_DURATION_SEC || '86400'),
   infoApiKey: process.env.INFO_API_KEY || '',
 });

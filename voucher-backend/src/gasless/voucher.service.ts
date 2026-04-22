@@ -84,9 +84,13 @@ export class VoucherService implements OnModuleInit {
     this.logger.log(`Voucher issuer: ${this.account.address}`);
   }
 
+  /**
+   * Issue a fresh voucher registering all listed programs and funding the
+   * voucher with `amount` VARA. `programIds` must be non-empty.
+   */
   async issue(
     account: HexString,
-    programId: HexString,
+    programIds: HexString[],
     amount: number,
     durationInSec: number,
   ): Promise<string> {
@@ -101,14 +105,14 @@ export class VoucherService implements OnModuleInit {
     }
 
     this.logger.log(
-      `Issuing voucher: account=${account} amount=${amount} VARA duration=${durationInSec}s program=${programId}`,
+      `Issuing voucher: account=${account} amount=${amount} VARA duration=${durationInSec}s programs=[${programIds.join(', ')}]`,
     );
 
     const { extrinsic } = await this.api.voucher.issue(
       account,
       BigInt(amount) * PLANCK_PER_VARA,
       durationInBlocks,
-      [programId],
+      programIds,
     );
 
     const [voucherId, blockHash] = await withTimeout(
@@ -155,7 +159,7 @@ export class VoucherService implements OnModuleInit {
         voucherId,
         validUpToBlock,
         validUpTo,
-        programs: [programId],
+        programs: [...programIds],
         varaToIssue: amount,
         lastRenewedAt: now,
         revoked: false,
@@ -165,9 +169,18 @@ export class VoucherService implements OnModuleInit {
     return voucherId;
   }
 
+  /**
+   * Additive top-up: adds `amountToAdd` VARA to the voucher balance AND extends
+   * duration by `prolongDurationInSec` AND optionally appends new programs.
+   *
+   * Unlike the legacy "top up to target" semantic, this method always adds
+   * exactly `amountToAdd` — no on-chain balance subtraction. This is what the
+   * hourly-tranche model expects: each tranche is a full +500 regardless of
+   * what's left on the voucher.
+   */
   async update(
     voucher: Voucher,
-    balance: number,
+    amountToAdd: number,
     prolongDurationInSec?: number,
     addPrograms?: HexString[],
   ) {
@@ -176,21 +189,23 @@ export class VoucherService implements OnModuleInit {
     }
 
     await this.ensureConnected();
-    const voucherBalance =
-      (await this.api.balance.findOut(voucher.voucherId)).toBigInt() /
-      PLANCK_PER_VARA;
-    const durationInBlocks = Math.round(prolongDurationInSec / SECONDS_PER_BLOCK);
-    const topUp = BigInt(balance) - voucherBalance;
+    const durationInBlocks = prolongDurationInSec
+      ? Math.round(prolongDurationInSec / SECONDS_PER_BLOCK)
+      : 0;
 
     const params: IUpdateVoucherParams = {};
-    if (prolongDurationInSec) params.prolongDuration = durationInBlocks;
-    if (addPrograms) {
+    if (durationInBlocks) params.prolongDuration = durationInBlocks;
+    if (addPrograms && addPrograms.length) {
       params.appendPrograms = addPrograms;
       voucher.programs.push(...addPrograms);
     }
-    if (topUp > 0) params.balanceTopUp = topUp * PLANCK_PER_VARA;
+    if (amountToAdd > 0) {
+      params.balanceTopUp = BigInt(amountToAdd) * PLANCK_PER_VARA;
+    }
 
-    this.logger.log(`Updating voucher: ${voucher.voucherId} for ${voucher.account}`);
+    this.logger.log(
+      `Updating voucher: ${voucher.voucherId} for ${voucher.account} (+${amountToAdd} VARA, +${prolongDurationInSec ?? 0}s)`,
+    );
 
     const tx = this.api.voucher.update(voucher.account, voucher.voucherId, params);
 
@@ -278,54 +293,5 @@ export class VoucherService implements OnModuleInit {
   async getVoucherBalance(voucherId: string): Promise<bigint> {
     await this.ensureConnected();
     return (await this.api.balance.findOut(voucherId)).toBigInt();
-  }
-
-  /**
-   * Appends a program to an existing voucher without funding it.
-   * Path B: once a voucher is funded for the UTC day, subsequent same-day
-   * POSTs for additional programs only append the program — no balance delta,
-   * no cap charge, no lastRenewedAt update.
-   */
-  async appendProgramOnly(voucher: Voucher, program: HexString): Promise<void> {
-    if (voucher.revoked) {
-      throw new Error(
-        `Cannot append to revoked voucher ${voucher.voucherId} — issue a new one instead`,
-      );
-    }
-
-    await this.ensureConnected();
-
-    const tx = this.api.voucher.update(voucher.account, voucher.voucherId, {
-      appendPrograms: [program],
-    });
-
-    await withTimeout(
-      new Promise<HexString>((resolve, reject) => {
-        tx.signAndSend(this.account, ({ events, status }) => {
-          if (status.isDropped || status.isInvalid || status.isUsurped) {
-            return reject(new Error(`Transaction ${status.type} — not included in block`));
-          }
-          if (status.isInBlock) {
-            const vuEvent = events.find(({ event }) => event.method === 'VoucherUpdated');
-            if (vuEvent) {
-              resolve(status.asInBlock.toHex());
-            } else {
-              const efEvent = events.find(({ event }) => event.method === 'ExtrinsicFailed');
-              reject(
-                efEvent
-                  ? JSON.stringify(this.api.getExtrinsicFailedError(efEvent?.event))
-                  : new Error('VoucherUpdated event not found'),
-              );
-            }
-          }
-        }).catch(reject);
-      }),
-      'appendProgramOnly signAndSend timed out after 60s',
-    );
-
-    voucher.programs.push(program);
-    // Intentionally NOT touching lastRenewedAt — this is not a funding event.
-    this.logger.log(`Voucher program appended: ${voucher.voucherId} += ${program}`);
-    await this.repo.save(voucher);
   }
 }

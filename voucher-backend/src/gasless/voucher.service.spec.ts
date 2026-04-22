@@ -9,15 +9,19 @@ import { Voucher } from '../entities/voucher.entity';
 //   • onModuleInit throws when the API rejects
 //   • getVoucher filters by revoked: false
 //   • issue() rejects with a clear error when issuer balance is too low
+//   • issue() passes the programIds array unmodified to the Gear SDK
+//   • update() guards against revoked vouchers
 //   • signAndSend timeout kicks in after 60s
 
 const mockBalance = jest.fn();
 const mockIsReadyOrError = jest.fn();
+const mockVoucherIssue = jest.fn();
 
 jest.mock('@gear-js/api', () => ({
   GearApi: jest.fn().mockImplementation(() => ({
     isReadyOrError: mockIsReadyOrError(),
     balance: { findOut: mockBalance },
+    voucher: { issue: mockVoucherIssue },
   })),
   HexString: {},
   IUpdateVoucherParams: {},
@@ -63,6 +67,7 @@ describe('VoucherService', () => {
   beforeEach(async () => {
     mockIsReadyOrError.mockReturnValue(Promise.resolve());
     mockBalance.mockResolvedValue({ toBigInt: () => BigInt(100 * 1e12) });
+    mockVoucherIssue.mockReset();
 
     repo = {
       findOneBy: jest.fn().mockResolvedValue(null),
@@ -114,7 +119,6 @@ describe('VoucherService', () => {
   });
 
   it('returns null when the only matching voucher is revoked', async () => {
-    // Simulates the DB filtering — repo.findOneBy returns null because revoked:true rows are excluded
     repo.findOneBy.mockResolvedValue(null);
     const result = await service.getVoucher('0xabc');
     expect(result).toBeNull();
@@ -130,23 +134,41 @@ describe('VoucherService', () => {
   // ── issue() — balance guard ────────────────────────────────────────────────
 
   it('throws when issuer balance is below amount + 10 VARA reserve', async () => {
-    // Balance: 11 VARA. Requested: 3 VARA. Reserve: 10 VARA. 11 < 3 + 10 → should throw
     mockBalance.mockResolvedValue({ toBigInt: () => BigInt(11 * 1e12) });
-
     await expect(
-      service.issue('0xaccount' as any, '0xprog' as any, 3, 86400),
+      service.issue('0xaccount' as any, ['0xprog'] as any, 3, 86400),
     ).rejects.toThrow('Insufficient issuer balance');
   });
 
-  it('does not throw when issuer balance exactly equals amount + reserve', async () => {
-    // Balance: 13 VARA. amount=3, reserve=10. 13 >= 3+10 → should not throw.
-    // (will throw later on signAndSend since we don't mock that here — just checking guard)
+  it('does not throw Insufficient when issuer balance exactly equals amount + reserve', async () => {
     mockBalance.mockResolvedValue({ toBigInt: () => BigInt(13 * 1e12) });
-
-    // We expect it to get past the balance check and fail elsewhere (no signAndSend mock)
+    // Force a downstream failure so we can assert the balance guard passed
+    // without mocking signAndSend.
+    mockVoucherIssue.mockRejectedValue(new Error('past balance guard'));
     await expect(
-      service.issue('0xaccount' as any, '0xprog' as any, 3, 86400),
-    ).rejects.not.toThrow('Insufficient issuer balance');
+      service.issue('0xaccount' as any, ['0xprog'] as any, 3, 86400),
+    ).rejects.toThrow('past balance guard');
+  });
+
+  // ── issue() — passes program array unmodified ─────────────────────────────
+
+  it('issue() passes the programIds array unmodified to api.voucher.issue', async () => {
+    // Stub the Gear call so we can inspect args without running signAndSend.
+    // Issuer needs amount + 10 VARA reserve = 510 VARA minimum.
+    mockBalance.mockResolvedValue({ toBigInt: () => BigInt(1000 * 1e12) });
+    mockVoucherIssue.mockRejectedValue(new Error('stop after args capture'));
+
+    const programs = ['0xp1', '0xp2', '0xp3'] as any;
+    await expect(
+      service.issue('0xaccount' as any, programs, 500, 86400),
+    ).rejects.toThrow('stop after args capture');
+
+    expect(mockVoucherIssue).toHaveBeenCalledWith(
+      '0xaccount',
+      BigInt(500) * BigInt(1e12),
+      Math.round(86400 / 3),
+      programs,
+    );
   });
 
   // ── update() guard ─────────────────────────────────────────────────────────
@@ -158,22 +180,7 @@ describe('VoucherService', () => {
     ).rejects.toThrow('Cannot update revoked voucher');
   });
 
-  // ── appendProgramOnly() guard ──────────────────────────────────────────────
-  // Mirrors the update() guard: a revoked voucher should not be resurrectable
-  // by an append. Protects against the same race (revoke cron fires between
-  // getVoucher and appendProgramOnly).
-
-  it('appendProgramOnly() throws when called on a revoked voucher', async () => {
-    const revoked = makeVoucher({ revoked: true });
-    await expect(
-      service.appendProgramOnly(revoked, '0xnewprog' as any),
-    ).rejects.toThrow('Cannot append to revoked voucher');
-  });
-
   // ── getVoucherBalance() ────────────────────────────────────────────────────
-  // Thin wrapper around api.balance.findOut, used by GET /voucher/:account so
-  // agents can detect drained vouchers mid-session. We just verify it surfaces
-  // the bigint value and doesn't mangle the precision.
 
   it('getVoucherBalance() returns the on-chain balance as a bigint', async () => {
     mockBalance.mockResolvedValue({ toBigInt: () => 1_757_000_000_000_000n });
@@ -190,10 +197,7 @@ describe('VoucherService', () => {
   // ── signAndSend timeout ────────────────────────────────────────────────────
 
   it('rejects with timeout error when signAndSend does not settle within 60s', async () => {
-    // Test the withTimeout pattern directly — fake timers interact badly with
-    // async module initialization, so we test the primitive.
     jest.useFakeTimers();
-
     const neverResolves = new Promise<never>(() => {});
     const racePromise = Promise.race([
       neverResolves,
@@ -204,10 +208,8 @@ describe('VoucherService', () => {
         ),
       ),
     ]);
-
     jest.advanceTimersByTime(61_000);
     await expect(racePromise).rejects.toThrow('timed out after 60s');
-
     jest.useRealTimers();
   });
 });
