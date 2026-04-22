@@ -5,6 +5,7 @@ import {
   InternalServerErrorException,
   HttpException,
   HttpStatus,
+  OnModuleInit,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
@@ -58,7 +59,7 @@ export type RequestVoucherResult =
   | RateLimitedResult;
 
 @Injectable()
-export class GaslessService {
+export class GaslessService implements OnModuleInit {
   private logger = new Logger(GaslessService.name);
 
   constructor(
@@ -72,6 +73,31 @@ export class GaslessService {
     @InjectRepository(IpTrancheUsage)
     private readonly ipUsageRepo: Repository<IpTrancheUsage>,
   ) {}
+
+  /**
+   * Ensure the ip_tranche_usage table exists on boot. Production runs with
+   * `synchronize: false` (app.module.ts), so new entities do NOT auto-create.
+   * This self-healing DDL avoids a hand-run migration step — the first voucher
+   * request after deploy would otherwise fail with "relation does not exist".
+   *
+   * CREATE TABLE IF NOT EXISTS is safe to run on every startup (idempotent).
+   */
+  async onModuleInit(): Promise<void> {
+    try {
+      await this.ipUsageRepo.query(`
+        CREATE TABLE IF NOT EXISTS ip_tranche_usage (
+          ip varchar(64) NOT NULL,
+          utc_day date NOT NULL,
+          count int NOT NULL DEFAULT 0,
+          PRIMARY KEY (ip, utc_day)
+        )
+      `);
+      this.logger.log('ip_tranche_usage table ensured');
+    } catch (e) {
+      this.logger.error('Failed to ensure ip_tranche_usage table', e);
+      throw e; // Fail boot — ceiling is a hard gate, we must not run without it.
+    }
+  }
 
   private getTodayIsoDate(): string {
     return new Date().toISOString().slice(0, 10);
@@ -356,7 +382,29 @@ export class GaslessService {
         return { status: 'ok', voucherId: existing.voucherId };
       }
 
-      // Branch (c): within the 1h window → 429 with Retry-After.
+      // Branch (c): within the 1h window.
+      //
+      // If the request lists any programs NOT already on the voucher, append
+      // them free of charge (no tranche cost, no duration bump, no
+      // lastRenewedAt update). This covers migrated legacy vouchers that
+      // were funded with only a subset of programs and need the remaining
+      // ones before the hour elapses — otherwise writes to BetToken/BetLane
+      // fail for up to an hour after migration.
+      //
+      // If all requested programs are already on the voucher, it's a true
+      // rate-limit violation → 429.
+      const missingPrograms = programs.filter(
+        (p) => !existing.programs.includes(p),
+      );
+
+      if (missingPrograms.length > 0) {
+        await this.voucherService.appendProgramsFreeOfCharge(
+          existing,
+          missingPrograms as HexString[],
+        );
+        return { status: 'ok', voucherId: existing.voucherId };
+      }
+
       const nextEligibleMs = lastRenewedMs + trancheIntervalSec * 1000;
       const retryAfterSec = Math.max(
         1,

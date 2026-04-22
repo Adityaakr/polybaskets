@@ -202,14 +202,36 @@ export class VoucherService implements OnModuleInit {
       params.balanceTopUp = BigInt(amountToAdd) * PLANCK_PER_VARA;
     }
 
-    // Pre-persist `lastRenewedAt=now` BEFORE signAndSend so the per-wallet
-    // 1h rate limit holds even if the chain call or a subsequent save fails.
-    // Without this, a DB failure after a successful signAndSend lets the
-    // next request read a stale lastRenewedAt and mint another +500 tranche
-    // — unbounded double-mint per wallet while DB remains unreachable.
-    // Trade-off (accepted): if signAndSend fails cleanly, the wallet loses
-    // its 1h window for nothing. Next tranche works at T+1h.
-    voucher.lastRenewedAt = new Date();
+    // Pre-persist the INTENDED post-chain state in a SINGLE save BEFORE
+    // signAndSend. This covers three failure modes:
+    //
+    //  1. Chain succeeds + later save fails: impossible now — there is no
+    //     later save. DB row already reflects the new validUpTo + programs.
+    //  2. Chain fails cleanly (ExtrinsicFailed, timeout after drop): the
+    //     lastRenewedAt write still blocks the 1h top-up (no double-mint);
+    //     validUpTo drift means cron may revoke slightly early, which is
+    //     acceptable because the chain-side voucher never got extended.
+    //  3. Chain succeeds + process crashes between confirmation and a
+    //     post-chain block-number refinement: the pre-chain validUpTo is
+    //     approximate (wall-clock + duration vs block + duration), but
+    //     still in the future, so the cron race Codex flagged can't
+    //     revoke a just-topped-up voucher.
+    //
+    // Trade-off accepted: (a) a cleanly failed chain call still locks the
+    // wallet for 1h, (b) validUpToBlock may be off by a few blocks from
+    // the actual inclusion block (not load-bearing — cron uses validUpTo
+    // Date, not validUpToBlock).
+    const now = new Date();
+    voucher.lastRenewedAt = now;
+    if (addPrograms && addPrograms.length) {
+      voucher.programs.push(...addPrograms);
+    }
+    if (prolongDurationInSec) {
+      voucher.validUpTo = new Date(now.getTime() + prolongDurationInSec * 1000);
+      // validUpToBlock gets refined post-chain with the real block number.
+      // Pre-chain estimate: (current + duration_in_blocks) — off by at most
+      // a few blocks depending on when inclusion actually lands.
+    }
     await this.repo.save(voucher);
 
     this.logger.log(
@@ -242,19 +264,84 @@ export class VoucherService implements OnModuleInit {
       'signAndSend timed out after 60s',
     );
 
-    // Chain confirmed. Persist the chain-side state (new validUpTo, programs).
-    // lastRenewedAt is already saved from the pre-chain write above.
-    if (addPrograms && addPrograms.length) {
-      voucher.programs.push(...addPrograms);
-    }
+    // Chain confirmed. Best-effort refinement of validUpToBlock using the
+    // real inclusion block. If this save fails, the pre-chain row is still
+    // consistent (just with a slightly-off validUpToBlock estimate).
     if (durationInBlocks) {
-      const blockNumber = (await this.api.blocks.getBlockNumber(blockHash)).toNumber();
-      voucher.validUpToBlock = BigInt(blockNumber + durationInBlocks);
-      voucher.validUpTo = new Date(Date.now() + prolongDurationInSec * 1000);
+      try {
+        const blockNumber = (await this.api.blocks.getBlockNumber(blockHash)).toNumber();
+        voucher.validUpToBlock = BigInt(blockNumber + durationInBlocks);
+        await this.repo.save(voucher);
+      } catch (e) {
+        this.logger.warn(
+          `Post-chain validUpToBlock refinement failed for ${voucher.voucherId}; DB state is still consistent`,
+          e,
+        );
+      }
     }
 
     this.logger.log(`Voucher updated: ${voucher.voucherId} valid until ${voucher.validUpTo.toISOString()}`);
+  }
+
+  /**
+   * Append new programs to an existing voucher WITHOUT funding or extending
+   * duration. Used to let migrated legacy vouchers register missing programs
+   * during the 1h rate-limit window — the voucher isn't getting a new tranche,
+   * it's just widening its program whitelist so writes to the new programs
+   * stop failing while the 1h cooldown elapses.
+   *
+   * No `lastRenewedAt` update (this is not a funding event), no tranche
+   * charge, no duration bump. Pure chain-side whitelist amendment.
+   */
+  async appendProgramsFreeOfCharge(
+    voucher: Voucher,
+    programIds: HexString[],
+  ): Promise<void> {
+    if (voucher.revoked) {
+      throw new Error(
+        `Cannot append to revoked voucher ${voucher.voucherId} — issue a new one instead`,
+      );
+    }
+    if (!programIds.length) return;
+
+    await this.ensureConnected();
+
+    // Pre-persist intended program list so a mid-flight crash can't lose
+    // the append. See rationale in update() — same single-save pattern.
+    voucher.programs.push(...programIds);
     await this.repo.save(voucher);
+
+    this.logger.log(
+      `Appending programs (no fund) to voucher ${voucher.voucherId}: ${programIds.join(', ')}`,
+    );
+
+    const tx = this.api.voucher.update(voucher.account, voucher.voucherId, {
+      appendPrograms: programIds,
+    });
+
+    await withTimeout(
+      new Promise<HexString>((resolve, reject) => {
+        tx.signAndSend(this.account, ({ events, status }) => {
+          if (status.isDropped || status.isInvalid || status.isUsurped) {
+            return reject(new Error(`Transaction ${status.type} — not included in block`));
+          }
+          if (status.isInBlock) {
+            const vuEvent = events.find(({ event }) => event.method === 'VoucherUpdated');
+            if (vuEvent) {
+              resolve(status.asInBlock.toHex());
+            } else {
+              const efEvent = events.find(({ event }) => event.method === 'ExtrinsicFailed');
+              reject(
+                efEvent
+                  ? JSON.stringify(this.api.getExtrinsicFailedError(efEvent?.event))
+                  : new Error('VoucherUpdated event not found'),
+              );
+            }
+          }
+        }).catch(reject);
+      }),
+      'appendProgramsFreeOfCharge signAndSend timed out after 60s',
+    );
   }
 
   async revoke(voucher: Voucher) {

@@ -74,7 +74,7 @@ function hoursAgo(n: number): Date {
 describe('GaslessService (hourly-tranche model)', () => {
   let service: GaslessService;
   let voucherSvc: jest.Mocked<
-    Pick<VoucherService, 'getVoucher' | 'issue' | 'update' | 'getVoucherBalance'>
+    Pick<VoucherService, 'getVoucher' | 'issue' | 'update' | 'getVoucherBalance' | 'appendProgramsFreeOfCharge'>
   >;
   let programRepo: { findBy: jest.Mock; findOneBy: jest.Mock };
   let voucherRepo: Record<string, never>;
@@ -145,6 +145,7 @@ describe('GaslessService (hourly-tranche model)', () => {
       issue: jest.fn().mockResolvedValue('0xnewvoucher'),
       update: jest.fn().mockResolvedValue(undefined),
       getVoucherBalance: jest.fn().mockResolvedValue(0n),
+      appendProgramsFreeOfCharge: jest.fn().mockResolvedValue(undefined),
     };
 
     const module = await Test.createTestingModule({
@@ -160,6 +161,29 @@ describe('GaslessService (hourly-tranche model)', () => {
     }).compile();
 
     service = module.get(GaslessService);
+  });
+
+  // ── Codex P1 regression: self-healing DDL on boot ─────────────────────────
+  // Production has synchronize:false, so the new ip_tranche_usage entity
+  // does NOT auto-create. onModuleInit runs CREATE TABLE IF NOT EXISTS so
+  // the first POST /voucher after deploy doesn't fail with "relation does
+  // not exist".
+
+  it('onModuleInit ensures ip_tranche_usage table exists (idempotent DDL)', async () => {
+    // Reset the query log and re-run init.
+    ipUsageRepo.query.mockClear();
+    await service.onModuleInit();
+    const ddl = ipUsageRepo.query.mock.calls.find((c) =>
+      typeof c[0] === 'string' && c[0].includes('CREATE TABLE IF NOT EXISTS ip_tranche_usage'),
+    );
+    expect(ddl).toBeDefined();
+    // Idempotent — running a second time must not throw.
+    await expect(service.onModuleInit()).resolves.toBeUndefined();
+  });
+
+  it('onModuleInit fails boot if DDL throws (ceiling is a hard gate)', async () => {
+    ipUsageRepo.query.mockRejectedValueOnce(new Error('DB unreachable'));
+    await expect(service.onModuleInit()).rejects.toThrow('DB unreachable');
   });
 
   // ── Input / DTO validation ────────────────────────────────────────────────
@@ -405,7 +429,8 @@ describe('GaslessService (hourly-tranche model)', () => {
     voucherSvc.getVoucher.mockResolvedValue(
       makeVoucher({ lastRenewedAt: hoursAgo(0.1) }),
     );
-    // Fire 5 same-wallet requests — all hit 429, none should charge tranches.
+    // Fire 5 same-wallet requests on the SAME program (no appends needed) —
+    // all hit 429, none charge tranches.
     for (let i = 0; i < 5; i++) {
       const r = await service.requestVoucher(
         { account: ACCOUNT, programs: [PROGRAM_A] },
@@ -420,6 +445,48 @@ describe('GaslessService (hourly-tranche model)', () => {
       IP,
     );
     expect(ok.status).toBe('ok');
+  });
+
+  // ── Codex P2 regression: legacy voucher missing programs in 1h window ─────
+  // Scenario: a migrated wallet has a voucher funded <1h ago that only
+  // covers a subset of the 3 programs (e.g., from the old Path B per-program
+  // flow that was cut mid-day). A POST listing all 3 programs should append
+  // the missing two FREE OF CHARGE — no tranche consumed, no duration
+  // extension — instead of 429-ing the wallet into a 1h lockout where
+  // writes to BetToken/BetLane fail.
+
+  it('1h window + missing programs: appends free of charge (no tranche)', async () => {
+    const existing = makeVoucher({
+      programs: [PROGRAM_A], // only 1 of 3 programs registered
+      lastRenewedAt: hoursAgo(0.3), // within 1h window
+    });
+    voucherSvc.getVoucher.mockResolvedValue(existing);
+    const result = await service.requestVoucher(
+      { account: ACCOUNT, programs: [PROGRAM_A, PROGRAM_B, PROGRAM_C] },
+      IP,
+    );
+    expect(result).toEqual({ status: 'ok', voucherId: '0xvoucher' });
+    expect(voucherSvc.appendProgramsFreeOfCharge).toHaveBeenCalledWith(
+      existing,
+      [PROGRAM_B, PROGRAM_C],
+    );
+    expect(voucherSvc.update).not.toHaveBeenCalled();
+    // IP ceiling not charged (no tranche).
+    expect(ipRows.size).toBe(0);
+  });
+
+  it('1h window + all programs already present: returns 429 (true rate limit)', async () => {
+    const existing = makeVoucher({
+      programs: [PROGRAM_A, PROGRAM_B, PROGRAM_C],
+      lastRenewedAt: hoursAgo(0.3),
+    });
+    voucherSvc.getVoucher.mockResolvedValue(existing);
+    const result = await service.requestVoucher(
+      { account: ACCOUNT, programs: [PROGRAM_A, PROGRAM_B, PROGRAM_C] },
+      IP,
+    );
+    expect(result.status).toBe('rate_limited');
+    expect(voucherSvc.appendProgramsFreeOfCharge).not.toHaveBeenCalled();
   });
 
   // ── Per-IP tranche count ceiling ──────────────────────────────────────────
