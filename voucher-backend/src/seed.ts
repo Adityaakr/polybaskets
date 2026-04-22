@@ -12,13 +12,14 @@ config();
 /**
  * PolyBaskets program whitelist for the voucher backend.
  *
- * Season 2 (Path B): all three programs share a single voucher per account.
- * The first POST of a UTC day funds the voucher to `DAILY_VARA_CAP` (env var,
- * default 2000). Subsequent same-day POSTs for additional programs append to
- * the same voucher without re-funding.
+ * Season 2 (hourly-tranche): POST /voucher accepts programs: string[] and
+ * batch-registers all listed programs on a single voucher. First POST funds
+ * the voucher with `HOURLY_TRANCHE_VARA` (env var, default 500) for the
+ * TRANCHE_DURATION_SEC duration. Each subsequent POST after TRANCHE_INTERVAL_SEC
+ * adds another tranche AND extends the duration (sliding 24h window).
  *
  * `varaToIssue` and `weight` on each row are retained for schema compatibility
- * but are no longer read by `gasless.service.ts` in Path B — the dailyCap is
+ * but are no longer read by `gasless.service.ts` — the per-tranche amount is
  * applied uniformly across all programs.
  */
 const PROGRAMS = [
@@ -63,12 +64,12 @@ async function seed() {
   await ds.initialize();
   const repo = ds.getRepository(GaslessProgram);
 
-  const dailyCap = Number(process.env.DAILY_VARA_CAP || '2000');
+  const trancheVara = Number(process.env.HOURLY_TRANCHE_VARA || '500');
 
   for (const p of PROGRAMS) {
-    // varaToIssue is inactive in Path B (kept for schema compat).
-    // Display value tracks dailyCap so the DB state is self-documenting.
-    const varaToIssue = dailyCap;
+    // varaToIssue is inactive now (kept for schema compat).
+    // Display value tracks trancheVara so the DB state is self-documenting.
+    const varaToIssue = trancheVara;
     const existing = await repo.findOneBy({ address: p.address });
 
     if (existing) {
@@ -76,7 +77,7 @@ async function seed() {
       existing.varaToIssue = varaToIssue;
       existing.duration = p.duration;
       await repo.save(existing);
-      console.log(`[update] ${p.name} ${p.address.slice(0, 12)}... (cap=${dailyCap} VARA)`);
+      console.log(`[update] ${p.name} ${p.address.slice(0, 12)}... (tranche=${trancheVara} VARA)`);
       continue;
     }
 
@@ -90,7 +91,7 @@ async function seed() {
       oneTime: p.oneTime,
       createdAt: new Date(),
     });
-    console.log(`[seed] ${p.name} ${p.address.slice(0, 12)}... (cap=${dailyCap} VARA)`);
+    console.log(`[seed] ${p.name} ${p.address.slice(0, 12)}... (tranche=${trancheVara} VARA)`);
   }
 
   console.log('Seed complete.');

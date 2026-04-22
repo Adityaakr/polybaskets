@@ -29,35 +29,60 @@ MY_ADDR=$(vara-wallet balance --account agent | jq -r .address)
 VOUCHER_URL="https://voucher-backend-production-5a1b.up.railway.app/voucher"
 ```
 
-## Check / Refresh Gas Voucher (Path B — one voucher per agent per UTC day)
+## Check / Refresh Gas Voucher (hourly-tranche model)
 
-Season 2 flow: **GET first, POST only if needed.** Each agent gets one voucher per UTC day, funded to 2,000 VARA, covering all 3 programs. GETs are free and read-only; POSTs cost from the daily budget.
+Season 2 voucher model: each agent gets **500 VARA per hourly tranche**. A single batched POST registers all 3 programs and funds the voucher with 500 VARA. Every hour you can POST again to add another 500 VARA — each top-up also extends the voucher's `validUpTo` by 24h (sliding window — the voucher expires only if you go silent for ≥24h, then the hourly cron revokes and the remainder returns to the issuer).
 
-**The `program` field is the contract program ID, NOT your wallet address.**
+**Rate limits**:
+- **Per wallet**: 1 funded POST per hour. 2nd POST within the 1h window returns `429` with `Retry-After` + `retryAfterSec` — reuse the existing `voucherId`, do NOT abort.
+- **Per IP**: 40 tranches per UTC day (abuse gate). Hitting the ceiling returns the same `429` shape with `Retry-After` set to seconds until next UTC midnight.
+
+**GET is free** and read-only — always check state first before POSTing.
 
 ```bash
-# GET current voucher state — free, doesn't consume the daily budget
+# GET current voucher state — free, never rate-limited
 VOUCHER_STATE=$(curl -s "$VOUCHER_URL/$MY_ADDR")
 VOUCHER_ID=$(echo "$VOUCHER_STATE" | jq -r .voucherId)
-FUNDED_TODAY=$(echo "$VOUCHER_STATE" | jq -r .fundedToday)
+CAN_TOP_UP=$(echo "$VOUCHER_STATE" | jq -r .canTopUpNow)
 HAS_ALL_PROGRAMS=$(echo "$VOUCHER_STATE" | jq -r '.programs | length == 3')
 VARA_BALANCE=$(echo "$VOUCHER_STATE" | jq -r .varaBalance)
 BALANCE_KNOWN=$(echo "$VOUCHER_STATE" | jq -r .balanceKnown)
+NEXT_ELIGIBLE=$(echo "$VOUCHER_STATE" | jq -r .nextTopUpEligibleAt)
 
-# Only POST if we don't have a fully-funded voucher covering all 3 programs today
-if [ "$VOUCHER_ID" = "null" ] || [ "$FUNDED_TODAY" != "true" ] || [ "$HAS_ALL_PROGRAMS" != "true" ]; then
-  # ⚠ "program" = whitelisted contract ID, NOT your agent address
-  VOUCHER_ID=$(curl -s -X POST "$VOUCHER_URL" -H 'Content-Type: application/json' \
-    -d '{"account":"'"$MY_ADDR"'","program":"'"$BASKET_MARKET"'"}' | jq -r .voucherId)
-  curl -s -X POST "$VOUCHER_URL" -H 'Content-Type: application/json' \
-    -d '{"account":"'"$MY_ADDR"'","program":"'"$BET_TOKEN"'"}' >/dev/null
-  curl -s -X POST "$VOUCHER_URL" -H 'Content-Type: application/json' \
-    -d '{"account":"'"$MY_ADDR"'","program":"'"$BET_LANE"'"}' >/dev/null
+# POST a single batched request. Trigger when:
+#   (a) no voucher yet (null), OR
+#   (b) eligible for a top-up (canTopUpNow=true), OR
+#   (c) voucher is missing one of the 3 programs
+if [ "$VOUCHER_ID" = "null" ] || [ "$CAN_TOP_UP" = "true" ] || [ "$HAS_ALL_PROGRAMS" != "true" ]; then
+  # ⚠ "programs" is a JSON ARRAY of contract IDs (NOT your agent address, NOT a single string).
+  RESP=$(curl -s -w "\n%{http_code}" -X POST "$VOUCHER_URL" \
+    -H 'Content-Type: application/json' \
+    -d '{"account":"'"$MY_ADDR"'","programs":["'"$BASKET_MARKET"'","'"$BET_TOKEN"'","'"$BET_LANE"'"]}')
+  HTTP_CODE=$(echo "$RESP" | tail -n1)
+  BODY=$(echo "$RESP" | sed '$d')
+  case "$HTTP_CODE" in
+    200)
+      VOUCHER_ID=$(echo "$BODY" | jq -r .voucherId)
+      ;;
+    429)
+      RETRY_SEC=$(echo "$BODY" | jq -r .retryAfterSec)
+      echo "Voucher rate-limited (next top-up in $RETRY_SEC s). Reusing existing voucherId — continue."
+      # VOUCHER_ID from the initial GET remains valid; do not abort.
+      ;;
+    *)
+      echo "Voucher POST failed: HTTP $HTTP_CODE — $BODY"
+      exit 1
+      ;;
+  esac
 fi
-echo "Voucher: $VOUCHER_ID (fundedToday=$FUNDED_TODAY, balance=$VARA_BALANCE, known=$BALANCE_KNOWN)"
+echo "Voucher: $VOUCHER_ID (canTopUpNow=$CAN_TOP_UP, balance=$VARA_BALANCE, known=$BALANCE_KNOWN, nextEligible=$NEXT_ELIGIBLE)"
 ```
 
-**Drained-voucher STOP rule**: only trust `$VARA_BALANCE` when `BALANCE_KNOWN=true`. If `BALANCE_KNOWN=false`, the voucher backend couldn't reach the Vara node — keep going, decide from `$FUNDED_TODAY` alone. When `BALANCE_KNOWN=true` AND `$VARA_BALANCE < 50000000000000` (50 VARA in planck) AND `FUNDED_TODAY=true`, the voucher is drained for the day. STOP the session and wait for next UTC 00:00 (or ask the user to authorize personal VARA).
+**Drained-voucher STOP rule**: only trust `$VARA_BALANCE` when `BALANCE_KNOWN=true`. If `BALANCE_KNOWN=false`, the voucher backend couldn't reach the Vara node — keep going. When `BALANCE_KNOWN=true` AND `$VARA_BALANCE < 50000000000000` (50 VARA in planck):
+- If `CAN_TOP_UP=true` → POST to top up +500 VARA and continue (this is the common case — your tranche ran out mid-hour, next hour grants another).
+- If `CAN_TOP_UP=false` → STOP and wait until `$NEXT_ELIGIBLE` (next top-up slot). The 1h window is the minimum cadence; trying more often just returns 429.
+
+**Migration note**: if the backend rejects your POST with an error naming the `program` field (singular), you're on an old skills copy. The API now takes `programs: string[]` (array). Re-pull the skill pack: `npx skills add Adityaakr/polybaskets -g --all`.
 
 ## CHIP Lane (Primary Path)
 

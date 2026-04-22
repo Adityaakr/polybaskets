@@ -84,9 +84,13 @@ export class VoucherService implements OnModuleInit {
     this.logger.log(`Voucher issuer: ${this.account.address}`);
   }
 
+  /**
+   * Issue a fresh voucher registering all listed programs and funding the
+   * voucher with `amount` VARA. `programIds` must be non-empty.
+   */
   async issue(
     account: HexString,
-    programId: HexString,
+    programIds: HexString[],
     amount: number,
     durationInSec: number,
   ): Promise<string> {
@@ -101,14 +105,14 @@ export class VoucherService implements OnModuleInit {
     }
 
     this.logger.log(
-      `Issuing voucher: account=${account} amount=${amount} VARA duration=${durationInSec}s program=${programId}`,
+      `Issuing voucher: account=${account} amount=${amount} VARA duration=${durationInSec}s programs=[${programIds.join(', ')}]`,
     );
 
     const { extrinsic } = await this.api.voucher.issue(
       account,
       BigInt(amount) * PLANCK_PER_VARA,
       durationInBlocks,
-      [programId],
+      programIds,
     );
 
     const [voucherId, blockHash] = await withTimeout(
@@ -155,7 +159,7 @@ export class VoucherService implements OnModuleInit {
         voucherId,
         validUpToBlock,
         validUpTo,
-        programs: [programId],
+        programs: [...programIds],
         varaToIssue: amount,
         lastRenewedAt: now,
         revoked: false,
@@ -165,9 +169,18 @@ export class VoucherService implements OnModuleInit {
     return voucherId;
   }
 
+  /**
+   * Additive top-up: adds `amountToAdd` VARA to the voucher balance AND extends
+   * duration by `prolongDurationInSec` AND optionally appends new programs.
+   *
+   * Unlike the legacy "top up to target" semantic, this method always adds
+   * exactly `amountToAdd` — no on-chain balance subtraction. This is what the
+   * hourly-tranche model expects: each tranche is a full +500 regardless of
+   * what's left on the voucher.
+   */
   async update(
     voucher: Voucher,
-    balance: number,
+    amountToAdd: number,
     prolongDurationInSec?: number,
     addPrograms?: HexString[],
   ) {
@@ -176,21 +189,22 @@ export class VoucherService implements OnModuleInit {
     }
 
     await this.ensureConnected();
-    const voucherBalance =
-      (await this.api.balance.findOut(voucher.voucherId)).toBigInt() /
-      PLANCK_PER_VARA;
-    const durationInBlocks = Math.round(prolongDurationInSec / SECONDS_PER_BLOCK);
-    const topUp = BigInt(balance) - voucherBalance;
+    const durationInBlocks = prolongDurationInSec
+      ? Math.round(prolongDurationInSec / SECONDS_PER_BLOCK)
+      : 0;
 
     const params: IUpdateVoucherParams = {};
-    if (prolongDurationInSec) params.prolongDuration = durationInBlocks;
-    if (addPrograms) {
+    if (durationInBlocks) params.prolongDuration = durationInBlocks;
+    if (addPrograms && addPrograms.length) {
       params.appendPrograms = addPrograms;
-      voucher.programs.push(...addPrograms);
     }
-    if (topUp > 0) params.balanceTopUp = topUp * PLANCK_PER_VARA;
+    if (amountToAdd > 0) {
+      params.balanceTopUp = BigInt(amountToAdd) * PLANCK_PER_VARA;
+    }
 
-    this.logger.log(`Updating voucher: ${voucher.voucherId} for ${voucher.account}`);
+    this.logger.log(
+      `Updating voucher: ${voucher.voucherId} for ${voucher.account} (+${amountToAdd} VARA, +${prolongDurationInSec ?? 0}s)`,
+    );
 
     const tx = this.api.voucher.update(voucher.account, voucher.voucherId, params);
 
@@ -218,7 +232,21 @@ export class VoucherService implements OnModuleInit {
       'signAndSend timed out after 60s',
     );
 
+    // Chain confirmed. Persist new state with retry — a DB save failure here
+    // would let the next request read stale lastRenewedAt and mint another
+    // tranche (double-mint). Retry 3× with backoff to cover transient DB
+    // blips. If we still can't save after retries, we log and re-throw:
+    // the caller returns 500, but the per-wallet advisory lock prevented
+    // concurrent mints while we were trying.
+    //
+    // We intentionally DO NOT pre-save before signAndSend: a cleanly failed
+    // chain call (dropped extrinsic, ExtrinsicFailed) with a pre-save would
+    // strand the wallet on a DB row that permanently disagrees with chain
+    // state, which is much worse than the narrow double-mint window.
     const now = new Date();
+    if (addPrograms && addPrograms.length) {
+      voucher.programs.push(...addPrograms);
+    }
     if (durationInBlocks) {
       const blockNumber = (await this.api.blocks.getBlockNumber(blockHash)).toNumber();
       voucher.validUpToBlock = BigInt(blockNumber + durationInBlocks);
@@ -226,8 +254,101 @@ export class VoucherService implements OnModuleInit {
     }
     voucher.lastRenewedAt = now;
 
+    await this.saveWithRetry(voucher, `update ${voucher.voucherId}`);
+
     this.logger.log(`Voucher updated: ${voucher.voucherId} valid until ${voucher.validUpTo.toISOString()}`);
-    await this.repo.save(voucher);
+  }
+
+  /**
+   * Save a voucher row with bounded retries. Used after a confirmed on-chain
+   * operation to close the narrow window where a transient DB blip could
+   * let the next request see stale state. Retries 3× with 200ms, 500ms,
+   * 1500ms backoff. Throws if all attempts fail — the per-wallet advisory
+   * lock held by the caller prevents double-mint during the retry loop.
+   */
+  private async saveWithRetry(voucher: Voucher, context: string): Promise<void> {
+    const delays = [200, 500, 1500];
+    let lastErr: unknown;
+    for (let i = 0; i <= delays.length; i++) {
+      try {
+        await this.repo.save(voucher);
+        if (i > 0) {
+          this.logger.log(`DB save succeeded on retry ${i} (${context})`);
+        }
+        return;
+      } catch (e) {
+        lastErr = e;
+        if (i < delays.length) {
+          this.logger.warn(`DB save failed (attempt ${i + 1}, ${context}), retrying in ${delays[i]}ms`);
+          await new Promise((r) => setTimeout(r, delays[i]));
+        }
+      }
+    }
+    this.logger.error(`DB save failed after ${delays.length + 1} attempts (${context})`, lastErr);
+    throw lastErr;
+  }
+
+  /**
+   * Append new programs to an existing voucher WITHOUT funding or extending
+   * duration. Used to let migrated legacy vouchers register missing programs
+   * during the 1h rate-limit window — the voucher isn't getting a new tranche,
+   * it's just widening its program whitelist so writes to the new programs
+   * stop failing while the 1h cooldown elapses.
+   *
+   * No `lastRenewedAt` update (this is not a funding event), no tranche
+   * charge, no duration bump. Pure chain-side whitelist amendment.
+   */
+  async appendProgramsFreeOfCharge(
+    voucher: Voucher,
+    programIds: HexString[],
+  ): Promise<void> {
+    if (voucher.revoked) {
+      throw new Error(
+        `Cannot append to revoked voucher ${voucher.voucherId} — issue a new one instead`,
+      );
+    }
+    if (!programIds.length) return;
+
+    await this.ensureConnected();
+
+    this.logger.log(
+      `Appending programs (no fund) to voucher ${voucher.voucherId}: ${programIds.join(', ')}`,
+    );
+
+    const tx = this.api.voucher.update(voucher.account, voucher.voucherId, {
+      appendPrograms: programIds,
+    });
+
+    await withTimeout(
+      new Promise<HexString>((resolve, reject) => {
+        tx.signAndSend(this.account, ({ events, status }) => {
+          if (status.isDropped || status.isInvalid || status.isUsurped) {
+            return reject(new Error(`Transaction ${status.type} — not included in block`));
+          }
+          if (status.isInBlock) {
+            const vuEvent = events.find(({ event }) => event.method === 'VoucherUpdated');
+            if (vuEvent) {
+              resolve(status.asInBlock.toHex());
+            } else {
+              const efEvent = events.find(({ event }) => event.method === 'ExtrinsicFailed');
+              reject(
+                efEvent
+                  ? JSON.stringify(this.api.getExtrinsicFailedError(efEvent?.event))
+                  : new Error('VoucherUpdated event not found'),
+              );
+            }
+          }
+        }).catch(reject);
+      }),
+      'appendProgramsFreeOfCharge signAndSend timed out after 60s',
+    );
+
+    // Chain confirmed. Persist program list with retry — same reasoning as
+    // update(): pre-saving before chain success would strand the DB ahead
+    // of chain on a failed append, so the next request would see all
+    // programs already registered and stop retrying the append.
+    voucher.programs.push(...programIds);
+    await this.saveWithRetry(voucher, `appendPrograms ${voucher.voucherId}`);
   }
 
   async revoke(voucher: Voucher) {
@@ -278,54 +399,5 @@ export class VoucherService implements OnModuleInit {
   async getVoucherBalance(voucherId: string): Promise<bigint> {
     await this.ensureConnected();
     return (await this.api.balance.findOut(voucherId)).toBigInt();
-  }
-
-  /**
-   * Appends a program to an existing voucher without funding it.
-   * Path B: once a voucher is funded for the UTC day, subsequent same-day
-   * POSTs for additional programs only append the program — no balance delta,
-   * no cap charge, no lastRenewedAt update.
-   */
-  async appendProgramOnly(voucher: Voucher, program: HexString): Promise<void> {
-    if (voucher.revoked) {
-      throw new Error(
-        `Cannot append to revoked voucher ${voucher.voucherId} — issue a new one instead`,
-      );
-    }
-
-    await this.ensureConnected();
-
-    const tx = this.api.voucher.update(voucher.account, voucher.voucherId, {
-      appendPrograms: [program],
-    });
-
-    await withTimeout(
-      new Promise<HexString>((resolve, reject) => {
-        tx.signAndSend(this.account, ({ events, status }) => {
-          if (status.isDropped || status.isInvalid || status.isUsurped) {
-            return reject(new Error(`Transaction ${status.type} — not included in block`));
-          }
-          if (status.isInBlock) {
-            const vuEvent = events.find(({ event }) => event.method === 'VoucherUpdated');
-            if (vuEvent) {
-              resolve(status.asInBlock.toHex());
-            } else {
-              const efEvent = events.find(({ event }) => event.method === 'ExtrinsicFailed');
-              reject(
-                efEvent
-                  ? JSON.stringify(this.api.getExtrinsicFailedError(efEvent?.event))
-                  : new Error('VoucherUpdated event not found'),
-              );
-            }
-          }
-        }).catch(reject);
-      }),
-      'appendProgramOnly signAndSend timed out after 60s',
-    );
-
-    voucher.programs.push(program);
-    // Intentionally NOT touching lastRenewedAt — this is not a funding event.
-    this.logger.log(`Voucher program appended: ${voucher.voucherId} += ${program}`);
-    await this.repo.save(voucher);
   }
 }
