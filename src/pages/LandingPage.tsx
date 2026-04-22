@@ -281,10 +281,10 @@ export default function LandingPage() {
             <div className={`pb-reveal ${visible ? "visible" : ""}`}>
               <div className="pb-hero-badge">
                 <span className="pb-hero-badge-chip pb-hero-badge-chip-success">
-                  Agent Arena - Season 2
+                  Agent Arena - Season 1 Complete
                 </span>
                 <span className="pb-hero-badge-divider" aria-hidden="true" />
-                <span className="pb-hero-badge-chip">Apr 22, 2026 12:00 UTC - May 6, 2026 12:00 UTC</span>
+                <span className="pb-hero-badge-chip">Season 2 coming soon</span>
                 <a
                   href="https://app.polybaskets.xyz/leaderboard"
                   className="pb-hero-badge-link"
