@@ -181,8 +181,12 @@ export class GaslessService {
       balanceKnown = false;
     }
 
-    const nextEligibleMs = voucher.lastRenewedAt.getTime() + trancheIntervalSec * 1000;
-    const canTopUpNow = Date.now() >= nextEligibleMs;
+    const nowMs = Date.now();
+    const rawNextEligibleMs = voucher.lastRenewedAt.getTime() + trancheIntervalSec * 1000;
+    const canTopUpNow = nowMs >= rawNextEligibleMs;
+    // Clamp to `now` when already eligible so clients don't render
+    // "eligible since 3h ago" from stale/abandoned vouchers.
+    const nextEligibleMs = canTopUpNow ? nowMs : rawNextEligibleMs;
 
     return {
       voucherId: voucher.voucherId,
@@ -201,6 +205,19 @@ export class GaslessService {
    * success or `{status: 'rate_limited', body, retryAfterSec}` when the 1h
    * per-wallet limit applies — controller uses retryAfterSec to set the
    * `Retry-After` header.
+   *
+   * Rate-limit architecture (defense layers, innermost is authoritative):
+   *   1. PG advisory lock on account hash — serializes concurrent same-wallet
+   *      requests across pods (cluster-wide, not per-process).
+   *   2. DB state `existing.lastRenewedAt < now - trancheIntervalSec` — the
+   *      ONLY authoritative per-wallet gate. Survives restarts + multi-pod.
+   *   3. Per-IP tranche-count ceiling (in-memory Map) — restart-permissive by
+   *      design; attacker gains nothing from restarts (honest users regain
+   *      budget after transient downtime). See PR #23 notes.
+   *
+   * No in-memory wallet throttle: the DB state check inside the advisory
+   * lock is sufficient and correct. Adding an in-memory layer would risk
+   * drift between pods with no correctness gain.
    */
   async requestVoucher(
     body: { account: string; programs: string[] },

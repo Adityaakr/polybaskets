@@ -87,7 +87,15 @@ describe('GaslessService (hourly-tranche model)', () => {
     cfgOverrides = {};
     programRepo = {
       findBy: jest.fn().mockImplementation(async ({ address }) => {
-        // `address` is an In([...]) FindOperator. Extract its values.
+        // `address` is a TypeORM `In([...])` FindOperator. We reach into its
+        // internal value to let tests stub per-request program lists without
+        // spinning up a real DB.
+        //
+        // WARNING: This couples to TypeORM's internal `_value`/`value`
+        // property names. If TypeORM upgrades and rename/hide these fields,
+        // this mock returns no results and the whole suite silently starts
+        // hitting the "program not whitelisted" branch. If that happens,
+        // update this extraction (or replace with a real in-memory DB).
         const addrs: string[] = address._value ?? address.value ?? [];
         return addrs.map((a) => makeProgram(a));
       }),
@@ -543,13 +551,19 @@ describe('GaslessService (hourly-tranche model)', () => {
     expect(state.varaBalance).toBe('1500');
   });
 
-  it('getVoucherState returns canTopUpNow=true when >1h', async () => {
+  it('getVoucherState returns canTopUpNow=true when >1h and clamps nextTopUpEligibleAt to now', async () => {
     voucherSvc.getVoucher.mockResolvedValue(
-      makeVoucher({ lastRenewedAt: hoursAgo(2) }),
+      makeVoucher({ lastRenewedAt: hoursAgo(5) }),
     );
     voucherSvc.getVoucherBalance.mockResolvedValue(1500n);
+    const before = Date.now();
     const state = await service.getVoucherState(ACCOUNT);
+    const after = Date.now();
     expect(state.canTopUpNow).toBe(true);
+    // nextTopUpEligibleAt must be clamped to "now", not 5h-ago + 1h = 4h in the past.
+    const returned = new Date(state.nextTopUpEligibleAt!).getTime();
+    expect(returned).toBeGreaterThanOrEqual(before);
+    expect(returned).toBeLessThanOrEqual(after);
   });
 
   it('getVoucherState reports balanceKnown=false on RPC failure (ported)', async () => {
