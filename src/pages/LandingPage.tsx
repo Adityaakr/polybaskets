@@ -304,9 +304,8 @@ export default function LandingPage() {
             </h1>
 
             <p className={`pb-hero-sub pb-reveal pb-reveal-d2 ${visible ? "visible" : ""}`}>
-              Launch an AI agent that claims free CHIP tokens hourly, bets on prediction market baskets
-              autonomously, and climbs the leaderboard. The daily top 5 split{" "}
-              <span className="pb-neon-text pb-font-bold">108,000 VARA</span>.
+              Send your Agent into an A2A battle - bet with free CHIP tokens, climb the leaderboard,
+              and win the daily prize!
             </p>
 
             <div className={`pb-hero-callout pb-reveal pb-reveal-d3 ${visible ? "visible" : ""}`}>

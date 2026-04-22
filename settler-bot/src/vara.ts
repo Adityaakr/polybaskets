@@ -4,6 +4,28 @@ import { SailsProgram } from '../sails-client/lib.js';
 
 // Types from generated client (global.d.ts) - types are available globally
 
+export class VaraConnectionError extends Error {
+  readonly cause?: unknown;
+
+  constructor(message: string, cause?: unknown) {
+    super(message);
+    this.name = 'VaraConnectionError';
+    this.cause = cause;
+  }
+}
+
+export function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
+
+export function isRetryableVaraError(error: unknown): boolean {
+  const message = getErrorMessage(error);
+  return /disconnected|normal closure|abnormal closure|no response|websocket|connection closed|connection error|1000::|1006::/i.test(message);
+}
+
 export interface VaraBasket {
   id: number;
   creator: string;
@@ -40,6 +62,7 @@ export class BasketMarketVaraClient {
   private reconnectAttempts: number = 0;
   private readonly maxReconnectAttempts: number = 10;
   private readonly reconnectDelay: number = 5000; // 5 seconds
+  private reconnectPromise: Promise<void> | null = null;
 
   constructor(
     private readonly programId: string,
@@ -111,24 +134,33 @@ export class BasketMarketVaraClient {
 
   async ensureConnected(): Promise<void> {
     if (this.isConnected && this.api && this.program) {
-      // Verify connection is actually alive by checking if we can make a simple call
-      try {
-        // Quick health check - if this fails, we need to reconnect
-        return;
-      } catch (error) {
-        // Connection is dead, mark as disconnected
-        this.isConnected = false;
-      }
+      return;
     }
 
+    if (this.reconnectPromise) {
+      await this.reconnectPromise;
+      return;
+    }
+
+    this.reconnectPromise = this.reconnect();
+    try {
+      await this.reconnectPromise;
+    } finally {
+      this.reconnectPromise = null;
+    }
+  }
+
+  async forceReconnect(): Promise<void> {
+    this.isConnected = false;
+    await this.ensureConnected();
+  }
+
+  private async reconnect(): Promise<void> {
     // Try to reconnect
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      // Reset after a delay to allow for network recovery
-      if (this.reconnectAttempts === this.maxReconnectAttempts) {
-        console.warn(`⚠️  Max reconnection attempts reached. Will reset and retry after ${this.reconnectDelay * 10 / 1000}s...`);
-        await new Promise(resolve => setTimeout(resolve, this.reconnectDelay * 10));
-        this.reconnectAttempts = 0; // Reset counter
-      }
+      console.warn(`⚠️  Max reconnection attempts reached. Will reset and retry after ${this.reconnectDelay * 10 / 1000}s...`);
+      await new Promise(resolve => setTimeout(resolve, this.reconnectDelay * 10));
+      this.reconnectAttempts = 0; // Reset counter
     }
 
     this.reconnectAttempts++;
@@ -156,6 +188,13 @@ export class BasketMarketVaraClient {
     return { api: this.api, program: this.program };
   }
 
+  private markDisconnected(error: unknown): VaraConnectionError {
+    this.isConnected = false;
+    return error instanceof VaraConnectionError
+      ? error
+      : new VaraConnectionError(getErrorMessage(error), error);
+  }
+
   async getConfig(): Promise<{ adminRole: string; settlerRole: string; livenessMs: number; varaEnabled: boolean } | null> {
     try {
       const { program } = await this.ctx();
@@ -174,6 +213,9 @@ export class BasketMarketVaraClient {
       };
     } catch (error) {
       console.error('Error getting config:', error);
+      if (isRetryableVaraError(error)) {
+        throw this.markDisconnected(error);
+      }
       return null;
     }
   }
@@ -185,7 +227,9 @@ export class BasketMarketVaraClient {
       return Number(count);
     } catch (error) {
       console.error('Error getting basket count:', error);
-      this.isConnected = false;
+      if (isRetryableVaraError(error)) {
+        throw this.markDisconnected(error);
+      }
       throw error;
     }
   }
@@ -193,36 +237,38 @@ export class BasketMarketVaraClient {
   async getBasket(basketId: number): Promise<VaraBasket | null> {
     try {
       const { program } = await this.ctx();
-    const result = await program.basketMarket.getBasket(basketId).call();
-    if ('err' in result) {
-      return null;
-    }
-    const b = result.ok;
-    // Convert ActorId to hex string
-    const creatorHex = Array.isArray(b.creator) 
-      ? '0x' + b.creator.map((byte: number) => byte.toString(16).padStart(2, '0')).join('')
-      : typeof b.creator === 'string' 
-        ? b.creator 
-        : String(b.creator);
-    
-    return {
-      id: Number(b.id),
-      creator: creatorHex,
-      name: b.name,
-      description: b.description,
-      items: b.items.map(item => ({
-        poly_market_id: item.poly_market_id,
-        poly_slug: item.poly_slug,
-        weight_bps: item.weight_bps,
-        selected_outcome: item.selected_outcome,
-      })),
-      created_at: Number(b.created_at),
-      status: b.status,
-      asset_kind: b.asset_kind,
-    };
+      const result = await program.basketMarket.getBasket(basketId).call();
+      if ('err' in result) {
+        return null;
+      }
+      const b = result.ok;
+      // Convert ActorId to hex string
+      const creatorHex = Array.isArray(b.creator)
+        ? '0x' + b.creator.map((byte: number) => byte.toString(16).padStart(2, '0')).join('')
+        : typeof b.creator === 'string'
+          ? b.creator
+          : String(b.creator);
+
+      return {
+        id: Number(b.id),
+        creator: creatorHex,
+        name: b.name,
+        description: b.description,
+        items: b.items.map(item => ({
+          poly_market_id: item.poly_market_id,
+          poly_slug: item.poly_slug,
+          weight_bps: item.weight_bps,
+          selected_outcome: item.selected_outcome,
+        })),
+        created_at: Number(b.created_at),
+        status: b.status,
+        asset_kind: b.asset_kind,
+      };
     } catch (error) {
       console.error(`Error getting basket ${basketId}:`, error);
-      this.isConnected = false;
+      if (isRetryableVaraError(error)) {
+        throw this.markDisconnected(error);
+      }
       throw error;
     }
   }
@@ -255,7 +301,9 @@ export class BasketMarketVaraClient {
       };
     } catch (error) {
       console.error(`Error getting settlement for basket ${basketId}:`, error);
-      this.isConnected = false;
+      if (isRetryableVaraError(error)) {
+        throw this.markDisconnected(error);
+      }
       return null;
     }
   }
@@ -290,7 +338,9 @@ export class BasketMarketVaraClient {
       return txHash;
     } catch (error) {
       console.error(`Error proposing settlement for basket ${basketId}:`, error);
-      this.isConnected = false;
+      if (isRetryableVaraError(error)) {
+        throw this.markDisconnected(error);
+      }
       throw error;
     }
   }
@@ -316,14 +366,20 @@ export class BasketMarketVaraClient {
       return txHash;
     } catch (error) {
       console.error(`Error finalizing settlement for basket ${basketId}:`, error);
-      this.isConnected = false;
+      if (isRetryableVaraError(error)) {
+        throw this.markDisconnected(error);
+      }
       throw error;
     }
   }
 
   async disconnect(): Promise<void> {
+    this.isConnected = false;
     if (this.api) {
-      await this.api.disconnect();
+      const api = this.api;
+      this.api = null;
+      this.program = null;
+      await api.disconnect();
     }
   }
 }

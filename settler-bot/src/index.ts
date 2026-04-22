@@ -1,4 +1,4 @@
-import { BasketMarketVaraClient } from './vara.js';
+import { BasketMarketVaraClient, getErrorMessage, isRetryableVaraError } from './vara.js';
 import { fetchMarketBySlug, fetchMarketById, checkMarketResolution, type PolymarketMarket } from './polymarket.js';
 import { config } from './config.js';
 
@@ -8,6 +8,31 @@ const varaClient = new BasketMarketVaraClient(
   config.varaRpcUrl,
   config.settlerSeed,
 );
+
+process.on('unhandledRejection', (reason) => {
+  if (isRetryableVaraError(reason)) {
+    console.warn(`⚠️  Unhandled Vara RPC disconnect: ${getErrorMessage(reason)}. Reconnecting...`);
+    void varaClient.forceReconnect().catch((error) => {
+      console.error('❌ Failed to reconnect after unhandled Vara RPC disconnect:', error);
+    });
+    return;
+  }
+
+  console.error('Unhandled promise rejection:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  if (isRetryableVaraError(error)) {
+    console.warn(`⚠️  Vara RPC disconnect reached uncaughtException: ${getErrorMessage(error)}. Reconnecting...`);
+    void varaClient.forceReconnect().catch((reconnectError) => {
+      console.error('❌ Failed to reconnect after uncaught Vara RPC disconnect:', reconnectError);
+    });
+    return;
+  }
+
+  console.error('Uncaught exception:', error);
+  process.exit(1);
+});
 
 /**
  * Fetch Polymarket data for all items in a basket
@@ -184,6 +209,10 @@ async function processBasket(basketId: number): Promise<void> {
       console.error(`${timestamp} ${logPrefix} ✗ Failed to propose settlement (tx returned null)`);
     }
   } catch (error) {
+    if (isRetryableVaraError(error)) {
+      console.warn(`${timestamp} ${logPrefix} Vara RPC connection lost: ${getErrorMessage(error)}`);
+      throw error;
+    }
     console.error(`${timestamp} ${logPrefix} Error:`, error);
   }
 }
@@ -250,6 +279,10 @@ async function processSettlements(): Promise<void> {
               console.error(`${timestamp} [Basket ${basketId}] ✗ Failed to finalize settlement (txHash is null)`);
             }
           } catch (error) {
+            if (isRetryableVaraError(error)) {
+              console.warn(`${timestamp} [Basket ${basketId}] Vara RPC connection lost while finalizing: ${getErrorMessage(error)}`);
+              throw error;
+            }
             console.error(`${timestamp} [Basket ${basketId}] ✗ Error finalizing:`, error);
           }
         } else {
@@ -265,6 +298,10 @@ async function processSettlements(): Promise<void> {
       }
     }
   } catch (error) {
+    if (isRetryableVaraError(error)) {
+      console.warn(`[processSettlements] Vara RPC connection lost: ${getErrorMessage(error)}`);
+      throw error;
+    }
     console.error('[processSettlements] Error processing settlements:', error);
   }
 }
@@ -308,10 +345,13 @@ async function main() {
       for (let basketId = 0; basketId < basketCount; basketId++) {
         try {
           await processBasket(basketId);
-        } catch (error: any) {
+        } catch (error) {
           // If it's a connection error, mark as disconnected and break
-          if (error?.message?.includes('disconnected') || error?.message?.includes('Abnormal Closure')) {
+          if (isRetryableVaraError(error)) {
             console.warn(`${timestamp} [Basket ${basketId}] Connection lost, will retry on next poll`);
+            await varaClient.forceReconnect().catch((reconnectError) => {
+              console.error(`${timestamp} Failed to reconnect after basket processing disconnect:`, reconnectError);
+            });
             break;
           }
           console.error(`${timestamp} [Basket ${basketId}] Error processing basket:`, error);
@@ -322,24 +362,25 @@ async function main() {
       if (config.shouldFinalize) {
         try {
           await processSettlements();
-        } catch (error: any) {
-          if (error?.message?.includes('disconnected') || error?.message?.includes('Abnormal Closure')) {
+        } catch (error) {
+          if (isRetryableVaraError(error)) {
             console.warn(`${timestamp} Connection lost during settlement processing, will retry on next poll`);
+            await varaClient.forceReconnect().catch((reconnectError) => {
+              console.error(`${timestamp} Failed to reconnect after settlement processing disconnect:`, reconnectError);
+            });
           } else {
             console.error(`${timestamp} Error processing settlements:`, error);
           }
         }
       }
-    } catch (error: any) {
+    } catch (error) {
       // Check if it's a connection error
-      const errorMessage = error?.message || String(error);
-      if (
-        errorMessage.includes('disconnected') || 
-        errorMessage.includes('Abnormal Closure') || 
-        errorMessage.includes('No response') ||
-        errorMessage.includes('1006')
-      ) {
+      const errorMessage = getErrorMessage(error);
+      if (isRetryableVaraError(error)) {
         console.warn(`${timestamp} ⚠️  Connection issue detected (${errorMessage}), will retry on next poll cycle`);
+        await varaClient.forceReconnect().catch((reconnectError) => {
+          console.error(`${timestamp} Failed to reconnect after poll disconnect:`, reconnectError);
+        });
         // Don't throw - let the interval continue, it will retry
       } else {
         console.error(`${timestamp} ❌ Error in poll cycle:`, error);
@@ -348,11 +389,28 @@ async function main() {
     }
   };
 
+  let pollInFlight = false;
+  const runPoll = async () => {
+    if (pollInFlight) {
+      console.warn(`${new Date().toISOString()} Previous poll is still running, skipping this cycle`);
+      return;
+    }
+
+    pollInFlight = true;
+    try {
+      await poll();
+    } finally {
+      pollInFlight = false;
+    }
+  };
+
   // Initial poll
-  await poll();
+  await runPoll();
 
   // Set up interval
-  const intervalId = setInterval(poll, config.pollIntervalMs);
+  const intervalId = setInterval(() => {
+    void runPoll();
+  }, config.pollIntervalMs);
 
   // Graceful shutdown
   process.on('SIGINT', async () => {
