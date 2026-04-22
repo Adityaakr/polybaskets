@@ -5,16 +5,23 @@ Gas voucher distribution service for Agent Arena. Forked and simplified from
 
 Issues on-chain gas vouchers so AI agents can transact on Vara Network for free.
 
-## Season 2 behavior (Path B)
+## Season 2 behavior (hourly-tranche model)
 
-One voucher per agent per UTC day, funded to `DAILY_VARA_CAP` (default 2000 VARA)
-on the first POST of the day. Subsequent same-day POSTs for additional programs
-append them to the existing voucher — no balance delta, no cap charge. Voucher
-expires 24h after the most recent funding event.
+One voucher per agent. A single batched POST registers all listed programs and
+funds the voucher with `HOURLY_TRANCHE_VARA` (default 500 VARA). Every
+`TRANCHE_INTERVAL_SEC` (default 3600s / 1h) the agent can POST again for
+another +500 VARA. Each top-up also extends `validUpTo` by `TRANCHE_DURATION_SEC`
+(default 86400s / 24h) — a sliding window, so the voucher expires only after
+≥24h of silence, after which the hourly cron revokes it and remainder returns
+to the issuer.
 
-This means an agent's first `POST /voucher` each UTC day "buys" their daily gas
-budget; any further POSTs that day just expand the voucher's program whitelist
-for free.
+Rate limits:
+- **Per wallet:** 1 funded POST per `TRANCHE_INTERVAL_SEC`. 2nd POST within
+  the window returns `429` with `Retry-After` header — clients reuse the
+  existing `voucherId`, don't abort.
+- **Per IP:** `PER_IP_TRANCHES_PER_DAY` (default 40) tranches per UTC day.
+  Cluster-wide (Postgres-backed, not process-local), survives restarts and
+  multi-pod deploys.
 
 ## Quick Start
 
@@ -30,54 +37,104 @@ npm run start:dev
 ## API
 
 ### `POST /voucher`
-Request or renew a gas voucher for an agent.
+Request a voucher tranche for an agent. Batched — all programs in one call.
+
 ```json
-{ "account": "0x...", "program": "0x..." }
+{
+  "account": "0x...",
+  "programs": ["0x<BasketMarket>", "0x<BetToken>", "0x<BetLane>"]
+}
 ```
-Returns `{ "voucherId": "0x..." }`.
+
+- `programs`: non-empty array (max 10 items), each a whitelisted contract
+  program ID. Per-item length ≤ 66 chars (0x + 64 hex).
+
+On success: `200 { "voucherId": "0x..." }`.
+
+On per-wallet 1h rate limit: `429` with body
+```json
+{
+  "statusCode": 429,
+  "error": "Too Many Requests",
+  "message": "Per-wallet rate limit: 1 voucher request per hour",
+  "nextEligibleAt": "2026-04-22T13:00:00.000Z",
+  "retryAfterSec": 1234
+}
+```
+plus `Retry-After: 1234` HTTP header. Reuse the existing `voucherId` from
+a prior `GET` — the voucher is still valid.
+
+Same shape is returned when the per-IP daily tranche ceiling is hit, with
+`retryAfterSec` set to seconds until next UTC midnight.
 
 Behavior:
-- **First POST of a UTC day:** issue new voucher or top up existing one to `DAILY_VARA_CAP`, register the program. Charges the daily budget and the per-IP ceiling.
-- **Subsequent POSTs same UTC day for a new program:** append program to existing voucher. No balance change, no cap charge.
-- **Subsequent POSTs same UTC day for same program:** no-op. Returns existing voucherId.
-
-Rate limits:
-- 3 requests per IP per hour.
-- Per-IP daily VARA ceiling (`PER_IP_DAILY_VARA_CEILING`, default 20000).
-
-> **Deploy note — horizontal scaling**: the per-IP daily VARA ceiling is tracked in an
-> in-memory `Map` on the service instance. Single-process deploys (one Railway dyno)
-> enforce the configured ceiling. If you ever run N > 1 replicas, effective ceiling
-> becomes `N × PER_IP_DAILY_VARA_CEILING` — each replica has its own counter and they
-> don't coordinate. Move the counter to Postgres or Redis before horizontally scaling.
->
-> **Deploy note — trust proxy**: `main.ts` sets `app.set('trust proxy', 1)` so Express
-> honors the single `X-Forwarded-For` hop from Railway's load balancer. Without this,
-> `@Ip()` returns the LB's IP and all per-IP gates collapse into one global quota.
-> If you deploy behind a multi-hop setup (e.g. Cloudflare → Railway), revisit the
-> trust-proxy value accordingly.
+- **No existing voucher:** issue a fresh voucher with the listed programs
+  and `HOURLY_TRANCHE_VARA` VARA. Charges one tranche against the per-IP counter.
+- **Existing voucher, `lastRenewedAt` ≥ 1h ago:** add `HOURLY_TRANCHE_VARA` VARA,
+  extend `validUpTo` by 24h, append any programs in the request not already
+  registered. Charges one tranche.
+- **Existing voucher, `lastRenewedAt` < 1h ago:** 429 rate limit response.
+  Neither the voucher nor the IP counter is modified.
 
 ### `GET /voucher/:account`
-Read-only voucher state for an agent. No cap charge, no rate-limiting beyond 20/IP/minute.
-Returns:
+Read-only voucher state for an agent. No cap charge, no business rate-limit
+(the NestJS controller `@Throttle` still caps at 20/IP/minute).
+
 ```json
 {
   "voucherId": "0x...",
   "programs": ["0x...", "0x...", "0x..."],
-  "validUpTo": "2026-04-22T12:00:00.000Z",
+  "validUpTo": "2026-04-23T12:00:00.000Z",
   "varaBalance": "1757000000000000",
-  "fundedToday": true
+  "balanceKnown": true,
+  "lastRenewedAt": "2026-04-22T11:00:00.000Z",
+  "nextTopUpEligibleAt": "2026-04-22T12:00:00.000Z",
+  "canTopUpNow": false
 }
 ```
-If no voucher exists: `{ "voucherId": null, "programs": [], "validUpTo": null, "varaBalance": "0", "fundedToday": false }`.
 
-Agents should `GET` before `POST` to avoid spending the daily cap on a voucher that's already funded.
+Field notes:
+- `balanceKnown`: `false` when the backend could not reach the Vara node —
+  agents should not treat a zero balance as "drained" in this case.
+- `nextTopUpEligibleAt`: clamped to `now` when `canTopUpNow=true`, so stale
+  vouchers don't render "eligible since 3h ago" in client UIs.
+- `canTopUpNow`: `true` when `≥ TRANCHE_INTERVAL_SEC` has elapsed since
+  `lastRenewedAt` (or no voucher exists).
+
+No voucher → `{ "voucherId": null, "programs": [], "validUpTo": null,
+"varaBalance": "0", "balanceKnown": true, "lastRenewedAt": null,
+"nextTopUpEligibleAt": null, "canTopUpNow": true }`.
+
+Agents should `GET` before `POST` to avoid rate-limit churn and to decide
+whether a top-up is eligible right now.
 
 ### `GET /health`
 Health check. Returns `{ "status": "ok" }`.
 
 ### `GET /info`
-Voucher issuer account address and balance. Requires `x-api-key: <INFO_API_KEY>` header.
+Voucher issuer account address and balance. Requires `x-api-key: <INFO_API_KEY>` header (HMAC-SHA256 + `timingSafeEqual` check — safe against length-oracle side channels).
+
+## Deploy Notes
+
+- **Horizontal scaling is safe.** The per-IP counter lives in the
+  `ip_tranche_usage(ip, utc_day, count)` Postgres table. Atomic increment
+  via `INSERT ... ON CONFLICT DO UPDATE ... RETURNING count`. Runs correctly
+  across any number of pods and survives restarts. (In-memory Map was
+  replaced in the hourly-tranche migration.)
+- **Per-wallet serialization is cluster-wide.** Uses `pg_advisory_lock(k1, k2)`
+  keyed on SHA-256(account). Concurrent same-wallet requests serialize
+  across pods; the cron revoke path takes the same lock to avoid revoking
+  a voucher a user just topped up.
+- **Trust proxy.** `main.ts` sets `app.set('trust proxy', 1)` so Express
+  honors the single `X-Forwarded-For` hop from Railway's load balancer.
+  Without this, `@Ip()` returns the LB's IP and all per-IP gates collapse
+  into one global quota. If you deploy behind multi-hop (e.g. Cloudflare →
+  Railway), revisit the trust-proxy value accordingly.
+- **Env validation fails fast.** Startup throws on `NaN`, `≤0`, or
+  non-integer values for any numeric env var (`HOURLY_TRANCHE_VARA`,
+  `PER_IP_TRANCHES_PER_DAY`, `TRANCHE_INTERVAL_SEC`, `TRANCHE_DURATION_SEC`,
+  `PORT`, `DB_PORT`). Typo in the env crashes boot instead of silently
+  running with broken economics.
 
 ## Environment Variables
 
@@ -87,9 +144,30 @@ Voucher issuer account address and balance. Requires `x-api-key: <INFO_API_KEY>`
 | `VOUCHER_ACCOUNT` | Seed phrase or hex seed for the voucher issuer account |
 | `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` | Postgres connection |
 | `PORT` | Server port (default: 3001) |
-| `DAILY_VARA_CAP` | VARA funded to each agent's voucher on the first POST per UTC day (default: 2000) |
-| `PER_IP_DAILY_VARA_CEILING` | Total VARA issued across all accounts from a single IP per UTC day (default: 20000) |
+| `HOURLY_TRANCHE_VARA` | VARA added to the voucher on each POST (default: 500) |
+| `PER_IP_TRANCHES_PER_DAY` | Max tranches an IP can claim per UTC day (default: 40) |
+| `TRANCHE_INTERVAL_SEC` | Minimum seconds between funded POSTs per wallet (default: 3600) |
+| `TRANCHE_DURATION_SEC` | Voucher validity window added on each top-up (default: 86400) |
 | `INFO_API_KEY` | API key for `GET /info`. Requests without `x-api-key` header return 403. |
+
+## Migration from Path B (daily model)
+
+If you're upgrading a running deployment from the daily `DAILY_VARA_CAP=2000`
+model:
+
+1. Update Railway env: add `HOURLY_TRANCHE_VARA=500`,
+   `PER_IP_TRANCHES_PER_DAY=40`, `TRANCHE_INTERVAL_SEC=3600`,
+   `TRANCHE_DURATION_SEC=86400`. Remove `DAILY_VARA_CAP` and
+   `PER_IP_DAILY_VARA_CEILING`.
+2. Ship agent skill updates (`skills/` + `.agents/skills/`) in the same
+   deploy window — old skills that POST `{account, program}` (singular)
+   get a specific 400 with a migration message, so worst case is failed
+   requests with a clear pointer, not silent breakage.
+3. Existing vouchers on-chain keep working. The next POST on a pre-existing
+   wallet with `lastRenewedAt` > 1h ago simply adds +500 VARA on top; no
+   schema migration required.
+
+See PR #24 for the full refactor changelog.
 
 ## Seed
 

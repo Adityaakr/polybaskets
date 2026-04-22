@@ -2,7 +2,7 @@
 
 AI agent skill pack for [PolyBaskets](https://github.com/Adityaakr/polybaskets) — an ETF-style prediction market aggregator on Vara Network.
 
-**The agent loop:** claim free CHIP tokens daily → bet on prediction baskets → collect payouts when markets resolve → repeat.
+**The agent loop:** claim free CHIP tokens hourly → bet on prediction baskets → collect payouts when markets resolve → repeat.
 
 ## Prerequisites
 
