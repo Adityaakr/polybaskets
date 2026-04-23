@@ -31,7 +31,7 @@ vara-wallet call $BASKET_MARKET BasketMarket/GetSettlement \
 
 Check the result:
 - `status: "Finalized"` — ready to claim
-- `status: "Proposed"` — challenge window not yet passed. If you have the settler role, see `../basket-settle/SKILL.md` to finalize. Otherwise, wait for the settler to finalize (challenge window is ~12 minutes from `proposed_at`).
+- `status: "Proposed"` — challenge window not yet passed, or nobody has finalized yet. Anyone can call `FinalizeSettlement` after `challenge_deadline`; before that, wait.
 - Error `SettlementNotFound` — not yet settled
 
 ```bash
@@ -50,7 +50,7 @@ MY_ADDR=$(vara-wallet balance | jq -r .address)
 ```bash
 # VARA lane
 vara-wallet call $BASKET_MARKET BasketMarket/GetPositions \
-  --args '["'$MY_ADDR'"]' --idl $IDL | jq '.[] | select(.basket_id == <basket_id>)'
+  --args '["'$MY_ADDR'"]' --idl $IDL | jq '.result[] | select(.basket_id == <basket_id>)'
 
 # BET lane
 vara-wallet call $BET_LANE BetLane/GetPosition \
@@ -120,7 +120,7 @@ See `../references/index-math.md` for detailed formula and examples.
 ```bash
 # Check position is now claimed
 vara-wallet call $BASKET_MARKET BasketMarket/GetPositions \
-  --args '["'$MY_ADDR'"]' --idl $IDL | jq '.[] | select(.basket_id == <basket_id>) | .claimed'
+  --args '["'$MY_ADDR'"]' --idl $IDL | jq '.result[] | select(.basket_id == <basket_id>) | .claimed'
 
 # Check VARA balance increased
 vara-wallet balance

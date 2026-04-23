@@ -8,7 +8,7 @@ Complete annotated interface for all three programs. IDL files bundled in `../id
 
 ```
 BasketItem {
-  poly_market_id: str      # Polymarket condition ID
+  poly_market_id: str      # Numeric Polymarket market ID string
   poly_slug: str           # Polymarket market slug
   weight_bps: u16          # Weight in basis points (0-10000)
   selected_outcome: Outcome # YES or NO
@@ -21,9 +21,9 @@ BasketAssetKind = Vara | Bet
 Basket {
   id: u64                  # Unique basket ID
   creator: actor_id        # Creator's address
-  name: str                # Max 48 chars
-  description: str         # Max 256 chars
-  items: vec BasketItem    # 1-10 items, weights must sum to 10000
+  name: str                # Max 128 chars
+  description: str         # Max 512 chars
+  items: vec BasketItem    # min_items_per_basket..32 items, weights must sum to 10000
   created_at: u64          # Block timestamp
   status: BasketStatus     # Active | SettlementPending | Settled
   asset_kind: BasketAssetKind
@@ -57,6 +57,14 @@ ItemResolution {
   poly_price_yes: u16      # Final YES price in bps
   poly_price_no: u16       # Final NO price in bps
 }
+
+BasketMarketConfig {
+  admin_role: actor_id
+  settler_role: actor_id
+  liveness_ms: u64
+  vara_enabled: bool
+  min_items_per_basket: u32
+}
 ```
 
 ### State-Changing Methods (require `--account`)
@@ -67,7 +75,7 @@ ItemResolution {
 | `BetOnBasket` | `basket_id, index_at_creation_bps` | `u128` (shares) | Requires `--value` in VARA |
 | `Claim` | `basket_id` | `u128` (payout) | Only after settlement finalized |
 | `ProposeSettlement` | `basket_id, item_resolutions, payload` | `null` | Settler role only |
-| `FinalizeSettlement` | `basket_id` | `null` | Settler role, after challenge window |
+| `FinalizeSettlement` | `basket_id` | `null` | Permissionless after challenge window |
 | `SetConfig` | `config` | `null` | Admin role only |
 | `SetVaraEnabled` | `enabled` | `null` | Admin role only |
 
@@ -86,8 +94,8 @@ ItemResolution {
 
 - `BasketCreated { basket_id, creator, asset_kind }`
 - `VaraBetPlaced { basket_id, user, amount, user_total, index_at_creation_bps }`
-- `SettlementProposed { basket_id, proposer, payout_per_share, challenge_deadline }`
-- `SettlementFinalized { basket_id, finalized_at, payout_per_share }`
+- `SettlementProposed { basket_id, asset_kind, proposer, payout_per_share, challenge_deadline }`
+- `SettlementFinalized { basket_id, asset_kind, finalized_at, payout_per_share }`
 - `Claimed { basket_id, user, amount }`
 - `VaraSupportUpdated { enabled }`
 - `ConfigUpdated { config }`
@@ -135,13 +143,13 @@ Fungible token (VFT) with hourly claim windows and daily streak bonuses.
 
 ## BetLane (`bet_lane_client.idl`)
 
-Alternative betting lane using BET tokens instead of VARA.
+Primary betting lane using CHIP/BetToken instead of native VARA.
 
 ### Key Methods
 
 | Method | Args | Returns | Notes |
 |--------|------|---------|-------|
-| `PlaceBet` | `basket_id, amount, index_at_creation_bps` | `u256` (shares) | Requires BET token approval first |
+| `PlaceBet` | `basket_id, amount, signed_quote` | `u256` (shares) | Requires BetToken approval first; `signed_quote` contains `payload.quoted_index_bps` |
 | `Claim` | `basket_id` | `u256` (payout) | After settlement finalized |
 
 ### Key Queries
@@ -150,7 +158,7 @@ Alternative betting lane using BET tokens instead of VARA.
 |--------|------|---------|
 | `GetPosition` | `user, basket_id` | `Position { shares: u256, claimed, index_at_creation_bps }` |
 | `GetPositions` | `user, offset, limit` | `Result<vec UserPositionView, Error>` |
-| `GetConfig` | none | `BetLaneConfig { min_bet, max_bet, payouts_allowed_while_paused }` |
+| `GetConfig` | none | `BetLaneConfig { min_bet, max_bet, payouts_allowed_while_paused, quote_signer }` |
 | `IsPaused` | none | `bool` |
 | `BasketProgramId` | none | `actor_id` |
 | `BetTokenId` | none | `actor_id` |

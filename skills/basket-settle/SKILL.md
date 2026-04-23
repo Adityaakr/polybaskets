@@ -1,11 +1,11 @@
 ---
 name: basket-settle
-description: Use when the agent has the settler role and needs to propose or finalize a basket settlement via vara-wallet. Do not use without settler role permissions. Do not use for regular user actions.
+description: Use when the agent has the settler role and needs to propose a basket settlement via vara-wallet, or needs to finalize an already proposed settlement after the challenge deadline. Do not use for regular user actions.
 ---
 
 # Basket Settle
 
-Propose and finalize settlement for PolyBaskets baskets. **Requires the settler role.**
+Propose and finalize settlement for PolyBaskets baskets. **ProposeSettlement requires the settler role. FinalizeSettlement does not require the settler role, but only works after the challenge deadline has passed.**
 
 ## Setup
 
@@ -20,24 +20,25 @@ IDL="$_PB/idl/polymarket-mirror.idl"
 
 ## Verify Settler Role
 
-Only the address assigned as `settler_role` in the contract config can call settlement methods.
+Only the address assigned as `settler_role` in the contract config can call `ProposeSettlement`.
 
 ```bash
 # Check who has settler role
-vara-wallet call $BASKET_MARKET BasketMarket/GetConfig --args '[]' --idl $IDL | jq '.settler_role'
+vara-wallet call $BASKET_MARKET BasketMarket/GetConfig --args '[]' --idl $IDL | jq -r '.result.settler_role'
 
-# Check agent's address
-vara-wallet wallet list | jq -r '.[0].address'
+# Check agent's hex actor id
+MY_ADDR=$(vara-wallet balance --account agent | jq -r .address)
+echo "$MY_ADDR"
 ```
 
-If your address does not match `settler_role`, you cannot settle. Contact the admin.
+If your address does not match `settler_role`, you cannot propose a new settlement. You may still finalize an already proposed settlement after `challenge_deadline`.
 
 ## Settlement Flow
 
 ```
 1. Check basket is Active
 2. Verify all items have resolved on Polymarket
-3. ProposeSettlement → starts 12-minute challenge window
+3. ProposeSettlement → starts the configured challenge window
 4. Wait for challenge_deadline to pass
 5. FinalizeSettlement → basket becomes Settled, users can claim
 ```
@@ -113,7 +114,7 @@ vara-wallet --account agent call $BASKET_MARKET BasketMarket/ProposeSettlement -
   --idl $IDL
 ```
 
-After proposal, the basket enters `SettlementPending` status and the 12-minute challenge window begins.
+After proposal, the basket enters `SettlementPending` status and the configured challenge window begins.
 
 ## Step 4: Wait for Challenge Window
 
@@ -123,7 +124,7 @@ vara-wallet call $BASKET_MARKET BasketMarket/GetSettlement \
   --args '[<basket_id>]' --idl $IDL | jq '.result.ok | {status, challenge_deadline, proposed_at}'
 ```
 
-The `challenge_deadline` is a block timestamp. The liveness window is configured in `liveness_ms` (default 720000ms = 12 minutes).
+The `challenge_deadline` is a block timestamp. The liveness window is configured in `BasketMarket/GetConfig.liveness_ms`; do not hardcode a duration.
 
 Wait until the current block timestamp exceeds `challenge_deadline`.
 
@@ -150,7 +151,7 @@ vara-wallet call $BASKET_MARKET BasketMarket/GetSettlement \
 
 | Error | Cause | Fix |
 |-------|-------|-----|
-| `Unauthorized` | Not the settler role | Check config for settler_role address |
+| `Unauthorized` | Not the settler role for `ProposeSettlement` | Check config for settler_role address |
 | `BasketNotActive` | Basket already in settlement | Check status |
 | `SettlementAlreadyExists` | Already proposed | Wait and finalize |
 | `InvalidResolutionCount` | Wrong number of resolutions | Provide one per item |
@@ -159,4 +160,3 @@ vara-wallet call $BASKET_MARKET BasketMarket/GetSettlement \
 | `ResolutionIndexOutOfBounds` | Index >= items count | Use 0 to items.length-1 |
 | `ChallengeDeadlineNotPassed` | Too early to finalize | Wait for challenge window |
 | `SettlementNotProposed` | No proposal exists | Propose first |
-| `SettlementNotFinalized` | Settlement not yet finalized | Call FinalizeSettlement after challenge window |
