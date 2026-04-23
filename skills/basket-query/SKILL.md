@@ -85,7 +85,7 @@ Returns `Result<Settlement, BasketMarketError>`. Key fields: `status` (Proposed/
 vara-wallet call $BASKET_MARKET BasketMarket/GetConfig --args '[]' --idl $IDL
 ```
 
-Returns `BasketMarketConfig`: `admin_role`, `settler_role`, `liveness_ms`, `vara_enabled`.
+Returns `BasketMarketConfig`: `admin_role`, `settler_role`, `liveness_ms`, `vara_enabled`, `min_items_per_basket`.
 
 ### Check VARA enabled
 

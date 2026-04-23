@@ -77,9 +77,9 @@ Before sending the transaction, validate locally:
 
 | Rule | Constraint |
 |------|-----------|
-| Name | Non-empty, max 48 characters |
-| Description | Max 256 characters |
-| Items | 1 to 10 items |
+| Name | Non-empty, max 128 characters |
+| Description | Max 512 characters |
+| Items | At least `GetConfig.min_items_per_basket` (current contract default: 2), hard max 32 items |
 | Weights | All `weight_bps` must sum to exactly 10000 (= 100%). Each weight is in basis points: 50% = 5000, 30% = 3000, etc. |
 | No duplicates | Same `poly_market_id` + `selected_outcome` cannot appear twice |
 | poly_market_id | Max 128 characters |
@@ -164,9 +164,11 @@ echo "Created basket: $BASKET_ID"
 |-------|-------|-----|
 | `InvalidWeights` | Weights don't sum to 100% | Adjust weight_bps so they sum to 10000 (= 100%) |
 | `NoItems` | Empty items array | Add at least 1 item |
-| `TooManyItems` | More than 10 items | Remove items |
+| `NotEnoughItems` | Fewer than `min_items_per_basket` items | Add items or check `BasketMarket/GetConfig` |
+| `TooManyItems` | More than 32 items | Remove items |
 | `DuplicateBasketItem` | Same market+outcome twice | Remove duplicate |
 | `VaraDisabled` | VARA mode off | Use `"Bet"` asset_kind instead |
-| `NameTooLong` | Name > 48 chars | Shorten name |
+| `NameTooLong` | Name > 128 chars | Shorten name |
+| `DescriptionTooLong` | Description > 512 chars | Shorten description |
 
 See `../references/error-codes.md` for all error variants.

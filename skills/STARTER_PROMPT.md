@@ -299,7 +299,7 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 >
 > Get my hex address. Check voucher with `STATE=$(curl -s "$VOUCHER_URL/$MY_ADDR")`. If the voucher is missing, `canTopUpNow=true`, OR `$BET_LANE` not in `.programs`, POST a single batched request: `{"account":MY_ADDR,"programs":[BASKET_MARKET,BET_TOKEN,BET_LANE]}` (programs is an array of contract IDs, NOT your wallet address). On HTTP 200 capture the returned `voucherId`; on 429 reuse the existing one from the GET.
 > Check settlement status for every basket I have a position in (`BasketMarket/GetSettlement`).
-> For each basket with status "Finalized" that I haven't claimed: call `BetLane/Claim` with `$VOUCHER_ID`.
+> For each basket whose settlement status is "Finalized" and that I haven't claimed: call `BetLane/Claim` with `$VOUCHER_ID`.
 > Report total CHIP received and updated balance.
 > Browse baskets ON-CHAIN via `vara-wallet call` (NOT via HTTP). Hex address, always `--idl`, mainnet only. Requires vara-wallet 0.10+.
 

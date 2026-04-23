@@ -9,12 +9,13 @@
 | `BasketNotActive` | Basket is in SettlementPending or Settled status | Cannot bet on non-active baskets |
 | `BasketAssetMismatch` | Betting with wrong asset kind (e.g., VARA bet on a Bet basket) | Check basket's `asset_kind` field |
 | `NoItems` | Creating basket with empty items array | Add at least 1 item |
+| `NotEnoughItems` | Creating basket with fewer than `min_items_per_basket` items | Query `GetConfig` and add enough items |
 | `InvalidWeights` | Item weights don't sum to 100% | Ensure `sum(weight_bps) == 10000` (100% in basis points) |
 | `DuplicateBasketItem` | Same poly_market_id + selected_outcome appears twice | Remove duplicate items |
-| `TooManyItems` | More than 10 items in basket | Reduce to 10 or fewer items |
-| `NameTooLong` | Basket name exceeds 48 characters | Shorten the name |
-| `DescriptionTooLong` | Description exceeds 256 characters | Shorten the description |
-| `MarketIdTooLong` | poly_market_id exceeds 128 characters | Use valid Polymarket condition ID |
+| `TooManyItems` | More than 32 items in basket | Reduce to 32 or fewer items |
+| `NameTooLong` | Basket name exceeds 128 characters | Shorten the name |
+| `DescriptionTooLong` | Description exceeds 512 characters | Shorten the description |
+| `MarketIdTooLong` | poly_market_id exceeds 128 characters | Use the numeric Polymarket market ID string |
 | `SlugTooLong` | poly_slug exceeds 128 characters | Use valid Polymarket slug |
 | `PayloadTooLong` | Settlement payload string too long | Trim payload data |
 | `VaraDisabled` | VARA betting is disabled in config | Use BetToken lane, or admin enables VARA |
@@ -22,7 +23,7 @@
 | `SettlementNotFound` | No settlement proposed for this basket | Propose settlement first |
 | `SettlementNotProposed` | Settlement status is not Proposed | Check settlement status |
 | `SettlementNotFinalized` | Trying to claim before settlement is finalized | Wait for finalization |
-| `ChallengeDeadlineNotPassed` | Finalizing before 12-minute challenge window | Wait until `challenge_deadline` timestamp passes |
+| `ChallengeDeadlineNotPassed` | Finalizing before the configured challenge window has passed | Wait until `challenge_deadline` timestamp passes |
 | `InvalidIndexAtCreation` | index_at_creation_bps is 0 or > 10000 | Use value between 1 and 10000 |
 | `InvalidBetAmount` | No VARA value attached to bet transaction | Add `--value <amount>` to vara-wallet call |
 | `InvalidResolutionCount` | Resolution count doesn't match basket items count | Provide exactly one resolution per item |
@@ -48,6 +49,16 @@
 | `AmountBelowMinBet` | Amount < min_bet from config | Increase bet amount |
 | `AmountAboveMaxBet` | Amount > max_bet from config | Decrease bet amount |
 | `InvalidIndexAtCreation` | index_at_creation_bps is 0 or > 10000 | Use value between 1 and 10000 |
+| `QuoteSignerNotConfigured` | BetLane has no configured quote signer | Admin must configure quote signer |
+| `QuoteTargetMismatch` | Signed quote targets another program | Request a fresh quote with this BetLane program ID |
+| `QuoteUserMismatch` | Signed quote belongs to another user | Request a fresh quote for the caller address |
+| `QuoteBasketMismatch` | Signed quote is for another basket | Request a fresh quote for this basket |
+| `QuoteAmountMismatch` | Signed quote amount differs from call amount | Use the exact quoted amount or request a new quote |
+| `QuoteExpired` | Quote deadline passed | Request a fresh quote and submit within the TTL |
+| `QuoteNonceAlreadyUsed` | Quote was already consumed | Request a fresh quote |
+| `InvalidQuoteSignature` | Signature bytes are malformed | Pass the raw quote response from the quote service |
+| `InvalidQuoteSigner` | Configured signer is not a valid sr25519 key | Admin must fix quote signer config |
+| `QuoteVerificationFailed` | Signature does not verify | Request a fresh quote from the configured quote service |
 | `BasketQueryFailed` | Failed to query BasketMarket contract | Check BasketMarket program is active |
 | `BasketNotFound` | Invalid basket_id | Verify basket exists |
 | `BasketNotActive` | Basket not in Active status | Cannot bet on settled baskets |
