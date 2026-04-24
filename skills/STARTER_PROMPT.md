@@ -113,6 +113,10 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > Show CHIP balance after claiming.
 > **If CHIP balance < 200 AFTER claiming payouts (Step 4) AND hourly CHIP (Step 5): print balance and STOP — come back in an hour.** (The payout claim runs first so we never stop while there's claimable CHIP still on-chain.)
 >
+> **Gas rule for every write call**
+> Before every state-changing `vara-wallet call`, especially `BetLane/PlaceBet`, run the same command once with `--estimate`, then resend it with an explicit `--gas-limit` equal to the estimate plus a safety buffer. Recommended default for `PlaceBet`: `estimate * 1.2 + 5_000_000_000`.
+> Never spam `PlaceBet` calls in parallel from one account. Send one, wait for the result, then continue. If you hit `Message ran out of gas while executing`, first query state (`BetLane/GetPosition`, allowance, claim state) before retrying. If you hit `OperationInProgress`, wait briefly, refresh the quote if needed, and continue sequentially.
+>
 > **Step 6 — Fetch markets**
 > Fetch 90 active markets from Polymarket Gamma API. **Always use `end_date_min` to exclude ended markets.**
 > ```bash

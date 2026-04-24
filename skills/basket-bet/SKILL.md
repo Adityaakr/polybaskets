@@ -155,7 +155,7 @@ vara-wallet --account agent call $BET_TOKEN BetToken/Approve \
 
 Bets require a signed quote from the bet-quote-service. The quote service fetches live Polymarket prices, computes the index, and signs the payload. The contract verifies the signature on-chain.
 
-**All-in-one command** (get quote + place bet — must run together to stay within 30-second quote expiry):
+**Safe command** (get quote + estimate gas + place bet — must run together to stay within 30-second quote expiry):
 
 ```bash
 # Replace <BASKET_ID> and <AMOUNT_RAW> with real values
@@ -163,9 +163,13 @@ QUOTE=$(curl -s -X POST "$BET_QUOTE_URL/api/bet-lane/quote" \
   -H 'Content-Type: application/json' \
   -d '{"user":"'"$MY_ADDR"'","basketId":<BASKET_ID>,"amount":"<AMOUNT_RAW>","targetProgramId":"'"$BET_LANE"'"}') && \
 echo "$QUOTE" | jq -e '.payload' >/dev/null 2>&1 || { echo "Quote failed: $QUOTE"; exit 1; } && \
+EST=$(vara-wallet --account agent call $BET_LANE BetLane/PlaceBet \
+  --args "[<BASKET_ID>, \"<AMOUNT_RAW>\", $QUOTE]" \
+  --voucher $VOUCHER_ID --idl $BET_LANE_IDL --estimate) && \
+GAS_LIMIT=$(node -e 'const x=JSON.parse(process.argv[1]); const used=BigInt(x.min_limit??x.minLimit??x.gas_for_reply??x.gasForReply??0); const withBuffer=used + used/5n + 5000000000n; console.log(withBuffer.toString())' "$EST") && \
 vara-wallet --account agent call $BET_LANE BetLane/PlaceBet \
   --args "[<BASKET_ID>, \"<AMOUNT_RAW>\", $QUOTE]" \
-  --voucher $VOUCHER_ID --idl $BET_LANE_IDL
+  --voucher $VOUCHER_ID --gas-limit $GAS_LIMIT --idl $BET_LANE_IDL
 ```
 
 **How it works:** vara-wallet 0.10+ auto-converts the hex signature (`"0x..."`) to a byte array for `vec u8` fields. No manual conversion needed — just pass the raw quote JSON from curl directly into `--args`.
@@ -173,6 +177,9 @@ vara-wallet --account agent call $BET_LANE BetLane/PlaceBet \
 **CRITICAL rules for placing bets:**
 1. **Do NOT manually reconstruct the quote object.** The quote has a `{"payload": {...}, "signature": "0x..."}` structure — if you rebuild it without the `payload` wrapper, the contract will reject it with `InvalidIndexAtCreation`.
 2. **Requires vara-wallet 0.10+.** Older versions need manual hex→bytes conversion. Check with `vara-wallet --version`.
+3. **Always estimate gas using the exact same `PlaceBet` args before sending.** Then set `--gas-limit` to the estimate plus a buffer. Recommended baseline: `estimate * 1.2 + 5_000_000_000`.
+4. **Never batch `PlaceBet` transactions blindly from one account.** Send one bet, wait for the result, then move to the next. Back-to-back writes can hit `OperationInProgress`.
+5. **If you see `Message ran out of gas while executing`,** first query `BetLane/GetPosition` for that basket to confirm whether the state changed. Only if nothing changed should you fetch a fresh quote, re-estimate gas, and retry.
 
 The quote is valid for 30 seconds. If it expires, request a new one. Each quote has a unique nonce and can only be used once.
 
@@ -193,14 +200,18 @@ vara-wallet --account agent call $BET_TOKEN BetToken/Claim \
 vara-wallet --account agent call $BET_TOKEN BetToken/Approve \
   --args '["'$BET_LANE'", "100000000000000"]' --voucher $VOUCHER_ID --idl $BET_TOKEN_IDL
 
-# 3. Get quote + place bet (30s expiry — run together!)
+# 3. Get quote + estimate gas + place bet (30s expiry — run together!)
 # ⚠ Do NOT manually reconstruct the quote. Pass the raw curl response directly.
 QUOTE=$(curl -s -X POST "$BET_QUOTE_URL/api/bet-lane/quote" \
   -H 'Content-Type: application/json' \
   -d '{"user":"'"$MY_ADDR"'","basketId":0,"amount":"100000000000000","targetProgramId":"'"$BET_LANE"'"}') && \
+EST=$(vara-wallet --account agent call $BET_LANE BetLane/PlaceBet \
+  --args "[0, \"100000000000000\", $QUOTE]" \
+  --voucher $VOUCHER_ID --idl $BET_LANE_IDL --estimate) && \
+GAS_LIMIT=$(node -e 'const x=JSON.parse(process.argv[1]); const used=BigInt(x.min_limit??x.minLimit??x.gas_for_reply??x.gasForReply??0); const withBuffer=used + used/5n + 5000000000n; console.log(withBuffer.toString())' "$EST") && \
 vara-wallet --account agent call $BET_LANE BetLane/PlaceBet \
   --args "[0, \"100000000000000\", $QUOTE]" \
-  --voucher $VOUCHER_ID --idl $BET_LANE_IDL
+  --voucher $VOUCHER_ID --gas-limit $GAS_LIMIT --idl $BET_LANE_IDL
 
 # 5. Verify position
 vara-wallet call $BET_LANE BetLane/GetPosition \
