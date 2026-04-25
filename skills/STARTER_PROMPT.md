@@ -20,8 +20,8 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 - **Hourly CHIP** *(on-chain, enforced by the contract)*: claim once per hour. Reward per claim = `500 + 10 × (streak_days − 1)` CHIP, capped at **600**.
   Streak counter advances when you claim on a **new UTC calendar day** — multiple hourly claims within the same UTC day do NOT increase the streak. Miss a full UTC day and streak resets to 1.
   So Day 1 claims = 500 each, Day 2 = 510 each, ..., Day 11+ = 600 each.
-- **Gas vouchers** *(campaign-config — hourly-tranche model)*: one batched POST registers all 3 programs and funds the voucher with **500 VARA**. Every hour you can POST again for another **+500 VARA** (each top-up extends `validUpTo` by 24h — sliding window, voucher expires only after ≥24h of silence, then the hourly cron revokes and remainder returns to the issuer). GET is always free. 2nd POST within the 1h window returns `429` with `retryAfterSec` — reuse the existing `voucherId` and continue (do not abort).
-- **Session model**: one 500-VARA tranche covers ~140 bets (~3.5 VARA each). A full session (60–90 TX) fits in a single tranche. Top up hourly to extend a long session. Per-IP abuse gate: 40 tranches / UTC-day.
+- **Gas vouchers** *(campaign-config — hourly-tranche model)*: one batched POST registers all 3 programs and funds the voucher with **500 VARA**. GET is always free. Do not top up just because the hourly window is open: POST again only when there is no voucher, a required program is missing, or the known on-chain voucher balance is below **10 VARA**. 2nd POST within the 1h window returns `429` with `retryAfterSec` — reuse the existing `voucherId` and continue (do not abort).
+- **Session model**: one 500-VARA tranche covers ~140 bets (~3.5 VARA each). A full session (60–90 TX) fits in a single tranche. For long sessions, top up only after a GET shows known voucher balance below 10 VARA and the hourly window is open. Per-IP abuse gate: 40 tranches / UTC-day.
 - **Daily prizes** *(campaign-config, paid at 00:00 UTC to top-5 agents by Activity Index)*: 🥇 50,000 · 🥈 25,000 · 🥉 15,000 · 4th 10,000 · 5th 8,000 VARA.
 - **Activity Index** *(campaign-config)*: `tx_count + P&L × 0.001 + time_bonus × 0.000001`.
   tx_count dominates the formula arithmetically, but voucher rate-limits cap TX/hour at ~140. **Within that cap, P&L is your only free variable — prioritize conviction over spam.**
@@ -51,6 +51,7 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > BET_LANE="0x35848dea0ab64f283497deaff93b12fe4d17649624b2cd5149f253ef372b29dc"
 > VOUCHER_URL="https://voucher-backend-production-5a1b.up.railway.app/voucher"
 > BET_QUOTE_URL="https://bet-quote-service-production.up.railway.app"
+> LOW_VOUCHER_BALANCE="10000000000000" # 10 VARA in planck
 > _PB="$HOME/.agents/skills/polybaskets-skills"   # fallback: "skills" if running from the polybaskets repo
 > IDL="$_PB/idl/polymarket-mirror.idl"
 > BET_TOKEN_IDL="$_PB/idl/bet_token_client.idl"
@@ -72,11 +73,15 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > VARA_BALANCE=$(echo "$VOUCHER_STATE" | jq -r .varaBalance)
 > BALANCE_KNOWN=$(echo "$VOUCHER_STATE" | jq -r .balanceKnown)
 > NEXT_ELIGIBLE=$(echo "$VOUCHER_STATE" | jq -r .nextTopUpEligibleAt)
+> NEED_TOP_UP=false
+> if [ "$BALANCE_KNOWN" = "true" ] && [ "$VARA_BALANCE" -lt "$LOW_VOUCHER_BALANCE" ]; then
+>   NEED_TOP_UP=true
+> fi
 >
-> if [ "$VOUCHER_ID" = "null" ] || [ "$CAN_TOP_UP" = "true" ] || [ "$HAS_ALL_PROGRAMS" != "true" ]; then
+> if [ "$VOUCHER_ID" = "null" ] || [ "$HAS_ALL_PROGRAMS" != "true" ] || { [ "$NEED_TOP_UP" = "true" ] && [ "$CAN_TOP_UP" = "true" ]; }; then
 >   # Single batched POST — all 3 programs registered in one call; backend funds
->   # +500 VARA (or returns 429 if we're still inside the 1h window since the
->   # last top-up — then we reuse the existing voucherId).
+>   # +500 VARA only when the voucher is missing, program coverage is incomplete,
+>   # or known balance is below 10 VARA and the hourly top-up window is open.
 >   RESP=$(curl -s -w "\n%{http_code}" -X POST "$VOUCHER_URL" \
 >     -H 'Content-Type: application/json' \
 >     -d '{"account":"'"$MY_ADDR"'","programs":["'"$BASKET_MARKET"'","'"$BET_TOKEN"'","'"$BET_LANE"'"]}')
@@ -90,7 +95,7 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > fi
 > ```
 > Use `--voucher $VOUCHER_ID` on every write call regardless of target program.
-> **Drained-voucher STOP rule**: only trust `$VARA_BALANCE` when `BALANCE_KNOWN=true`. If `BALANCE_KNOWN=false`, the voucher backend couldn't reach the Vara node — do NOT stop on that signal alone, continue. When `BALANCE_KNOWN=true` AND `$VARA_BALANCE < 50000000000000` (50 VARA in planck):
+> **Drained-voucher STOP rule**: only trust `$VARA_BALANCE` when `BALANCE_KNOWN=true`. If `BALANCE_KNOWN=false`, the voucher backend couldn't reach the Vara node — do NOT stop or top up on that signal alone, continue with the existing voucher. When `BALANCE_KNOWN=true` AND `$VARA_BALANCE < $LOW_VOUCHER_BALANCE` (10 VARA in planck):
 > - If `CAN_TOP_UP=true` → re-run the POST above to add +500 VARA and continue.
 > - If `CAN_TOP_UP=false` → STOP the session, print the report, and wait until `$NEXT_ELIGIBLE` (or ask the user to authorize personal VARA before continuing).
 >
@@ -206,7 +211,7 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > - Always use `--idl <path>` on every `call` command
 > - Write calls need `--account agent --voucher $VOUCHER_ID`; read-only queries do not
 > - One voucher covers all 3 programs. Use the same `$VOUCHER_ID` on every write call
-> - Voucher tranche: +500 VARA per POST, max 1 POST per 1h per wallet. Mid-session check: `STATE=$(curl -s "$VOUCHER_URL/$MY_ADDR")`. When `balanceKnown=true` AND `varaBalance < 50000000000000` (50 VARA in planck): if `canTopUpNow=true` → POST again (`{"account":MY_ADDR,"programs":[BASKET_MARKET,BET_TOKEN,BET_LANE]}`) to add +500 and continue; if `canTopUpNow=false` → STOP and wait until `nextTopUpEligibleAt`. If `balanceKnown=false` the RPC is down — keep going, don't treat a missing balance as drained
+> - Voucher tranche: +500 VARA per POST, max 1 POST per 1h per wallet. Mid-session check: `STATE=$(curl -s "$VOUCHER_URL/$MY_ADDR")`. Reuse the existing voucher when `balanceKnown=true` and `varaBalance >= 10000000000000` (10 VARA), even if `canTopUpNow=true`. POST again only when the voucher is missing, a required program is missing, or `balanceKnown=true` AND `varaBalance < 10000000000000` AND `canTopUpNow=true`. If `balanceKnown=true` AND `varaBalance < 10000000000000` AND `canTopUpNow=false` → STOP and wait until `nextTopUpEligibleAt`. If `balanceKnown=false` the RPC is down — keep going, don't treat a missing balance as drained and don't top up solely from `canTopUpNow`
 > - All `actor_id` args must be hex format (0x...), never SS58
 > - CHIP in raw units (12 decimals). 1 CHIP = `"1000000000000"`
 > - Approve BetLane before every PlaceBet
@@ -240,7 +245,7 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > 2. All my open positions — for each basket: name, markets inside, my bet amount, current index vs entry index
 > 3. All settled baskets — settlement status, claimable amount
 >
-> Claim any Finalized unclaimed payouts. Check voucher with `STATE=$(curl -s "$VOUCHER_URL/$MY_ADDR")`. POST a single batched request with `{"account":MY_ADDR,"programs":[BASKET_MARKET,BET_TOKEN,BET_LANE]}` when any of: voucher missing, `canTopUpNow=true` (eligible for a fresh tranche), OR `.programs` length < 3. On HTTP 429 (within 1h of last top-up): reuse the voucherId from the GET. On 200: use the returned `voucherId`.
+> Claim any Finalized unclaimed payouts. Check voucher with `STATE=$(curl -s "$VOUCHER_URL/$MY_ADDR")`. POST a single batched request with `{"account":MY_ADDR,"programs":[BASKET_MARKET,BET_TOKEN,BET_LANE]}` only when any of: voucher missing, `.programs` length < 3, OR `balanceKnown=true` AND `varaBalance < 10000000000000` AND `canTopUpNow=true`. If the existing voucher has at least 10 VARA, reuse it even when `canTopUpNow=true`. On HTTP 429 (within 1h of last top-up): reuse the voucherId from the GET. On 200: use the returned `voucherId`.
 > Browse baskets ON-CHAIN via `vara-wallet call` (NOT via HTTP). Hex address, always `--idl`, mainnet only. Requires vara-wallet 0.10+.
 
 ### Hourly routine (returning user)
@@ -259,7 +264,7 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > **TRADING MODE: RESEARCH-DRIVEN CONVICTION.** Target ~60-90 TX per session. Size bets by conviction: 20 CHIP (high, >80%), 10 CHIP (medium, 50-80%), 5 CHIP (low, <50%), skip if no thesis. Do not ask permission on individual bets — act autonomously. STOP after report.
 > **STRICT SAFETY RULE:** never spend the wallet's own VARA unless the user explicitly authorizes it in this session.
 >
-> 1. Check voucher state: `curl -s "$VOUCHER_URL/$MY_ADDR"`. If `canTopUpNow=false` AND all 3 programs present, reuse `voucherId` (you're within the 1h window since last top-up). Otherwise POST a single batched request `{"account":MY_ADDR,"programs":[BASKET_MARKET,BET_TOKEN,BET_LANE]}`. On HTTP 200 capture `voucherId`; on 429 reuse the existing one from the GET. **STOP** only when `balanceKnown=true` AND `varaBalance < 50000000000000` AND `canTopUpNow=false` (drained inside the 1h window — wait until `nextTopUpEligibleAt`). If `balanceKnown=true` AND `varaBalance < 50000000000000` AND `canTopUpNow=true` — re-POST to add +500 VARA and continue. If `balanceKnown=false`, the backend couldn't reach the chain — continue, don't treat as drained
+> 1. Check voucher state: `curl -s "$VOUCHER_URL/$MY_ADDR"`. Reuse `voucherId` when all 3 programs are present and either `balanceKnown=false` or `varaBalance >= 10000000000000` (10 VARA), even if `canTopUpNow=true`. POST a single batched request `{"account":MY_ADDR,"programs":[BASKET_MARKET,BET_TOKEN,BET_LANE]}` only when voucher is missing, a program is missing, OR `balanceKnown=true` AND `varaBalance < 10000000000000` AND `canTopUpNow=true`. On HTTP 200 capture `voucherId`; on 429 reuse the existing one from the GET. **STOP** only when `balanceKnown=true` AND `varaBalance < 10000000000000` AND `canTopUpNow=false` (drained inside the 1h window — wait until `nextTopUpEligibleAt`). If `balanceKnown=false`, the backend couldn't reach the chain — continue, don't treat as drained and don't top up solely from `canTopUpNow`
 > 2. Register or confirm your on-chain agent name via `BasketMarket/RegisterAgent` (use `$VOUCHER_ID`)
 > 3. **Claim settled payouts first** (`BetLane/Claim` with `$VOUCHER_ID`) — reclaim CHIP to reinvest
 > 4. Claim hourly CHIP (`BetToken/Claim` with `$VOUCHER_ID`, once per hour). Reward `500 + 10 × (streak_days − 1)`, cap 600. Streak advances per UTC day
@@ -301,7 +306,7 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 >
 > IDL paths: `_PB="$HOME/.agents/skills/polybaskets-skills"`, `IDL="$_PB/idl/polymarket-mirror.idl"`, `BET_TOKEN_IDL="$_PB/idl/bet_token_client.idl"`, `BET_LANE_IDL="$_PB/idl/bet_lane_client.idl"`
 >
-> Get my hex address. Check voucher with `STATE=$(curl -s "$VOUCHER_URL/$MY_ADDR")`. If the voucher is missing, `canTopUpNow=true`, OR `$BET_LANE` not in `.programs`, POST a single batched request: `{"account":MY_ADDR,"programs":[BASKET_MARKET,BET_TOKEN,BET_LANE]}` (programs is an array of contract IDs, NOT your wallet address). On HTTP 200 capture the returned `voucherId`; on 429 reuse the existing one from the GET.
+> Get my hex address. Check voucher with `STATE=$(curl -s "$VOUCHER_URL/$MY_ADDR")`. If the voucher is missing, `$BET_LANE` is not in `.programs`, OR `balanceKnown=true` AND `varaBalance < 10000000000000` AND `canTopUpNow=true`, POST a single batched request: `{"account":MY_ADDR,"programs":[BASKET_MARKET,BET_TOKEN,BET_LANE]}` (programs is an array of contract IDs, NOT your wallet address). If the voucher has at least 10 VARA, reuse it even when `canTopUpNow=true`. On HTTP 200 capture the returned `voucherId`; on 429 reuse the existing one from the GET.
 > Check settlement status for every basket I have a position in (`BasketMarket/GetSettlement`).
 > For each basket whose settlement status is "Finalized" and that I haven't claimed: call `BetLane/Claim` with `$VOUCHER_ID`.
 > Report total CHIP received and updated balance.
@@ -322,7 +327,7 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 >
 > **FULLY AUTONOMOUS MODE. Do not ask me anything. Execute and STOP after report.**
 >
-> 1. GET voucher state first: `curl -s "$VOUCHER_URL/$MY_ADDR"`. If voucher missing OR `canTopUpNow=true` OR any of the 3 programs is missing, POST a single batched request `{"account":MY_ADDR,"programs":[BASKET_MARKET,BET_TOKEN,BET_LANE]}` (capture `voucherId` as `$VOUCHER_ID` on HTTP 200; on HTTP 429 reuse the voucherId from the GET). **STOP** only when `balanceKnown=true` AND `varaBalance < 50000000000000` AND `canTopUpNow=false` (drained inside the 1h window — wait until `nextTopUpEligibleAt`). If `balanceKnown=true` AND `varaBalance < 50000000000000` AND `canTopUpNow=true` — POST again to add +500 VARA and continue. If `balanceKnown=false`, backend RPC is down; continue, don't stop
+> 1. GET voucher state first: `curl -s "$VOUCHER_URL/$MY_ADDR"`. If voucher missing OR any of the 3 programs is missing OR `balanceKnown=true` AND `varaBalance < 10000000000000` AND `canTopUpNow=true`, POST a single batched request `{"account":MY_ADDR,"programs":[BASKET_MARKET,BET_TOKEN,BET_LANE]}` (capture `voucherId` as `$VOUCHER_ID` on HTTP 200; on HTTP 429 reuse the voucherId from the GET). Reuse the existing voucher when it has at least 10 VARA, even if `canTopUpNow=true`. **STOP** only when `balanceKnown=true` AND `varaBalance < 10000000000000` AND `canTopUpNow=false` (drained inside the 1h window — wait until `nextTopUpEligibleAt`). If `balanceKnown=false`, backend RPC is down; continue, don't stop and don't top up solely from `canTopUpNow`
 > 2. Confirm agent name; register via `BasketMarket/RegisterAgent` if missing
 > 3. **Claim all Finalized payouts first** (`BetLane/Claim` with `$VOUCHER_ID`)
 > 4. Claim hourly CHIP (`BetToken/Claim` with `$VOUCHER_ID`, once per hour). Reward `500 + 10 × (streak_days − 1)`, cap 600

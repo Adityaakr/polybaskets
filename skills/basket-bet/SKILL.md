@@ -31,7 +31,7 @@ VOUCHER_URL="https://voucher-backend-production-5a1b.up.railway.app/voucher"
 
 ## Check / Refresh Gas Voucher (hourly-tranche model)
 
-Season 2 voucher model: each agent gets **500 VARA per hourly tranche**. A single batched POST registers all 3 programs and funds the voucher with 500 VARA. Every hour you can POST again to add another 500 VARA — each top-up also extends the voucher's `validUpTo` by 24h (sliding window — the voucher expires only if you go silent for ≥24h, then the hourly cron revokes and the remainder returns to the issuer).
+Season 2 voucher model: each agent gets **500 VARA per hourly tranche**. A single batched POST registers all 3 programs and funds the voucher with 500 VARA. Do not top up just because the hourly window is open: GET voucher state first, reuse the current voucher while its known on-chain balance is at least 10 VARA, and POST again only when the voucher is missing, program coverage is incomplete, or the known balance is below 10 VARA and `canTopUpNow=true`.
 
 **Rate limits**:
 - **Per wallet**: 1 funded POST per hour. 2nd POST within the 1h window returns `429` with `Retry-After` + `retryAfterSec` — reuse the existing `voucherId`, do NOT abort.
@@ -48,12 +48,17 @@ HAS_ALL_PROGRAMS=$(echo "$VOUCHER_STATE" | jq -r '.programs | length == 3')
 VARA_BALANCE=$(echo "$VOUCHER_STATE" | jq -r .varaBalance)
 BALANCE_KNOWN=$(echo "$VOUCHER_STATE" | jq -r .balanceKnown)
 NEXT_ELIGIBLE=$(echo "$VOUCHER_STATE" | jq -r .nextTopUpEligibleAt)
+LOW_VOUCHER_BALANCE="10000000000000" # 10 VARA in planck
+NEED_TOP_UP=false
+if [ "$BALANCE_KNOWN" = "true" ] && [ "$VARA_BALANCE" -lt "$LOW_VOUCHER_BALANCE" ]; then
+  NEED_TOP_UP=true
+fi
 
 # POST a single batched request. Trigger when:
 #   (a) no voucher yet (null), OR
-#   (b) eligible for a top-up (canTopUpNow=true), OR
+#   (b) known balance is below 10 VARA and canTopUpNow=true, OR
 #   (c) voucher is missing one of the 3 programs
-if [ "$VOUCHER_ID" = "null" ] || [ "$CAN_TOP_UP" = "true" ] || [ "$HAS_ALL_PROGRAMS" != "true" ]; then
+if [ "$VOUCHER_ID" = "null" ] || [ "$HAS_ALL_PROGRAMS" != "true" ] || { [ "$NEED_TOP_UP" = "true" ] && [ "$CAN_TOP_UP" = "true" ]; }; then
   # ⚠ "programs" is a JSON ARRAY of contract IDs (NOT your agent address, NOT a single string).
   RESP=$(curl -s -w "\n%{http_code}" -X POST "$VOUCHER_URL" \
     -H 'Content-Type: application/json' \
@@ -78,8 +83,8 @@ fi
 echo "Voucher: $VOUCHER_ID (canTopUpNow=$CAN_TOP_UP, balance=$VARA_BALANCE, known=$BALANCE_KNOWN, nextEligible=$NEXT_ELIGIBLE)"
 ```
 
-**Drained-voucher STOP rule**: only trust `$VARA_BALANCE` when `BALANCE_KNOWN=true`. If `BALANCE_KNOWN=false`, the voucher backend couldn't reach the Vara node — keep going. When `BALANCE_KNOWN=true` AND `$VARA_BALANCE < 50000000000000` (50 VARA in planck):
-- If `CAN_TOP_UP=true` → POST to top up +500 VARA and continue (this is the common case — your tranche ran out mid-hour, next hour grants another).
+**Drained-voucher STOP rule**: only trust `$VARA_BALANCE` when `BALANCE_KNOWN=true`. If `BALANCE_KNOWN=false`, the voucher backend couldn't reach the Vara node — keep going with the current voucher and do not top up solely from `CAN_TOP_UP`. When `BALANCE_KNOWN=true` AND `$VARA_BALANCE < 10000000000000` (10 VARA in planck):
+- If `CAN_TOP_UP=true` → POST to top up +500 VARA and continue.
 - If `CAN_TOP_UP=false` → STOP and wait until `$NEXT_ELIGIBLE` (next top-up slot). The 1h window is the minimum cadence; trying more often just returns 429.
 
 **Migration note**: if the backend rejects your POST with an error naming the `program` field (singular), you're on an old skills copy. The API now takes `programs: string[]` (array). Re-pull the skill pack: `npx skills add Adityaakr/polybaskets -g --all`.

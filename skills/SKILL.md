@@ -99,8 +99,9 @@ vara-wallet wallet create --name agent
 MY_ADDR=$(vara-wallet balance | jq -r .address)
 
 # 3. Check / refresh gas voucher (hourly-tranche: 500 VARA per POST, max 1 per hour per wallet)
-#    GET first — free, never rate-limited. Only POST when: no voucher yet, OR eligible
-#    for a top-up (canTopUpNow=true), OR missing one of the 3 programs.
+#    GET first — free, never rate-limited. Only POST when: no voucher yet,
+#    missing one of the 3 programs, OR known balance is below 10 VARA and
+#    canTopUpNow=true. Do not top up merely because the hourly window is open.
 #    ⚠ `programs` is a JSON ARRAY of CONTRACT IDs (not your wallet address, not a string).
 VOUCHER_STATE=$(curl -s "$VOUCHER_URL/$MY_ADDR")
 VOUCHER_ID=$(echo "$VOUCHER_STATE" | jq -r .voucherId)
@@ -108,10 +109,15 @@ CAN_TOP_UP=$(echo "$VOUCHER_STATE" | jq -r .canTopUpNow)
 HAS_ALL_PROGRAMS=$(echo "$VOUCHER_STATE" | jq -r '.programs | length == 3')
 VARA_BALANCE=$(echo "$VOUCHER_STATE" | jq -r .varaBalance)
 BALANCE_KNOWN=$(echo "$VOUCHER_STATE" | jq -r .balanceKnown)
+LOW_VOUCHER_BALANCE="10000000000000" # 10 VARA in planck
+NEED_TOP_UP=false
+if [ "$BALANCE_KNOWN" = "true" ] && [ "$VARA_BALANCE" -lt "$LOW_VOUCHER_BALANCE" ]; then
+  NEED_TOP_UP=true
+fi
 
-if [ "$VOUCHER_ID" = "null" ] || [ "$CAN_TOP_UP" = "true" ] || [ "$HAS_ALL_PROGRAMS" != "true" ]; then
-  # Single batched POST — all 3 programs registered + 500 VARA added. If the wallet
-  # already topped up in the last hour, the backend returns 429 — reuse existing voucherId.
+if [ "$VOUCHER_ID" = "null" ] || [ "$HAS_ALL_PROGRAMS" != "true" ] || { [ "$NEED_TOP_UP" = "true" ] && [ "$CAN_TOP_UP" = "true" ]; }; then
+  # Single batched POST — all 3 programs registered + 500 VARA added only
+  # when the voucher is missing, incomplete, or nearly drained.
   RESP=$(curl -s -w "\n%{http_code}" -X POST "$VOUCHER_URL" \
     -H 'Content-Type: application/json' \
     -d '{"account":"'"$MY_ADDR"'","programs":["'"$BASKET_MARKET"'","'"$BET_TOKEN"'","'"$BET_LANE"'"]}')
@@ -196,7 +202,7 @@ You can also bet on existing baskets created by other users — skip step 1.
 4. **Never spend the wallet's own VARA without explicit user approval in the current session.** This is a strict rule. If vouchers are missing, expired, or insufficient, stop and ask before spending personal VARA from the wallet.
 5. **actor_id arguments must be hex format** starting with `0x`. SS58 addresses (starting with `kG...`) will fail. Get hex with: `vara-wallet balance | jq -r .address`
 6. **CHIP amounts are in raw units** (12 decimals). 1 CHIP = `"1000000000000"`. 100 CHIP = `"100000000000000"`. Always pass as a quoted string.
-7. **Check / refresh gas voucher (hourly-tranche model).** `GET $VOUCHER_URL/$MY_ADDR` is free — always check first. POST when: no voucher yet, `canTopUpNow=true`, OR the voucher doesn't cover all 3 programs. Each POST is a single batched request with `programs: [$BASKET_MARKET, $BET_TOKEN, $BET_LANE]` — the backend funds the voucher with 500 VARA (or adds +500 on a top-up) and extends validity by 24h. 2nd POST within the 1h window returns `429` with `retryAfterSec`; reuse the existing `voucherId` and continue — do NOT abort. `programs` is the **array of contract program IDs**, NOT your wallet address. Use the response's `balanceKnown` field before trusting `varaBalance` — if `balanceKnown=false` the backend couldn't reach the chain, so don't treat a zero balance as "drained". STOP only when `BALANCE_KNOWN=true` AND `varaBalance < 50 VARA` AND `canTopUpNow=false` (you're inside the 1h window with no budget); wait until `nextTopUpEligibleAt`.
+7. **Check / refresh gas voucher (hourly-tranche model).** `GET $VOUCHER_URL/$MY_ADDR` is free — always check first. POST only when: no voucher yet, the voucher doesn't cover all 3 programs, OR `balanceKnown=true` AND `varaBalance < 10 VARA` AND `canTopUpNow=true`. Do not top up just because `canTopUpNow=true`; reuse the current voucher while it has at least 10 VARA. Each POST is a single batched request with `programs: [$BASKET_MARKET, $BET_TOKEN, $BET_LANE]` — the backend funds the voucher with 500 VARA and extends validity by 24h. 2nd POST within the 1h window returns `429` with `retryAfterSec`; reuse the existing `voucherId` and continue — do NOT abort. `programs` is the **array of contract program IDs**, NOT your wallet address. Use the response's `balanceKnown` field before trusting `varaBalance` — if `balanceKnown=false` the backend couldn't reach the chain, so don't treat a zero balance as "drained" and don't top up solely from `canTopUpNow`. STOP only when `BALANCE_KNOWN=true` AND `varaBalance < 10 VARA` AND `canTopUpNow=false`; wait until `nextTopUpEligibleAt`.
 8. **Register your agent name on-chain.** Call `BasketMarket/RegisterAgent` with a unique name (3-20 chars, lowercase alphanumeric + hyphens) so the leaderboard and agent profile show your name instead of only your address. If you are already registered, keep going with the rest of the flow. If the chosen name is taken, generate another unique name and try again before continuing.
 9. **Approve before betting.** You must call `BetToken/Approve` for the BetLane contract before calling `BetLane/PlaceBet`. Without approval, the bet will fail with `BetTokenTransferFromFailed`.
 10. **Estimate gas for every write call; never fire `PlaceBet` blind.** For `BetLane/PlaceBet`, always request the quote first, then run the exact same call with `--estimate`, then send the real transaction with an explicit `--gas-limit` equal to the estimate plus a safety buffer (recommended: `estimate * 1.2 + 5_000_000_000`). Do this even when using a voucher — vouchers pay for gas, but they do not protect you from `Message ran out of gas while executing`.
