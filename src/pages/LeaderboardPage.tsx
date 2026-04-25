@@ -863,6 +863,7 @@ function CommunityVaraLeaderboard() {
   const communityAgentAddressesQuery = useQuery<CommunityAgentIdentity[]>({
     queryKey: ['contest-leaderboard', 'community-agent-addresses'],
     queryFn: fetchCommunityAgentAddresses,
+    enabled: activeCommunityView === 'curators',
     staleTime: 15_000,
     refetchInterval: 30_000,
     refetchOnWindowFocus: true,
@@ -1080,50 +1081,8 @@ function CommunityVaraLeaderboard() {
   };
 
   const topAllTimeWinners = useMemo<AllTimeTradingPnlEntry[]>(() => {
-    const entriesByUser = new Map<string, Omit<AllTimeTradingPnlEntry, 'rank'>>();
-
-    for (const entry of allTimeWinnersQuery.data ?? []) {
-      entriesByUser.set(entry.user.toLowerCase(), {
-        user: entry.user,
-        publicId: entry.publicId,
-        totalRealizedProfit: entry.totalRealizedProfit,
-        totalRewards: entry.totalRewards,
-        basketCount: entry.basketCount,
-      });
-    }
-
-    for (const identity of communityAgentAddresses) {
-      if (!identity.publicId) {
-        continue;
-      }
-
-      const key = identity.user.toLowerCase();
-      if (entriesByUser.has(key)) {
-        continue;
-      }
-
-      entriesByUser.set(key, {
-        user: identity.user,
-        publicId: identity.publicId,
-        totalRealizedProfit: '0',
-        totalRewards: '0',
-        basketCount: 0,
-      });
-    }
-
-    return Array.from(entriesByUser.values())
-      .sort((left, right) => {
-        const leftProfit = BigInt(left.totalRealizedProfit);
-        const rightProfit = BigInt(right.totalRealizedProfit);
-
-        if (leftProfit !== rightProfit) {
-          return rightProfit > leftProfit ? 1 : -1;
-        }
-
-        return left.user.localeCompare(right.user);
-      })
-      .map((entry, index) => ({ ...entry, rank: index + 1 }));
-  }, [allTimeWinnersQuery.data, communityAgentAddresses]);
+    return allTimeWinnersQuery.data ?? [];
+  }, [allTimeWinnersQuery.data]);
 
   const currentUserActorId = useMemo(
     () => (address ? actorIdFromAddress(address).toLowerCase() : null),
@@ -1230,17 +1189,17 @@ function CommunityVaraLeaderboard() {
           </div>
         </CardHeader>
         <CardContent>
-          {allTimeWinnersQuery.isLoading || communityAgentAddressesQuery.isLoading ? (
+          {allTimeWinnersQuery.isLoading ? (
             <div className="grid gap-4 md:grid-cols-3">
               <Skeleton className="h-24 w-full" />
               <Skeleton className="h-24 w-full" />
               <Skeleton className="h-24 w-full" />
             </div>
-          ) : allTimeWinnersQuery.isError || communityAgentAddressesQuery.isError ? (
+          ) : allTimeWinnersQuery.isError ? (
             <div className="rounded-md border border-destructive/40 bg-destructive/5 p-4 text-sm">
               <p className="font-medium">Unable to load the full community agent list from the indexer.</p>
               <p className="mt-1 text-muted-foreground">
-                {((allTimeWinnersQuery.error ?? communityAgentAddressesQuery.error) as Error)?.message ?? 'Unknown indexer error'}
+                {(allTimeWinnersQuery.error as Error)?.message ?? 'Unknown indexer error'}
               </p>
             </div>
           ) : topAllTimeWinners.length === 0 ? (
@@ -1614,7 +1573,7 @@ function CommunityVaraLeaderboard() {
       </TabsContent>
 
       <TabsContent value="winnings">
-        {allTimeWinnersQuery.isLoading || communityAgentAddressesQuery.isLoading ? (
+        {allTimeWinnersQuery.isLoading ? (
           <Card className="card-elevated">
             <CardContent className="p-0">
               <div className="border-b px-6 py-3">
@@ -1635,13 +1594,13 @@ function CommunityVaraLeaderboard() {
               </div>
             </CardContent>
           </Card>
-        ) : allTimeWinnersQuery.isError || communityAgentAddressesQuery.isError ? (
+        ) : allTimeWinnersQuery.isError ? (
           <Card className="card-elevated border-destructive/40">
             <CardContent className="py-12 text-center">
               <Loader2 className="mx-auto mb-4 h-10 w-10 text-destructive" />
               <p className="text-lg font-medium">Unable to load all-time agents</p>
               <p className="mt-2 text-sm text-muted-foreground">
-                {((allTimeWinnersQuery.error ?? communityAgentAddressesQuery.error) as Error)?.message ?? 'Unknown indexer error'}
+                {(allTimeWinnersQuery.error as Error)?.message ?? 'Unknown indexer error'}
               </p>
             </CardContent>
           </Card>
