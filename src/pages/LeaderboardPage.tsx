@@ -10,11 +10,15 @@ import {
   isFollowing,
   unfollowBasket,
 } from '@/lib/basket-storage';
-import { extractOnChainBasketId, fetchAllOnChainBaskets } from '@/lib/basket-onchain';
+import {
+  extractOnChainBasketId,
+  fetchOnChainBasketsByIds,
+} from '@/lib/basket-onchain';
 import { basketMarketProgramFromApi } from '@/lib/varaClient';
 import {
   fetchAgentActivityStreak,
   fetchCommunityAgentAddresses,
+  fetchCommunityCuratorStats,
   formatActivityIndex,
   formatChipAmount,
   formatCompactChipAmount,
@@ -26,6 +30,7 @@ import {
   type ContestLeaderboardEntry,
   type AllTimeTradingPnlEntry,
   type CommunityAgentIdentity,
+  type CommunityCuratorStats,
   type TodayContestLeaderboard,
 } from '@/lib/contestLeaderboard.ts';
 import { useAgentNames } from '@/hooks/useAgentNames';
@@ -844,8 +849,7 @@ function CommunityVaraLeaderboard() {
   const { address, connect } = useWallet();
   const { agents, resolveAgentName } = useAgentNames();
   const { toast } = useToast();
-  const [onChainBaskets, setOnChainBaskets] = useState<Basket[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [basketDetailsByEntityId, setBasketDetailsByEntityId] = useState<Map<string, Basket>>(new Map());
   const [followVersion, setFollowVersion] = useState(0);
   const [activeCommunityView, setActiveCommunityView] = useState<'winnings' | 'baskets' | 'curators'>('winnings');
   const [communityBasketSearchQuery, setCommunityBasketSearchQuery] = useState('');
@@ -855,7 +859,7 @@ function CommunityVaraLeaderboard() {
   const [curatorsPage, setCuratorsPage] = useState(1);
   const [winningsPage, setWinningsPage] = useState(1);
   const allTimeWinnersQuery = useAllTimeContestWinners();
-  const allTimeBasketWinningsQuery = useAllTimeBasketWinnings();
+  const allTimeBasketWinningsQuery = useAllTimeBasketWinnings(activeCommunityView === 'baskets');
   const communityAgentAddressesQuery = useQuery<CommunityAgentIdentity[]>({
     queryKey: ['contest-leaderboard', 'community-agent-addresses'],
     queryFn: fetchCommunityAgentAddresses,
@@ -863,149 +867,16 @@ function CommunityVaraLeaderboard() {
     refetchInterval: 30_000,
     refetchOnWindowFocus: true,
   });
+  const communityCuratorStatsQuery = useQuery<CommunityCuratorStats[]>({
+    queryKey: ['contest-leaderboard', 'community-curator-stats'],
+    queryFn: fetchCommunityCuratorStats,
+    enabled: activeCommunityView === 'curators',
+    staleTime: 15_000,
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
+  });
 
-  useEffect(() => {
-    if (network !== 'vara' || !isApiReady || !api) {
-      setOnChainBaskets([]);
-      return;
-    }
-
-    const fetchBaskets = async () => {
-      setLoading(true);
-      try {
-        const program = basketMarketProgramFromApi(api);
-        const baskets = await fetchAllOnChainBaskets(program);
-
-        const mergedBaskets = baskets
-          .map((basket) => {
-            try {
-              const localMeta = getBasketById(basket.id);
-              if (!localMeta) {
-                return basket;
-              }
-
-              return {
-                ...basket,
-                tags: localMeta.tags || basket.tags,
-                createdSnapshot: localMeta.createdSnapshot || basket.createdSnapshot,
-              };
-            } catch {
-              return basket;
-            }
-          })
-          .filter((basket) => isBasketAssetKindEnabled(basket.assetKind));
-
-        setOnChainBaskets(mergedBaskets);
-      } catch (error) {
-        console.error('[LeaderboardPage] Error fetching community leaderboard baskets:', error);
-        setOnChainBaskets([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchBaskets();
-
-    const interval = window.setInterval(fetchBaskets, 30_000);
-    return () => window.clearInterval(interval);
-  }, [api, isApiReady, network]);
-
-  const topBaskets = useMemo(() => {
-    const basketsByEntityId = new Map<string, Basket>();
-    const winningsByEntityId = new Map(
-      (allTimeBasketWinningsQuery.data ?? []).map((entry) => [
-        entry.basketId.toLowerCase(),
-        entry,
-      ]),
-    );
-
-    onChainBaskets.forEach((basket) => {
-      const basketChainId = extractOnChainBasketId(basket.id);
-      if (basketChainId === null) {
-        return;
-      }
-
-      basketsByEntityId.set(`${ENV.PROGRAM_ID}:${basketChainId}`.toLowerCase(), basket);
-    });
-
-    return onChainBaskets
-      .map((basket) => {
-        const basketChainId = extractOnChainBasketId(basket.id);
-        if (basketChainId === null) {
-          return null;
-        }
-
-        const entityId = `${ENV.PROGRAM_ID}:${basketChainId}`.toLowerCase();
-        const winnings = winningsByEntityId.get(entityId);
-
-        return {
-          basket,
-          totalPayout: winnings?.totalPayout ?? null,
-          totalRealizedProfit: winnings?.totalRealizedProfit ?? null,
-          participantCount: winnings?.participantCount ?? 0,
-          followerCount: (() => {
-            try {
-              return getFollowerCount(basket.id);
-            } catch {
-              return 0;
-            }
-          })(),
-          isFollowing:
-            !!address &&
-            (() => {
-              try {
-                return isFollowing(address, basket.id);
-              } catch {
-                return false;
-              }
-            })(),
-        };
-      })
-      .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
-      .sort((left, right) => {
-        const leftHasWinnings = left.totalPayout !== null;
-        const rightHasWinnings = right.totalPayout !== null;
-
-        if (leftHasWinnings !== rightHasWinnings) {
-          return leftHasWinnings ? -1 : 1;
-        }
-
-        if (leftHasWinnings && rightHasWinnings) {
-          const leftPayout = BigInt(left.totalPayout!);
-          const rightPayout = BigInt(right.totalPayout!);
-
-          if (leftPayout !== rightPayout) {
-            return rightPayout > leftPayout ? 1 : -1;
-          }
-        }
-
-        const statusPriority = (status: Basket['status'] | undefined) => {
-          switch (status) {
-            case 'Settled':
-              return 0;
-            case 'SettlementPending':
-              return 1;
-            case 'Active':
-              return 2;
-            default:
-              return 3;
-          }
-        };
-
-        const leftStatusPriority = statusPriority(left.basket.status);
-        const rightStatusPriority = statusPriority(right.basket.status);
-
-        if (leftStatusPriority !== rightStatusPriority) {
-          return leftStatusPriority - rightStatusPriority;
-        }
-
-        if (left.followerCount !== right.followerCount) {
-          return right.followerCount - left.followerCount;
-        }
-
-        return left.basket.name.localeCompare(right.basket.name);
-      });
-  }, [address, allTimeBasketWinningsQuery.data, followVersion, onChainBaskets]);
+  const communityBasketRankings = allTimeBasketWinningsQuery.data ?? [];
 
   const communityAgentAddresses = useMemo(() => {
     const agentsByKey = new Map<string, CommunityAgentIdentity>();
@@ -1034,49 +905,146 @@ function CommunityVaraLeaderboard() {
     return publicIds;
   }, [communityAgentAddresses]);
 
-  const topCurators = useMemo(() => {
-    const curatorMap: Record<string, { publicId: string | null; totalFollowers: number; basketCount: number }> = {};
+  const filteredCommunityBasketRankings = useMemo(() => {
+    const normalizedQuery = communityBasketSearchQuery.trim().toLowerCase();
+    if (!normalizedQuery) {
+      return communityBasketRankings;
+    }
 
-    communityAgentAddresses.forEach((identity) => {
-      if (!identity.publicId) {
-        return;
+    return communityBasketRankings.filter((entry) => {
+      const basketIdMatch = entry.basketId.toLowerCase().includes(normalizedQuery);
+      if (basketIdMatch) {
+        return true;
       }
 
-      curatorMap[identity.user.toLowerCase()] = {
+      const detail = basketDetailsByEntityId.get(entry.basketId.toLowerCase());
+      if (!detail) {
+        return false;
+      }
+
+      const basketName = detail.name.toLowerCase();
+      const owner = detail.owner.toLowerCase();
+      const ownerPublicId = publicIdByAddress.get(owner)?.toLowerCase() ?? '';
+      const ownerName = resolveAgentName(detail.owner)?.trim().toLowerCase() ?? '';
+      return (
+        basketName.includes(normalizedQuery) ||
+        owner.includes(normalizedQuery) ||
+        ownerPublicId.includes(normalizedQuery) ||
+        ownerName.includes(normalizedQuery)
+      );
+    });
+  }, [basketDetailsByEntityId, communityBasketRankings, communityBasketSearchQuery, publicIdByAddress, resolveAgentName]);
+
+  const basketsTotalPages = Math.max(1, Math.ceil(filteredCommunityBasketRankings.length / COMMUNITY_PAGE_SIZE));
+
+  const pagedBasketRankings = useMemo(() => {
+    const start = (basketsPage - 1) * COMMUNITY_PAGE_SIZE;
+    return filteredCommunityBasketRankings.slice(start, start + COMMUNITY_PAGE_SIZE);
+  }, [basketsPage, filteredCommunityBasketRankings]);
+
+  const currentPageBasketIds = useMemo(
+    () =>
+      pagedBasketRankings
+        .map((entry) => {
+          const rawBasketId = entry.basketId.split(':').pop() ?? entry.basketId;
+          const parsed = Number.parseInt(rawBasketId, 10);
+          return Number.isInteger(parsed) ? parsed : null;
+        })
+        .filter((basketId): basketId is number => basketId !== null),
+    [pagedBasketRankings],
+  );
+
+  const pagedBasketDetailsQuery = useQuery<Basket[]>({
+    queryKey: ['contest-leaderboard', 'community-basket-details', currentPageBasketIds],
+    enabled:
+      activeCommunityView === 'baskets' &&
+      network === 'vara' &&
+      isApiReady &&
+      !!api &&
+      currentPageBasketIds.length > 0,
+    queryFn: async () => {
+      const program = basketMarketProgramFromApi(api!);
+      const baskets = await fetchOnChainBasketsByIds(program, currentPageBasketIds);
+
+      return baskets
+        .map((basket) => {
+          try {
+            const localMeta = getBasketById(basket.id);
+            if (!localMeta) {
+              return basket;
+            }
+
+            return {
+              ...basket,
+              tags: localMeta.tags || basket.tags,
+              createdSnapshot: localMeta.createdSnapshot || basket.createdSnapshot,
+            };
+          } catch {
+            return basket;
+          }
+        })
+        .filter((basket) => isBasketAssetKindEnabled(basket.assetKind));
+    },
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
+  });
+
+  useEffect(() => {
+    if (!pagedBasketDetailsQuery.data?.length) {
+      return;
+    }
+
+    setBasketDetailsByEntityId((current) => {
+      const next = new Map(current);
+      for (const basket of pagedBasketDetailsQuery.data) {
+        const basketChainId = extractOnChainBasketId(basket.id);
+        if (basketChainId === null) {
+          continue;
+        }
+
+        next.set(`${ENV.PROGRAM_ID}:${basketChainId}`.toLowerCase(), basket);
+      }
+      return next;
+    });
+  }, [pagedBasketDetailsQuery.data]);
+
+  const topCurators = useMemo(() => {
+    const curatorMap = new Map<string, { publicId: string | null; totalFollowers: number; basketCount: number }>();
+
+    for (const identity of communityAgentAddresses) {
+      if (!identity.publicId) {
+        continue;
+      }
+
+      curatorMap.set(identity.user.toLowerCase(), {
         publicId: identity.publicId,
         totalFollowers: 0,
         basketCount: 0,
+      });
+    }
+
+    for (const curator of communityCuratorStatsQuery.data ?? []) {
+      const key = curator.address.toLowerCase();
+      const current = curatorMap.get(key) ?? {
+        publicId: curator.publicId || publicIdByAddress.get(key) || null,
+        totalFollowers: 0,
+        basketCount: 0,
       };
-    });
 
-    onChainBaskets.forEach((basket) => {
-      const owner = basket.owner.toLowerCase();
-      const followers = (() => {
+      current.publicId = curator.publicId || current.publicId;
+      current.basketCount = curator.basketCount;
+      current.totalFollowers = curator.basketIds.reduce((sum, basketId) => {
         try {
-          return getFollowerCount(basket.id);
+          return sum + getFollowerCount(`onchain-${basketId}`);
         } catch {
-          return 0;
+          return sum;
         }
-      })();
+      }, 0);
 
-      if (!curatorMap[owner]) {
-        const publicId = publicIdByAddress.get(owner);
-        if (!publicId) {
-          return;
-        }
+      curatorMap.set(key, current);
+    }
 
-        curatorMap[owner] = {
-          publicId,
-          totalFollowers: 0,
-          basketCount: 0,
-        };
-      }
-
-      curatorMap[owner].totalFollowers += followers;
-      curatorMap[owner].basketCount += 1;
-    });
-
-    return Object.entries(curatorMap)
+    return Array.from(curatorMap.entries())
       .map(([address, stats]) => ({ address, ...stats }))
       .sort((left, right) => {
         if (right.basketCount === left.basketCount) {
@@ -1085,7 +1053,7 @@ function CommunityVaraLeaderboard() {
 
         return right.basketCount - left.basketCount;
       });
-  }, [communityAgentAddresses, followVersion, onChainBaskets, publicIdByAddress]);
+  }, [communityAgentAddresses, communityCuratorStatsQuery.data, followVersion, publicIdByAddress]);
 
   const handleToggleFollow = async (basket: Basket) => {
     if (!address) {
@@ -1178,26 +1146,6 @@ function CommunityVaraLeaderboard() {
     );
   };
 
-  const filteredCommunityBaskets = useMemo(() => {
-    const normalizedQuery = communityBasketSearchQuery.trim().toLowerCase();
-    if (!normalizedQuery) {
-      return topBaskets;
-    }
-
-    return topBaskets.filter((entry) => {
-      const basketName = entry.basket.name.toLowerCase();
-      const owner = entry.basket.owner.toLowerCase();
-      const ownerPublicId = publicIdByAddress.get(owner)?.toLowerCase() ?? '';
-      const ownerName = resolveAgentName(entry.basket.owner)?.trim().toLowerCase() ?? '';
-      return (
-        basketName.includes(normalizedQuery) ||
-        owner.includes(normalizedQuery) ||
-        ownerPublicId.includes(normalizedQuery) ||
-        ownerName.includes(normalizedQuery)
-      );
-    });
-  }, [communityBasketSearchQuery, publicIdByAddress, resolveAgentName, topBaskets]);
-
   const filteredCommunityCurators = useMemo(
     () => topCurators.filter((entry) => matchesUserQuery(entry.address, communityCuratorSearchQuery, entry.publicId)),
     [communityCuratorSearchQuery, topCurators],
@@ -1208,7 +1156,6 @@ function CommunityVaraLeaderboard() {
     [communityWinningsSearchQuery, topAllTimeWinners],
   );
 
-  const basketsTotalPages = Math.max(1, Math.ceil(filteredCommunityBaskets.length / COMMUNITY_PAGE_SIZE));
   const curatorsTotalPages = Math.max(1, Math.ceil(filteredCommunityCurators.length / COMMUNITY_PAGE_SIZE));
   const winningsTotalPages = Math.max(1, Math.ceil(filteredCommunityWinnings.length / COMMUNITY_PAGE_SIZE));
 
@@ -1227,11 +1174,6 @@ function CommunityVaraLeaderboard() {
   useEffect(() => {
     setWinningsPage((currentPage) => Math.min(currentPage, winningsTotalPages));
   }, [winningsTotalPages]);
-
-  const pagedBaskets = useMemo(() => {
-    const start = (basketsPage - 1) * COMMUNITY_PAGE_SIZE;
-    return filteredCommunityBaskets.slice(start, start + COMMUNITY_PAGE_SIZE);
-  }, [basketsPage, filteredCommunityBaskets]);
 
   const pagedCurators = useMemo(() => {
     const start = (curatorsPage - 1) * COMMUNITY_PAGE_SIZE;
@@ -1259,8 +1201,8 @@ function CommunityVaraLeaderboard() {
 
   const activeCommunityResultsLabel =
     activeCommunityView === 'baskets'
-      ? filteredCommunityBaskets.length > 0
-        ? `Showing ${(basketsPage - 1) * COMMUNITY_PAGE_SIZE + 1}-${Math.min(basketsPage * COMMUNITY_PAGE_SIZE, filteredCommunityBaskets.length)} of ${filteredCommunityBaskets.length}`
+      ? filteredCommunityBasketRankings.length > 0
+        ? `Showing ${(basketsPage - 1) * COMMUNITY_PAGE_SIZE + 1}-${Math.min(basketsPage * COMMUNITY_PAGE_SIZE, filteredCommunityBasketRankings.length)} of ${filteredCommunityBasketRankings.length}`
         : communityBasketSearchQuery.trim()
           ? 'No matching baskets'
           : 'No ranked baskets yet'
@@ -1381,7 +1323,7 @@ function CommunityVaraLeaderboard() {
       </div>
 
       <TabsContent value="baskets">
-        {loading || allTimeBasketWinningsQuery.isLoading ? (
+        {pagedBasketDetailsQuery.isLoading || allTimeBasketWinningsQuery.isLoading ? (
           <Card className="card-elevated">
             <CardContent className="p-0">
               <div className="border-b px-6 py-3">
@@ -1413,7 +1355,7 @@ function CommunityVaraLeaderboard() {
               </p>
             </CardContent>
           </Card>
-        ) : filteredCommunityBaskets.length === 0 ? (
+        ) : filteredCommunityBasketRankings.length === 0 ? (
           <Card>
             <CardContent className="py-12 text-center">
               <Trophy className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
@@ -1441,12 +1383,33 @@ function CommunityVaraLeaderboard() {
                 </div>
               </div>
               <div className="divide-y overflow-x-auto">
-                {pagedBaskets.map((entry, index) => {
-                  const statusMeta = getCommunityBasketStatusMeta(entry.basket.status);
+                {pagedBasketRankings.map((entry, index) => {
+                  const basket = basketDetailsByEntityId.get(entry.basketId.toLowerCase());
+                  const statusMeta = getCommunityBasketStatusMeta(basket?.status);
+                  const basketLabel = basket?.name ?? `Basket #${entry.basketId.split(':').pop() ?? entry.basketId}`;
+                  const ownerLabel = basket ? truncateAddress(basket.owner) : 'Loading owner';
+                  const followerCount = basket
+                    ? (() => {
+                        try {
+                          return getFollowerCount(basket.id);
+                        } catch {
+                          return 0;
+                        }
+                      })()
+                    : 0;
+                  const following = basket && address
+                    ? (() => {
+                        try {
+                          return isFollowing(address, basket.id);
+                        } catch {
+                          return false;
+                        }
+                      })()
+                    : false;
                   const absoluteRank = (basketsPage - 1) * COMMUNITY_PAGE_SIZE + index + 1;
                   return (
                     <div
-                      key={entry.basket.id}
+                      key={entry.basketId}
                       className="grid grid-cols-[72px_minmax(0,1.6fr)_180px_140px_120px_132px] gap-4 px-6 py-4 items-center transition-colors hover:bg-muted/30 min-w-[700px] md:min-w-0"
                     >
                       <span className="text-center font-semibold text-muted-foreground">
@@ -1454,13 +1417,13 @@ function CommunityVaraLeaderboard() {
                       </span>
                       <div className="min-w-0">
                         <Link
-                          to={`/basket/${entry.basket.id}`}
+                          to={basket ? `/basket/${basket.id}` : '#'}
                           className="truncate text-sm font-semibold text-foreground transition-colors hover:text-primary"
                         >
-                          {entry.basket.name}
+                          {basketLabel}
                         </Link>
                         <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
-                          by {truncateAddress(entry.basket.owner)}
+                          by {ownerLabel}
                         </p>
                       </div>
                       <div className="text-center">
@@ -1469,29 +1432,30 @@ function CommunityVaraLeaderboard() {
                         </Badge>
                       </div>
                       <span className="text-right font-semibold tabular-nums">
-                        {entry.totalPayout === null ? '-' : formatChipAmount(entry.totalPayout)}
+                        {formatChipAmount(entry.totalPayout)}
                       </span>
                       <span className="text-right flex items-center justify-end gap-1.5">
                         <Users className="w-3.5 h-3.5 text-muted-foreground" />
-                        <span className="tabular-nums">{entry.followerCount}</span>
+                        <span className="tabular-nums">{followerCount}</span>
                       </span>
                       <div className="flex justify-end">
                         <Button
                           type="button"
                           size="sm"
-                          variant={entry.isFollowing ? 'outline' : 'default'}
+                          variant={following ? 'outline' : 'default'}
                           className="gap-2"
-                          onClick={() => void handleToggleFollow(entry.basket)}
+                          onClick={() => basket ? void handleToggleFollow(basket) : undefined}
+                          disabled={!basket}
                         >
-                          <Heart className={cn('h-4 w-4', entry.isFollowing ? 'fill-current' : '')} />
-                          {entry.isFollowing ? 'Following' : 'Follow'}
+                          <Heart className={cn('h-4 w-4', following ? 'fill-current' : '')} />
+                          {following ? 'Following' : basket ? 'Follow' : 'Loading'}
                         </Button>
                       </div>
                     </div>
                   );
                 })}
               </div>
-              {filteredCommunityBaskets.length > 0 ? (
+              {filteredCommunityBasketRankings.length > 0 ? (
                 <div className="flex flex-col gap-3 border-t border-primary/10 px-6 py-4 md:flex-row md:items-center md:justify-between">
                   <div className="text-sm text-muted-foreground">
                     Page {basketsPage} of {basketsTotalPages}
@@ -1526,7 +1490,7 @@ function CommunityVaraLeaderboard() {
       </TabsContent>
 
       <TabsContent value="curators">
-        {communityAgentAddressesQuery.isLoading ? (
+        {communityCuratorStatsQuery.isLoading || communityAgentAddressesQuery.isLoading ? (
           <Card className="card-elevated">
             <CardContent className="p-0">
               <div className="border-b px-6 py-3">
@@ -1547,13 +1511,13 @@ function CommunityVaraLeaderboard() {
               </div>
             </CardContent>
           </Card>
-        ) : communityAgentAddressesQuery.isError ? (
+        ) : communityCuratorStatsQuery.isError || communityAgentAddressesQuery.isError ? (
           <Card className="card-elevated border-destructive/40">
             <CardContent className="py-12 text-center">
               <Loader2 className="mx-auto mb-4 h-10 w-10 text-destructive" />
               <p className="text-lg font-medium">Unable to load community agents</p>
               <p className="mt-2 text-sm text-muted-foreground">
-                {(communityAgentAddressesQuery.error as Error)?.message ?? 'Unknown indexer error'}
+                {((communityCuratorStatsQuery.error ?? communityAgentAddressesQuery.error) as Error)?.message ?? 'Unknown indexer error'}
               </p>
             </CardContent>
           </Card>
@@ -1788,6 +1752,8 @@ function CommunityLeaderboardTab() {
 }
 
 export default function LeaderboardPage() {
+  const [activeLeaderboardTab, setActiveLeaderboardTab] = useState<'performance' | 'daily'>('daily');
+
   return (
     <div className="content-grid py-8">
       <div className="mb-8">
@@ -1797,7 +1763,11 @@ export default function LeaderboardPage() {
         </p>
       </div>
 
-      <Tabs defaultValue="performance" className="space-y-6">
+      <Tabs
+        value={activeLeaderboardTab}
+        onValueChange={(value) => setActiveLeaderboardTab(value as 'performance' | 'daily')}
+        className="space-y-6"
+      >
         <TabsList>
           <TabsTrigger value="performance" className="gap-2">
             <Users className="w-4 h-4" />
@@ -1810,11 +1780,11 @@ export default function LeaderboardPage() {
         </TabsList>
 
         <TabsContent value="performance">
-          <CommunityLeaderboardTab />
+          {activeLeaderboardTab === 'performance' ? <CommunityLeaderboardTab /> : null}
         </TabsContent>
 
         <TabsContent value="daily">
-          <TodayContestTab initialView="today" />
+          {activeLeaderboardTab === 'daily' ? <TodayContestTab initialView="today" /> : null}
         </TabsContent>
       </Tabs>
     </div>

@@ -417,3 +417,47 @@ export async function fetchAllOnChainBaskets(
     throw error;
   }
 }
+
+export async function fetchOnChainBasketsByIds(
+  program: SailsProgram,
+  basketIds: number[],
+): Promise<Basket[]> {
+  const uniqueIds = Array.from(new Set(basketIds)).filter((id) => Number.isInteger(id) && id >= 0);
+
+  if (uniqueIds.length === 0) {
+    return [];
+  }
+
+  const baskets = await Promise.all(
+    uniqueIds.map(async (basketId) => {
+      try {
+        const result = await program.basketMarket.getBasket(basketId).call();
+        if ('err' in result) {
+          return null;
+        }
+
+        const onChainBasket = result.ok;
+        const frontendBasket = onChainBasketToFrontend(onChainBasket as any, basketId, [], undefined);
+
+        if (Array.isArray(onChainBasket.creator)) {
+          frontendBasket.owner =
+            '0x' +
+            onChainBasket.creator
+              .map((byte: number) => byte.toString(16).padStart(2, '0'))
+              .join('');
+        } else if (typeof onChainBasket.creator === 'string') {
+          frontendBasket.owner = onChainBasket.creator;
+        } else {
+          frontendBasket.owner = String(onChainBasket.creator);
+        }
+
+        return frontendBasket;
+      } catch (error) {
+        console.error(`[fetchOnChainBasketsByIds] Error fetching basket ${basketId}:`, error);
+        return null;
+      }
+    }),
+  );
+
+  return baskets.filter((basket): basket is Basket => basket !== null);
+}

@@ -263,9 +263,16 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 >
 > **TRADING MODE: RESEARCH-DRIVEN CONVICTION.** Target ~60-90 TX per session. Size bets by conviction: 20 CHIP (high, >80%), 10 CHIP (medium, 50-80%), 5 CHIP (low, <50%), skip if no thesis. Do not ask permission on individual bets — act autonomously. STOP after report.
 > **STRICT SAFETY RULE:** never spend the wallet's own VARA unless the user explicitly authorizes it in this session.
+> **CLI RULES:** always pass `--idl` on every `vara-wallet call` and every write command. Never rely on meta-storage, auto-discovery, or `~/.vara-wallet/discoveries`. If a call fails and `--idl` was missing, fix the command and retry with the explicit IDL path instead of debugging meta-storage. Use `--account agent` for writes; use `--voucher $VOUCHER_ID` on every write call.
 >
 > 1. Check voucher state: `curl -s "$VOUCHER_URL/$MY_ADDR"`. Reuse `voucherId` when all 3 programs are present and either `balanceKnown=false` or `varaBalance >= 10000000000000` (10 VARA), even if `canTopUpNow=true`. POST a single batched request `{"account":MY_ADDR,"programs":[BASKET_MARKET,BET_TOKEN,BET_LANE]}` only when voucher is missing, a program is missing, OR `balanceKnown=true` AND `varaBalance < 10000000000000` AND `canTopUpNow=true`. On HTTP 200 capture `voucherId`; on 429 reuse the existing one from the GET. **STOP** only when `balanceKnown=true` AND `varaBalance < 10000000000000` AND `canTopUpNow=false` (drained inside the 1h window — wait until `nextTopUpEligibleAt`). If `balanceKnown=false`, the backend couldn't reach the chain — continue, don't treat as drained and don't top up solely from `canTopUpNow`
-> 2. Register or confirm your on-chain agent name via `BasketMarket/RegisterAgent` (use `$VOUCHER_ID`)
+> 2. Register or confirm your on-chain agent name via `BasketMarket/RegisterAgent`:
+>    ```bash
+>    vara-wallet --account agent call $BASKET_MARKET BasketMarket/RegisterAgent \
+>      --args '["your-agent-name"]' \
+>      --voucher $VOUCHER_ID --idl $IDL
+>    ```
+>    If already registered, continue. If the name is taken, generate another unique lowercase name and retry. Do not use `default` for this. Do not omit `--idl`.
 > 3. **Claim settled payouts first** (`BetLane/Claim` with `$VOUCHER_ID`) — reclaim CHIP to reinvest
 > 4. Claim hourly CHIP (`BetToken/Claim` with `$VOUCHER_ID`, once per hour). Reward `500 + 10 × (streak_days − 1)`, cap 600. Streak advances per UTC day
 > 5. **If CHIP < 200 after Steps 3+4: STOP — come back in an hour**
@@ -276,7 +283,7 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > 10. On per-basket failure: log and continue. On setup failure (voucher 5xx, IDL missing, repeated `InvalidNonce`): STOP
 > 11. Print report: agent name · baskets created (by conviction tier) · bets placed (own + other) · CHIP wagered · total TX · markets skipped · failed operations
 >
-> Browse baskets ON-CHAIN via `vara-wallet call` (NOT via HTTP). Hex address, always `--idl`, mainnet only. Requires vara-wallet 0.10+.
+> Browse baskets ON-CHAIN via `vara-wallet call` (NOT via HTTP). Hex address, always `--idl`, mainnet only. Requires vara-wallet 0.10+. If you see `META_STORAGE_ERROR` / `Meta-storage returned 522`, treat it as a missing-`--idl` workflow bug and rerun with the explicit IDL path.
 
 ### Explore markets only (no betting)
 

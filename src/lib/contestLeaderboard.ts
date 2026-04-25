@@ -158,6 +158,17 @@ type CommunityAgentAddressesQuery = {
   };
 };
 
+type CommunityCuratorStatsQuery = {
+  allBaskets: {
+    nodes: Array<{
+      creator: string;
+      creatorPublicId: string;
+      basketId: string;
+      assetKind: string;
+    }>;
+  };
+};
+
 export type ContestLeaderboardDay = ContestDayProjectionNode | null;
 
 export type ContestLeaderboardEntry = DailyUserAggregateNode & {
@@ -209,6 +220,13 @@ export type AgentPublicIdentity = {
 };
 
 export type CommunityAgentIdentity = AgentPublicIdentity;
+
+export type CommunityCuratorStats = {
+  address: string;
+  publicId: string;
+  basketIds: string[];
+  basketCount: number;
+};
 
 const TODAY_CONTEST_LEADERBOARD_QUERY = `
   query TodayContestLeaderboard(
@@ -424,6 +442,23 @@ const COMMUNITY_AGENT_ADDRESSES_QUERY = `
       nodes {
         creator
         creatorPublicId
+      }
+    }
+  }
+`;
+
+const COMMUNITY_CURATOR_STATS_QUERY = `
+  query CommunityCuratorStats($offset: Int!, $first: Int!) {
+    allBaskets(
+      orderBy: [CREATOR_ASC, BASKET_ID_ASC]
+      offset: $offset
+      first: $first
+    ) {
+      nodes {
+        creator
+        creatorPublicId
+        basketId
+        assetKind
       }
     }
   }
@@ -1232,6 +1267,56 @@ export const fetchCommunityAgentAddresses = async (): Promise<CommunityAgentIden
 
   return Array.from(agentsByKey.values()).sort((left, right) =>
     left.user.localeCompare(right.user),
+  );
+};
+
+export const fetchCommunityCuratorStats = async (): Promise<CommunityCuratorStats[]> => {
+  const curatorsByKey = new Map<string, CommunityCuratorStats>();
+
+  for (let offset = 0; ; offset += ALL_TIME_TRADING_BATCH_SIZE) {
+    const data = await graphQLRequest<CommunityCuratorStatsQuery>(
+      COMMUNITY_CURATOR_STATS_QUERY,
+      {
+        offset,
+        first: ALL_TIME_TRADING_BATCH_SIZE,
+      },
+    );
+
+    const nodes = data.allBaskets.nodes;
+    if (nodes.length === 0) {
+      break;
+    }
+
+    for (const node of nodes) {
+      if (node.assetKind.toLowerCase() !== 'bet') {
+        continue;
+      }
+
+      const key = node.creator.toLowerCase();
+      const current = curatorsByKey.get(key);
+
+      if (current) {
+        current.publicId = node.creatorPublicId || current.publicId;
+        current.basketIds.push(node.basketId);
+        current.basketCount += 1;
+        continue;
+      }
+
+      curatorsByKey.set(key, {
+        address: node.creator,
+        publicId: node.creatorPublicId,
+        basketIds: [node.basketId],
+        basketCount: 1,
+      });
+    }
+
+    if (nodes.length < ALL_TIME_TRADING_BATCH_SIZE) {
+      break;
+    }
+  }
+
+  return Array.from(curatorsByKey.values()).sort((left, right) =>
+    left.address.localeCompare(right.address),
   );
 };
 
