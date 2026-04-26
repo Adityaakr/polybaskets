@@ -1010,6 +1010,9 @@ function CommunityVaraLeaderboard() {
   }, [pagedBasketDetailsQuery.data]);
 
   const topCurators = useMemo(() => {
+    const rewardsByUser = new Map(
+      (allTimeWinnersQuery.data ?? []).map((entry) => [entry.user.toLowerCase(), entry.totalRewards]),
+    );
     const curatorMap = new Map<string, { publicId: string | null; totalFollowers: number; basketCount: number }>();
 
     for (const identity of communityAgentAddresses) {
@@ -1046,7 +1049,11 @@ function CommunityVaraLeaderboard() {
     }
 
     return Array.from(curatorMap.entries())
-      .map(([address, stats]) => ({ address, ...stats }))
+      .map(([address, stats]) => ({
+        address,
+        ...stats,
+        totalRewards: rewardsByUser.get(address) ?? '0',
+      }))
       .sort((left, right) => {
         if (right.basketCount === left.basketCount) {
           return right.totalFollowers - left.totalFollowers;
@@ -1054,7 +1061,7 @@ function CommunityVaraLeaderboard() {
 
         return right.basketCount - left.basketCount;
       });
-  }, [communityAgentAddresses, communityCuratorStatsQuery.data, followVersion, publicIdByAddress]);
+  }, [allTimeWinnersQuery.data, communityAgentAddresses, communityCuratorStatsQuery.data, followVersion, publicIdByAddress]);
 
   const handleToggleFollow = async (basket: Basket) => {
     if (!address) {
@@ -1235,6 +1242,9 @@ function CommunityVaraLeaderboard() {
                   </div>
                   <div className="mt-3 text-2xl font-semibold tabular-nums">
                     {formatCompactChipAmount(entry.totalRealizedProfit)}
+                  </div>
+                  <div className="mt-2 text-sm text-muted-foreground tabular-nums">
+                    Won {formatVaraAmount(entry.totalRewards)}
                   </div>
                 </Link>
               ))}
@@ -1493,11 +1503,12 @@ function CommunityVaraLeaderboard() {
           <Card className="card-elevated">
             <CardContent className="p-0">
               <div className="border-b hidden md:block">
-                <div className="grid grid-cols-[72px_minmax(0,1.6fr)_140px_160px] gap-4 px-6 py-3 text-xs font-medium text-muted-foreground bg-muted/50">
+                <div className="grid grid-cols-[72px_minmax(0,1.6fr)_140px_160px_160px] gap-4 px-6 py-3 text-xs font-medium text-muted-foreground bg-muted/50">
                   <span className="text-center">#</span>
                   <span>Agent</span>
                   <span className="text-right">Baskets</span>
                   <span className="text-right">Total Followers</span>
+                  <span className="text-right">Won VARA</span>
                 </div>
               </div>
               <div className="divide-y overflow-x-auto">
@@ -1507,7 +1518,7 @@ function CommunityVaraLeaderboard() {
                   <Link
                     key={curator.address}
                     to={`/agents/${encodeURIComponent(getAgentRouteId(curator.publicId))}`}
-                    className="group grid grid-cols-[72px_minmax(0,1.6fr)_140px_160px] gap-4 px-6 py-4 items-center transition-colors hover:bg-muted/20"
+                    className="group grid grid-cols-[72px_minmax(0,1.6fr)_140px_160px_160px] gap-4 px-6 py-4 items-center transition-colors hover:bg-muted/20"
                   >
                     <span className="text-center font-semibold text-muted-foreground">
                       {absoluteRank}
@@ -1533,6 +1544,9 @@ function CommunityVaraLeaderboard() {
                     <span className="text-right flex items-center justify-end gap-1.5">
                       <Users className="w-3.5 h-3.5 text-muted-foreground" />
                       <span className="tabular-nums font-semibold">{curator.totalFollowers}</span>
+                    </span>
+                    <span className="text-right font-semibold tabular-nums">
+                      {formatVaraAmount(curator.totalRewards)}
                     </span>
                   </Link>
                   );
@@ -1617,10 +1631,11 @@ function CommunityVaraLeaderboard() {
           <Card className="card-elevated">
             <CardContent className="p-0">
               <div className="border-b hidden md:block">
-                <div className="grid grid-cols-[72px_minmax(0,1.6fr)_160px] gap-4 px-6 py-3 text-xs font-medium text-muted-foreground bg-muted/50">
+                <div className="grid grid-cols-[72px_minmax(0,1.6fr)_160px_160px] gap-4 px-6 py-3 text-xs font-medium text-muted-foreground bg-muted/50">
                   <span className="text-center">#</span>
                   <span>Agent</span>
                   <span className="text-right">All-Time PnL</span>
+                  <span className="text-right">Won VARA</span>
                 </div>
               </div>
               <div className="divide-y overflow-x-auto">
@@ -1628,7 +1643,7 @@ function CommunityVaraLeaderboard() {
                   <Link
                     key={entry.user}
                     to={`/agents/${encodeURIComponent(getAgentRouteId(entry.publicId))}`}
-                    className="group grid grid-cols-[72px_minmax(0,1.6fr)_160px] gap-4 px-6 py-4 items-center transition-colors hover:bg-muted/20"
+                    className="group grid grid-cols-[72px_minmax(0,1.6fr)_160px_160px] gap-4 px-6 py-4 items-center transition-colors hover:bg-muted/20"
                   >
                     <span className="text-center font-semibold text-muted-foreground">
                       {entry.rank}
@@ -1649,6 +1664,9 @@ function CommunityVaraLeaderboard() {
                     </div>
                     <span className="text-right font-semibold tabular-nums">
                       {formatCompactChipAmount(entry.totalRealizedProfit)}
+                    </span>
+                    <span className="text-right font-semibold tabular-nums">
+                      {formatVaraAmount(entry.totalRewards)}
                     </span>
                   </Link>
                 ))}
