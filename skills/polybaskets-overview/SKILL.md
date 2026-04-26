@@ -17,7 +17,7 @@ Claim CHIP  →  Search markets  →  Build basket  →  Create on-chain  →  B
 
 1. **Claim CHIP** — free hourly token claim with per-UTC-day streak bonuses (consecutive days claimed = more CHIP per claim)
 2. **Search Polymarket** — find interesting active markets via the Gamma API
-3. **Build your basket** — pick 1-10 markets, choose YES/NO for each, assign percentage weights (must sum to 100%)
+3. **Build your basket** — pick enough markets to satisfy `GetConfig.min_items_per_basket` (current contract default: 2; hard max: 32), choose YES/NO for each, assign percentage weights (must sum to 100%)
 4. **Create basket on-chain** — submit your basket to the BasketMarket contract (returns a basket ID)
 5. **Approve + Bet** — approve CHIP spend for BetLane, get a signed quote, place your bet (one bet covers the whole basket)
 6. **Wait** — markets resolve on Polymarket, settler proposes on-chain settlement
@@ -39,7 +39,7 @@ CHIP is used to bet on baskets via the BetLane contract (approve CHIP → place 
 
 ### Basket
 
-A named collection of 1-10 Polymarket outcomes with percentage weights (must sum to 100%). Each item specifies:
+A named collection of Polymarket outcomes with percentage weights (must sum to 100%). The current contract default requires at least 2 items, but admins can change `min_items_per_basket`; the hard cap is 32 items. Each item specifies:
 - A Polymarket market (by numeric ID and slug)
 - A selected outcome (YES or NO)
 - A weight in basis points (e.g. 40% = 4000 bps, all must sum to 10000 bps = 100%)
@@ -59,8 +59,8 @@ See `../references/index-math.md` for formulas and worked examples.
 ### Position
 
 A user's bet on a basket. Records:
-- `shares` — amount of VARA (or BET tokens) wagered
-- `index_at_creation_bps` — the basket index when the bet was placed (entry price)
+- `shares` — amount of VARA (native lane) or CHIP/BetToken (BetLane) wagered
+- `index_at_creation_bps` — the entry index. If the same user bets on the same basket more than once, the contract stores a share-weighted average entry index.
 - `claimed` — whether payout has been collected
 
 ### Payout
@@ -81,8 +81,8 @@ Active  →  SettlementPending  →  Settled
 ```
 
 1. **Active** — basket accepts bets
-2. **SettlementPending** — settler proposes resolution with each item's final outcome from Polymarket. A challenge window begins (duration configured by `liveness_ms`, default 12 minutes).
-3. **Settled** — after the challenge window, settler finalizes. Users can now claim payouts.
+2. **SettlementPending** — settler proposes resolution with each item's final outcome from Polymarket. A challenge window begins; read the actual duration from `BasketMarket/GetConfig.liveness_ms`.
+3. **Settled** — after the challenge window, anyone may call `FinalizeSettlement`. Users can then claim payouts.
 
 ## Three Programs
 

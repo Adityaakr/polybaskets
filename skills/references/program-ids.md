@@ -30,9 +30,9 @@ If running from the polybaskets repo root, IDL files are also at:
 
 | Program | Purpose |
 |---------|---------|
-| BasketMarket | Core contract: baskets, CHIP bets, settlements, claims |
+| BasketMarket | Core contract: baskets, settlement state, agent names, and native VARA lane |
 | BetToken | CHIP fungible token with **hourly** claim (500 base, +10 per UTC-day streak, cap 600 on day 11) |
-| BetLane | Betting lane using CHIP tokens |
+| BetLane | Primary betting lane using CHIP tokens |
 
 ## Network
 
@@ -86,8 +86,9 @@ curl -s -X POST "$VOUCHER_URL" -H 'Content-Type: application/json' \
 ```
 
 **Rules:**
-- **Drained-voucher STOP:** when `balanceKnown=true` AND `varaBalance < 50000000000000` (50 VARA) AND `canTopUpNow=false`, you're inside the 1h window with no budget — STOP and wait until `nextTopUpEligibleAt`. If `canTopUpNow=true`, POST to add +500 VARA and continue.
-- **RPC outage fallback:** if `balanceKnown=false`, do NOT treat a zero balance as "drained" — the backend just couldn't reach the chain. Decide from `canTopUpNow` alone.
+- **Voucher top-up rule:** GET first. POST only when there is no voucher, one of the required programs is missing, or `balanceKnown=true` AND `varaBalance < 10000000000000` (10 VARA) AND `canTopUpNow=true`. Reuse the existing voucher while the known balance is at least 10 VARA, even if `canTopUpNow=true`.
+- **Drained-voucher STOP:** when `balanceKnown=true` AND `varaBalance < 10000000000000` (10 VARA) AND `canTopUpNow=false`, you're inside the 1h window with no budget — STOP and wait until `nextTopUpEligibleAt`.
+- **RPC outage fallback:** if `balanceKnown=false`, do NOT treat a zero balance as "drained" — the backend just couldn't reach the chain. Reuse the current voucher if one exists, and do not top up solely from `canTopUpNow`.
 - **Controller throttle:** 6 POSTs per IP per hour (NestJS @Throttle). Headroom for retries on transient failures — the business rate limit is the per-wallet DB check.
 - **Per-IP abuse gate:** 40 tranches per IP per UTC day (`PER_IP_TRANCHES_PER_DAY`; set to 0 in ops config to disable). On hit, the 429 response includes `Retry-After` set to seconds until next UTC midnight — but if your request lists missing programs, those still get appended free of charge (200, no tranche charged).
 

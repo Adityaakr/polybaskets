@@ -15,6 +15,16 @@ type ClaimState = struct {
   claim_count: u32,
 };
 
+type ImportedBalance = struct {
+  user: actor_id,
+  balance: u256,
+};
+
+type ImportedClaimState = struct {
+  user: actor_id,
+  state: ClaimState,
+};
+
 type ClaimPreview = struct {
   amount: u256,
   streak_days: u32,
@@ -42,6 +52,8 @@ service BetToken {
   Claim : () -> ClaimState;
   DisallowSpender : (spender: actor_id) -> null;
   GrantRole : (role_id: [u8, 32], account: actor_id) -> null;
+  ImportBalances : (balances: vec ImportedBalance) -> u32;
+  ImportClaimStates : (claim_states: vec ImportedClaimState) -> u32;
   PauseClaim : () -> null;
   ResumeClaim : () -> null;
   RevokeRole : (role_id: [u8, 32], account: actor_id) -> null;
@@ -55,6 +67,7 @@ service BetToken {
   query GetClaimConfig : () -> ClaimConfig;
   query GetClaimPreview : (user: actor_id) -> ClaimPreview;
   query GetClaimState : (user: actor_id) -> ClaimState;
+  query GetClaimStateCount : () -> u64;
   query IsClaimPaused : () -> bool;
   query IsSpenderAllowed : (spender: actor_id) -> bool;
   query Name : () -> str;
@@ -84,6 +97,12 @@ service BetToken {
     ClaimResumed;
     SpenderAllowed: actor_id;
     SpenderDisallowed: actor_id;
+    MigrationBalancesImported: struct {
+      count: u32
+    };
+    MigrationClaimStatesImported: struct {
+      count: u32
+    };
   }
 };
 
@@ -333,3 +352,4 @@ service Metadata {
   /// The symbol as a `String`.
   query Symbol : () -> str;
 };
+

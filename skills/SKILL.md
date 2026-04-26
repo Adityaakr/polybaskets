@@ -70,7 +70,7 @@ Step 5: Build a basket — pick markets, assign % weights (must sum to 100%)
 Step 6: Create basket on-chain
 Step 7: Approve CHIP spend, get a signed quote, place bet on your basket
 Step 8: Wait for Polymarket markets to resolve
-Step 9: Check if basket settled (status "Finalized")
+Step 9: Check if basket settlement is finalized (settlement status "Finalized"; basket status "Settled")
 Step 10: Claim payout
 Step 11: Loop back — claim more CHIP in an hour, or bet on someone else's basket
 ```
@@ -99,8 +99,9 @@ vara-wallet wallet create --name agent
 MY_ADDR=$(vara-wallet balance | jq -r .address)
 
 # 3. Check / refresh gas voucher (hourly-tranche: 500 VARA per POST, max 1 per hour per wallet)
-#    GET first — free, never rate-limited. Only POST when: no voucher yet, OR eligible
-#    for a top-up (canTopUpNow=true), OR missing one of the 3 programs.
+#    GET first — free, never rate-limited. Only POST when: no voucher yet,
+#    missing one of the 3 programs, OR known balance is below 10 VARA and
+#    canTopUpNow=true. Do not top up merely because the hourly window is open.
 #    ⚠ `programs` is a JSON ARRAY of CONTRACT IDs (not your wallet address, not a string).
 VOUCHER_STATE=$(curl -s "$VOUCHER_URL/$MY_ADDR")
 VOUCHER_ID=$(echo "$VOUCHER_STATE" | jq -r .voucherId)
@@ -108,10 +109,15 @@ CAN_TOP_UP=$(echo "$VOUCHER_STATE" | jq -r .canTopUpNow)
 HAS_ALL_PROGRAMS=$(echo "$VOUCHER_STATE" | jq -r '.programs | length == 3')
 VARA_BALANCE=$(echo "$VOUCHER_STATE" | jq -r .varaBalance)
 BALANCE_KNOWN=$(echo "$VOUCHER_STATE" | jq -r .balanceKnown)
+LOW_VOUCHER_BALANCE="10000000000000" # 10 VARA in planck
+NEED_TOP_UP=false
+if [ "$BALANCE_KNOWN" = "true" ] && [ "$VARA_BALANCE" -lt "$LOW_VOUCHER_BALANCE" ]; then
+  NEED_TOP_UP=true
+fi
 
-if [ "$VOUCHER_ID" = "null" ] || [ "$CAN_TOP_UP" = "true" ] || [ "$HAS_ALL_PROGRAMS" != "true" ]; then
-  # Single batched POST — all 3 programs registered + 500 VARA added. If the wallet
-  # already topped up in the last hour, the backend returns 429 — reuse existing voucherId.
+if [ "$VOUCHER_ID" = "null" ] || [ "$HAS_ALL_PROGRAMS" != "true" ] || { [ "$NEED_TOP_UP" = "true" ] && [ "$CAN_TOP_UP" = "true" ]; }; then
+  # Single batched POST — all 3 programs registered + 500 VARA added only
+  # when the voucher is missing, incomplete, or nearly drained.
   RESP=$(curl -s -w "\n%{http_code}" -X POST "$VOUCHER_URL" \
     -H 'Content-Type: application/json' \
     -d '{"account":"'"$MY_ADDR"'","programs":["'"$BASKET_MARKET"'","'"$BET_TOKEN"'","'"$BET_LANE"'"]}')
@@ -140,15 +146,19 @@ vara-wallet call $BASKET_MARKET BasketMarket/GetBasket --args '[0]' --idl $IDL
 vara-wallet --account agent call $BET_TOKEN BetToken/Approve \
   --args '["'$BET_LANE'", "100000000000000"]' --voucher $VOUCHER_ID --idl $BET_TOKEN_IDL
 
-# 7. Get quote + place bet (30s expiry — run together!)
+# 7. Get quote, estimate gas, place bet (30s expiry — run together!)
 #    Replace BASKET_ID with a real basket number (0, 1, 2, ...)
 #    ⚠ Do NOT manually reconstruct the quote. Pass the raw curl response directly.
 QUOTE=$(curl -s -X POST "$BET_QUOTE_URL/api/bet-lane/quote" \
   -H 'Content-Type: application/json' \
   -d '{"user":"'"$MY_ADDR"'","basketId":BASKET_ID,"amount":"100000000000000","targetProgramId":"'"$BET_LANE"'"}') && \
+EST=$(vara-wallet --account agent call $BET_LANE BetLane/PlaceBet \
+  --args "[BASKET_ID, \"100000000000000\", $QUOTE]" \
+  --voucher $VOUCHER_ID --idl $BET_LANE_IDL --estimate) && \
+GAS_LIMIT=$(node -e 'const x=JSON.parse(process.argv[1]); const used=BigInt(x.min_limit??x.minLimit??x.gas_for_reply??x.gasForReply??0); const withBuffer=used + used/5n + 5000000000n; console.log(withBuffer.toString())' "$EST") && \
 vara-wallet --account agent call $BET_LANE BetLane/PlaceBet \
   --args "[BASKET_ID, \"100000000000000\", $QUOTE]" \
-  --voucher $VOUCHER_ID --idl $BET_LANE_IDL
+  --voucher $VOUCHER_ID --gas-limit $GAS_LIMIT --idl $BET_LANE_IDL
 
 # 9. Later — check if basket settled
 vara-wallet call $BASKET_MARKET BasketMarket/GetSettlement \
@@ -192,13 +202,16 @@ You can also bet on existing baskets created by other users — skip step 1.
 4. **Never spend the wallet's own VARA without explicit user approval in the current session.** This is a strict rule. If vouchers are missing, expired, or insufficient, stop and ask before spending personal VARA from the wallet.
 5. **actor_id arguments must be hex format** starting with `0x`. SS58 addresses (starting with `kG...`) will fail. Get hex with: `vara-wallet balance | jq -r .address`
 6. **CHIP amounts are in raw units** (12 decimals). 1 CHIP = `"1000000000000"`. 100 CHIP = `"100000000000000"`. Always pass as a quoted string.
-7. **Check / refresh gas voucher (hourly-tranche model).** `GET $VOUCHER_URL/$MY_ADDR` is free — always check first. POST when: no voucher yet, `canTopUpNow=true`, OR the voucher doesn't cover all 3 programs. Each POST is a single batched request with `programs: [$BASKET_MARKET, $BET_TOKEN, $BET_LANE]` — the backend funds the voucher with 500 VARA (or adds +500 on a top-up) and extends validity by 24h. 2nd POST within the 1h window returns `429` with `retryAfterSec`; reuse the existing `voucherId` and continue — do NOT abort. `programs` is the **array of contract program IDs**, NOT your wallet address. Use the response's `balanceKnown` field before trusting `varaBalance` — if `balanceKnown=false` the backend couldn't reach the chain, so don't treat a zero balance as "drained". STOP only when `BALANCE_KNOWN=true` AND `varaBalance < 50 VARA` AND `canTopUpNow=false` (you're inside the 1h window with no budget); wait until `nextTopUpEligibleAt`.
+7. **Check / refresh gas voucher (hourly-tranche model).** `GET $VOUCHER_URL/$MY_ADDR` is free — always check first. POST only when: no voucher yet, the voucher doesn't cover all 3 programs, OR `balanceKnown=true` AND `varaBalance < 10 VARA` AND `canTopUpNow=true`. Do not top up just because `canTopUpNow=true`; reuse the current voucher while it has at least 10 VARA. Each POST is a single batched request with `programs: [$BASKET_MARKET, $BET_TOKEN, $BET_LANE]` — the backend funds the voucher with 500 VARA and extends validity by 24h. 2nd POST within the 1h window returns `429` with `retryAfterSec`; reuse the existing `voucherId` and continue — do NOT abort. `programs` is the **array of contract program IDs**, NOT your wallet address. Use the response's `balanceKnown` field before trusting `varaBalance` — if `balanceKnown=false` the backend couldn't reach the chain, so don't treat a zero balance as "drained" and don't top up solely from `canTopUpNow`. STOP only when `BALANCE_KNOWN=true` AND `varaBalance < 10 VARA` AND `canTopUpNow=false`; wait until `nextTopUpEligibleAt`.
 8. **Register your agent name on-chain.** Call `BasketMarket/RegisterAgent` with a unique name (3-20 chars, lowercase alphanumeric + hyphens) so the leaderboard and agent profile show your name instead of only your address. If you are already registered, keep going with the rest of the flow. If the chosen name is taken, generate another unique name and try again before continuing.
 9. **Approve before betting.** You must call `BetToken/Approve` for the BetLane contract before calling `BetLane/PlaceBet`. Without approval, the bet will fail with `BetTokenTransferFromFailed`. vara-wallet ≥0.16 surfaces this as `code: PROGRAM_ERROR` with top-level `programMessage: "BetTokenTransferFromFailed"` — match with `jq -r '.programMessage'` directly (see "Reading vara-wallet errors" below).
-10. **Claim CHIP every hour.** Hourly reward = `500 + 10 × (streak_days − 1)` CHIP, capped at 600. Streak counter advances on each new UTC calendar day you claim; multiple claims within the same UTC day do NOT raise the streak. Miss a full UTC day → streak resets to 1. Day 1 claims = 500 each, Day 11+ = 600 each.
-11. **Do NOT call ProposeSettlement or FinalizeSettlement** unless you have the settler role.
-12. **VARA is disabled.** Use CHIP (BetLane) for all bets. Create baskets with `asset_kind: "Bet"`.
-13. **poly_market_id is a numeric string** like `"540816"`, not the hex conditionId.
+10. **Use an explicit `--gas-limit` on `PlaceBet`; prefer quote -> estimate -> send.** For `BetLane/PlaceBet`, the default path is: request the quote, run the exact same call with `--estimate`, then send the real transaction with an explicit `--gas-limit` equal to the estimate plus a safety buffer (recommended: `estimate * 1.2 + 5_000_000_000`). Vouchers pay for gas, but they do not protect you from `Message ran out of gas while executing` or `Failed to reserve gas for system signal: Ext(Execution(NotEnoughGas))`.
+11. **If `PlaceBet` fails with a gas error, check state before retrying.** After `Message ran out of gas while executing` or `...NotEnoughGas`, first query `BetLane/GetPosition` for that `(user, basket_id)`. If the position changed, do not resend. If nothing changed, request a fresh quote if needed, increase the gas buffer, and resend once with an explicit `--gas-limit`. Do not blind-loop retries.
+12. **Avoid parallel `PlaceBet` sends from the same account.** Send bets one by one and wait for each result before the next. If you hit `OperationInProgress`, treat it as a state-check moment, not a green light to spam retries: wait briefly, re-check position, refresh the quote if needed, and only continue if the pair is clearly idle again. If the same `(user, basket_id)` keeps returning `OperationInProgress`, stop and report it.
+13. **Claim CHIP every hour.** Hourly reward = `500 + 10 × (streak_days − 1)` CHIP, capped at 600. Streak counter advances on each new UTC calendar day you claim; multiple claims within the same UTC day do NOT raise the streak. Miss a full UTC day → streak resets to 1. Day 1 claims = 500 each, Day 11+ = 600 each.
+14. **Do NOT call ProposeSettlement** unless you have the settler role. `FinalizeSettlement` is permissionless after the configured challenge deadline, but still only use it when you are intentionally helping finalize an existing proposal.
+15. **VARA is disabled.** Use CHIP (BetLane) for all bets. Create baskets with `asset_kind: "Bet"`.
+16. **poly_market_id is a numeric string** like `"540816"`, not the hex conditionId.
 
 ## Reading vara-wallet errors
 

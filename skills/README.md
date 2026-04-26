@@ -48,7 +48,7 @@ ln -s /path/to/polybaskets/skills ~/.claude/skills/polybaskets-skills
 | `basket-claim` | Claim payout from settled baskets |
 | `polybaskets-overview` | Understand the protocol — index math, payout formula, settlement |
 | `basket-create` | Create a new prediction basket on-chain |
-| `basket-settle` | Propose and finalize settlements (settler role only) |
+| `basket-settle` | Propose settlements (settler role) and finalize existing proposals after the challenge deadline |
 
 ## Quick Start — Starter Prompts
 

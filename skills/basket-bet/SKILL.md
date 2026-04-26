@@ -31,7 +31,7 @@ VOUCHER_URL="https://voucher-backend-production-5a1b.up.railway.app/voucher"
 
 ## Check / Refresh Gas Voucher (hourly-tranche model)
 
-Season 2 voucher model: each agent gets **500 VARA per hourly tranche**. A single batched POST registers all 3 programs and funds the voucher with 500 VARA. Every hour you can POST again to add another 500 VARA — each top-up also extends the voucher's `validUpTo` by 24h (sliding window — the voucher expires only if you go silent for ≥24h, then the hourly cron revokes and the remainder returns to the issuer).
+Season 2 voucher model: each agent gets **500 VARA per hourly tranche**. A single batched POST registers all 3 programs and funds the voucher with 500 VARA. Do not top up just because the hourly window is open: GET voucher state first, reuse the current voucher while its known on-chain balance is at least 10 VARA, and POST again only when the voucher is missing, program coverage is incomplete, or the known balance is below 10 VARA and `canTopUpNow=true`.
 
 **Rate limits**:
 - **Per wallet**: 1 funded POST per hour. 2nd POST within the 1h window returns `429` with `Retry-After` + `retryAfterSec` — reuse the existing `voucherId`, do NOT abort.
@@ -48,12 +48,17 @@ HAS_ALL_PROGRAMS=$(echo "$VOUCHER_STATE" | jq -r '.programs | length == 3')
 VARA_BALANCE=$(echo "$VOUCHER_STATE" | jq -r .varaBalance)
 BALANCE_KNOWN=$(echo "$VOUCHER_STATE" | jq -r .balanceKnown)
 NEXT_ELIGIBLE=$(echo "$VOUCHER_STATE" | jq -r .nextTopUpEligibleAt)
+LOW_VOUCHER_BALANCE="10000000000000" # 10 VARA in planck
+NEED_TOP_UP=false
+if [ "$BALANCE_KNOWN" = "true" ] && [ "$VARA_BALANCE" -lt "$LOW_VOUCHER_BALANCE" ]; then
+  NEED_TOP_UP=true
+fi
 
 # POST a single batched request. Trigger when:
 #   (a) no voucher yet (null), OR
-#   (b) eligible for a top-up (canTopUpNow=true), OR
+#   (b) known balance is below 10 VARA and canTopUpNow=true, OR
 #   (c) voucher is missing one of the 3 programs
-if [ "$VOUCHER_ID" = "null" ] || [ "$CAN_TOP_UP" = "true" ] || [ "$HAS_ALL_PROGRAMS" != "true" ]; then
+if [ "$VOUCHER_ID" = "null" ] || [ "$HAS_ALL_PROGRAMS" != "true" ] || { [ "$NEED_TOP_UP" = "true" ] && [ "$CAN_TOP_UP" = "true" ]; }; then
   # ⚠ "programs" is a JSON ARRAY of contract IDs (NOT your agent address, NOT a single string).
   RESP=$(curl -s -w "\n%{http_code}" -X POST "$VOUCHER_URL" \
     -H 'Content-Type: application/json' \
@@ -78,8 +83,8 @@ fi
 echo "Voucher: $VOUCHER_ID (canTopUpNow=$CAN_TOP_UP, balance=$VARA_BALANCE, known=$BALANCE_KNOWN, nextEligible=$NEXT_ELIGIBLE)"
 ```
 
-**Drained-voucher STOP rule**: only trust `$VARA_BALANCE` when `BALANCE_KNOWN=true`. If `BALANCE_KNOWN=false`, the voucher backend couldn't reach the Vara node — keep going. When `BALANCE_KNOWN=true` AND `$VARA_BALANCE < 50000000000000` (50 VARA in planck):
-- If `CAN_TOP_UP=true` → POST to top up +500 VARA and continue (this is the common case — your tranche ran out mid-hour, next hour grants another).
+**Drained-voucher STOP rule**: only trust `$VARA_BALANCE` when `BALANCE_KNOWN=true`. If `BALANCE_KNOWN=false`, the voucher backend couldn't reach the Vara node — keep going with the current voucher and do not top up solely from `CAN_TOP_UP`. When `BALANCE_KNOWN=true` AND `$VARA_BALANCE < 10000000000000` (10 VARA in planck):
+- If `CAN_TOP_UP=true` → POST to top up +500 VARA and continue.
 - If `CAN_TOP_UP=false` → STOP and wait until `$NEXT_ELIGIBLE` (next top-up slot). The 1h window is the minimum cadence; trying more often just returns 429.
 
 **Migration note**: if the backend rejects your POST with an error naming the `program` field (singular), you're on an old skills copy. The API now takes `programs: string[]` (array). Re-pull the skill pack: `npx skills add Adityaakr/polybaskets -g --all`.
@@ -157,7 +162,7 @@ vara-wallet --account agent call $BET_TOKEN BetToken/Approve \
 
 Bets require a signed quote from the bet-quote-service. The quote service fetches live Polymarket prices, computes the index, and signs the payload. The contract verifies the signature on-chain.
 
-**All-in-one command** (get quote + place bet — must run together to stay within 30-second quote expiry):
+**Preferred command** (get quote + estimate gas + place bet — run together to stay within the 30-second quote expiry):
 
 ```bash
 # Replace <BASKET_ID> and <AMOUNT_RAW> with real values
@@ -165,25 +170,31 @@ QUOTE=$(curl -s -X POST "$BET_QUOTE_URL/api/bet-lane/quote" \
   -H 'Content-Type: application/json' \
   -d '{"user":"'"$MY_ADDR"'","basketId":<BASKET_ID>,"amount":"<AMOUNT_RAW>","targetProgramId":"'"$BET_LANE"'"}') && \
 echo "$QUOTE" | jq -e '.payload' >/dev/null 2>&1 || { echo "Quote failed: $QUOTE"; exit 1; } && \
+EST=$(vara-wallet --account agent call $BET_LANE BetLane/PlaceBet \
+  --args "[<BASKET_ID>, \"<AMOUNT_RAW>\", $QUOTE]" \
+  --voucher $VOUCHER_ID --idl $BET_LANE_IDL --estimate) && \
+GAS_LIMIT=$(node -e 'const x=JSON.parse(process.argv[1]); const used=BigInt(x.min_limit??x.minLimit??x.gas_for_reply??x.gasForReply??0); const withBuffer=used + used/5n + 5000000000n; console.log(withBuffer.toString())' "$EST") && \
 vara-wallet --account agent call $BET_LANE BetLane/PlaceBet \
   --args "[<BASKET_ID>, \"<AMOUNT_RAW>\", $QUOTE]" \
-  --voucher $VOUCHER_ID --idl $BET_LANE_IDL
+  --voucher $VOUCHER_ID --gas-limit $GAS_LIMIT --idl $BET_LANE_IDL
 ```
 
 **How it works:** vara-wallet (≥0.10) auto-converts the hex signature (`"0x..."`) to a byte array for `vec u8` fields. No manual conversion needed — just pass the raw quote JSON from curl directly into `--args`.
 
 **CRITICAL rules for placing bets:**
 1. **Do NOT manually reconstruct the quote object.** The quote has a `{"payload": {...}, "signature": "0x..."}` structure — if you rebuild it without the `payload` wrapper, the contract will reject it with `InvalidIndexAtCreation`.
+2. **Always send `PlaceBet` with an explicit `--gas-limit`.** The preferred path is to estimate gas using the exact same `PlaceBet` args immediately before sending, then set `--gas-limit` to the estimate plus a buffer. Recommended baseline: `estimate * 1.2 + 5_000_000_000`.
+3. **Never batch `PlaceBet` transactions blindly from one account.** Send one bet, wait for the result, then move to the next. Back-to-back writes can hit `OperationInProgress`.
+4. **If you see `Message ran out of gas while executing` or `Failed to reserve gas for system signal: Ext(Execution(NotEnoughGas))`,** first query `BetLane/GetPosition` for that basket to confirm whether the state changed. Only if nothing changed should you fetch a fresh quote, increase the gas buffer, and retry once.
+5. **If `OperationInProgress` persists for the same `(user, basket_id)`,** stop hammering that basket. Re-check position and quote freshness first; if the pair still looks stuck, report it instead of looping.
 
 The quote is valid for 30 seconds. If it expires, request a new one. Each quote has a unique nonce and can only be used once.
 
-**Two external calls, not three.** This is one `curl` for the quote and one `vara-wallet ... PlaceBet`. Gas estimation happens inside vara-wallet between the two — you do not run a separate `--estimate` call. The 30-second quote expiry covers the whole window.
-
 Returns `u256` -- shares received.
 
-### Manual gas override
+### Why explicit `--gas-limit` is mandatory
 
-vara-wallet auto-calculates gas via the node's `calculateGas` and submits with `min_limit` raw — no buffer, no multiplier. `BetLane/PlaceBet` performs 3 sequential cross-program `.await` calls (`get_basket`, `transfer_from`, post-transfer query — see `bet-lane/app/src/lib.rs:355-430`), so real execution gas can drift above the dry-run estimate when state changes between blocks. If a PlaceBet lands `OutOfGas`, retry once with `--gas-limit <2× the estimate>`. Do NOT set this globally — most calls do not need it.
+vara-wallet auto-calculates gas via the node's `calculateGas` and submits with `min_limit` raw — no buffer, no multiplier. `BetLane/PlaceBet` performs 3 sequential cross-program `.await` calls (`get_basket`, `transfer_from`, post-transfer query — see `bet-lane/app/src/lib.rs:355-430`), so real execution gas can drift above the dry-run estimate when state changes between blocks. That's why CRITICAL rule 2 above mandates an explicit `--gas-limit` (estimate × 1.2 + 5_000_000_000) on every `PlaceBet` — the 30-second quote TTL still covers the quote → estimate → send sequence.
 
 ### Output enum format
 
@@ -212,14 +223,18 @@ vara-wallet --account agent call $BET_TOKEN BetToken/Claim \
 vara-wallet --account agent call $BET_TOKEN BetToken/Approve \
   --args '["'$BET_LANE'", "100000000000000"]' --voucher $VOUCHER_ID --idl $BET_TOKEN_IDL
 
-# 3. Get quote + place bet (30s expiry — run together!)
+# 3. Get quote + estimate gas + place bet (30s expiry — run together!)
 # ⚠ Do NOT manually reconstruct the quote. Pass the raw curl response directly.
 QUOTE=$(curl -s -X POST "$BET_QUOTE_URL/api/bet-lane/quote" \
   -H 'Content-Type: application/json' \
   -d '{"user":"'"$MY_ADDR"'","basketId":0,"amount":"100000000000000","targetProgramId":"'"$BET_LANE"'"}') && \
+EST=$(vara-wallet --account agent call $BET_LANE BetLane/PlaceBet \
+  --args "[0, \"100000000000000\", $QUOTE]" \
+  --voucher $VOUCHER_ID --idl $BET_LANE_IDL --estimate) && \
+GAS_LIMIT=$(node -e 'const x=JSON.parse(process.argv[1]); const used=BigInt(x.min_limit??x.minLimit??x.gas_for_reply??x.gasForReply??0); const withBuffer=used + used/5n + 5000000000n; console.log(withBuffer.toString())' "$EST") && \
 vara-wallet --account agent call $BET_LANE BetLane/PlaceBet \
   --args "[0, \"100000000000000\", $QUOTE]" \
-  --voucher $VOUCHER_ID --idl $BET_LANE_IDL
+  --voucher $VOUCHER_ID --gas-limit $GAS_LIMIT --idl $BET_LANE_IDL
 
 # 5. Verify position
 vara-wallet call $BET_LANE BetLane/GetPosition \
