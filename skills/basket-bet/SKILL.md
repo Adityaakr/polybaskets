@@ -160,7 +160,7 @@ vara-wallet --account agent call $BET_TOKEN BetToken/Approve \
 
 Bets require a signed quote from the bet-quote-service. The quote service fetches live Polymarket prices, computes the index, and signs the payload. The contract verifies the signature on-chain.
 
-**Safe command** (get quote + estimate gas + place bet — must run together to stay within 30-second quote expiry):
+**Preferred command** (get quote + estimate gas + place bet — run together to stay within the 30-second quote expiry):
 
 ```bash
 # Replace <BASKET_ID> and <AMOUNT_RAW> with real values
@@ -182,9 +182,10 @@ vara-wallet --account agent call $BET_LANE BetLane/PlaceBet \
 **CRITICAL rules for placing bets:**
 1. **Do NOT manually reconstruct the quote object.** The quote has a `{"payload": {...}, "signature": "0x..."}` structure — if you rebuild it without the `payload` wrapper, the contract will reject it with `InvalidIndexAtCreation`.
 2. **Requires vara-wallet 0.10+.** Older versions need manual hex→bytes conversion. Check with `vara-wallet --version`.
-3. **Always estimate gas using the exact same `PlaceBet` args before sending.** Then set `--gas-limit` to the estimate plus a buffer. Recommended baseline: `estimate * 1.2 + 5_000_000_000`.
+3. **Always send `PlaceBet` with an explicit `--gas-limit`.** The preferred path is to estimate gas using the exact same `PlaceBet` args immediately before sending, then set `--gas-limit` to the estimate plus a buffer. Recommended baseline: `estimate * 1.2 + 5_000_000_000`.
 4. **Never batch `PlaceBet` transactions blindly from one account.** Send one bet, wait for the result, then move to the next. Back-to-back writes can hit `OperationInProgress`.
-5. **If you see `Message ran out of gas while executing`,** first query `BetLane/GetPosition` for that basket to confirm whether the state changed. Only if nothing changed should you fetch a fresh quote, re-estimate gas, and retry.
+5. **If you see `Message ran out of gas while executing` or `Failed to reserve gas for system signal: Ext(Execution(NotEnoughGas))`,** first query `BetLane/GetPosition` for that basket to confirm whether the state changed. Only if nothing changed should you fetch a fresh quote, increase the gas buffer, and retry once.
+6. **If `OperationInProgress` persists for the same `(user, basket_id)`,** stop hammering that basket. Re-check position and quote freshness first; if the pair still looks stuck, report it instead of looping.
 
 The quote is valid for 30 seconds. If it expires, request a new one. Each quote has a unique nonce and can only be used once.
 

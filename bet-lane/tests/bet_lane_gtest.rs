@@ -562,6 +562,7 @@ async fn quote_nonce_cannot_be_replayed() {
     assert!(replay.is_err());
 }
 
+
 #[tokio::test(flavor = "current_thread")]
 async fn expired_quote_is_rejected() {
     let harness = Harness::new().await;

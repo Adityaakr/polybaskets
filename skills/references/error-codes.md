@@ -68,7 +68,7 @@
 | `SettlementNotFinalized` | Settlement not yet finalized | Wait for finalization |
 | `NothingToClaim` | No position in this basket | Verify position exists |
 | `AlreadyClaimed` | Already claimed | No action needed |
-| `OperationInProgress` | Concurrent operation on same position | Wait and retry |
+| `OperationInProgress` | Another bet/claim flow on the same `(user, basket_id)` is still being processed or looks stuck | Wait briefly, query position first, then retry once with a fresh quote only if state did not change; if it keeps repeating, stop and report |
 | `BetTokenTransferFromFailed` | BET token transfer failed | Check BET balance and approval |
 | `BetTokenPayoutFailed` | Payout transfer failed | Retry or contact admin |
 | `BetTokenRefundFailed` | Refund transfer failed | Retry or contact admin |

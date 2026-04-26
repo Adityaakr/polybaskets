@@ -118,9 +118,9 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > Show CHIP balance after claiming.
 > **If CHIP balance < 200 AFTER claiming payouts (Step 4) AND hourly CHIP (Step 5): print balance and STOP — come back in an hour.** (The payout claim runs first so we never stop while there's claimable CHIP still on-chain.)
 >
-> **Gas rule for every write call**
-> Before every state-changing `vara-wallet call`, especially `BetLane/PlaceBet`, run the same command once with `--estimate`, then resend it with an explicit `--gas-limit` equal to the estimate plus a safety buffer. Recommended default for `PlaceBet`: `estimate * 1.2 + 5_000_000_000`.
-> Never spam `PlaceBet` calls in parallel from one account. Send one, wait for the result, then continue. If you hit `Message ran out of gas while executing`, first query state (`BetLane/GetPosition`, allowance, claim state) before retrying. If you hit `OperationInProgress`, wait briefly, refresh the quote if needed, and continue sequentially.
+> **Gas rule for write calls**
+> For `BetLane/PlaceBet`, always send the real transaction with an explicit `--gas-limit`. Preferred flow: quote -> same call with `--estimate` -> resend with buffer. Recommended default for `PlaceBet`: `estimate * 1.2 + 5_000_000_000`.
+> Never spam `PlaceBet` calls in parallel from one account. Send one, wait for the result, then continue. If you hit `Message ran out of gas while executing` or `Failed to reserve gas for system signal: Ext(Execution(NotEnoughGas))`, first query state (`BetLane/GetPosition`, allowance, claim state) before retrying. If nothing changed, refresh the quote if needed, increase the gas buffer, and retry once. If you hit `OperationInProgress`, wait briefly, re-check state, and only continue sequentially once the pair looks idle again.
 >
 > **Step 6 — Fetch markets**
 > Fetch 90 active markets from Polymarket Gamma API. **Always use `end_date_min` to exclude ended markets.**
@@ -165,15 +165,19 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > **Flow per basket — create one, bet immediately, then next one. Do NOT batch-create multiple baskets and bet later:**
 > 1. `BasketMarket/CreateBasket` with `asset_kind: "Bet"` (use `--voucher $VOUCHER_ID`)
 > 2. `BetToken/Approve` for BetLane — conviction-sized amount in raw units (use `--voucher $VOUCHER_ID`)
-> 3. Get signed quote and place bet in one command (quote expires in 30 seconds — must run together):
+> 3. Get signed quote, estimate gas, and place bet in one command chain (quote expires in 30 seconds — keep the chain tight):
 >    ```bash
 >    BET_AMOUNT="10000000000000"   # adjust per conviction: 5/10/20 CHIP
 >    QUOTE=$(curl -s -X POST "$BET_QUOTE_URL/api/bet-lane/quote" \
 >      -H 'Content-Type: application/json' \
 >      -d '{"user":"'"$MY_ADDR"'","basketId":BASKET_ID,"amount":"'"$BET_AMOUNT"'","targetProgramId":"'"$BET_LANE"'"}') && \
+>    EST=$(vara-wallet --account agent call $BET_LANE BetLane/PlaceBet \
+>      --args "[BASKET_ID, \"$BET_AMOUNT\", $QUOTE]" \
+>      --voucher $VOUCHER_ID --idl $BET_LANE_IDL --estimate) && \
+>    GAS_LIMIT=$(node -e 'const x=JSON.parse(process.argv[1]); const used=BigInt(x.min_limit??x.minLimit??x.gas_for_reply??x.gasForReply??0); const withBuffer=used + used/5n + 5000000000n; console.log(withBuffer.toString())' "$EST") && \
 >    vara-wallet --account agent call $BET_LANE BetLane/PlaceBet \
 >      --args "[BASKET_ID, \"$BET_AMOUNT\", $QUOTE]" \
->      --voucher $VOUCHER_ID --idl $BET_LANE_IDL
+>      --voucher $VOUCHER_ID --gas-limit $GAS_LIMIT --idl $BET_LANE_IDL
 >    ```
 >    Do NOT manually reconstruct the quote object — pass the raw curl response directly. vara-wallet 0.10+ auto-converts hex signatures to byte arrays.
 >
@@ -283,7 +287,7 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > 10. On per-basket failure: log and continue. On setup failure (voucher 5xx, IDL missing, repeated `InvalidNonce`): STOP
 > 11. Print report: agent name · baskets created (by conviction tier) · bets placed (own + other) · CHIP wagered · total TX · markets skipped · failed operations
 >
-> Browse baskets ON-CHAIN via `vara-wallet call` (NOT via HTTP). Hex address, always `--idl`, mainnet only. Requires vara-wallet 0.10+. If you see `META_STORAGE_ERROR` / `Meta-storage returned 522`, treat it as a missing-`--idl` workflow bug and rerun with the explicit IDL path.
+> Browse baskets ON-CHAIN via `vara-wallet call` (NOT via HTTP). Hex address, always `--idl`, mainnet only. Requires vara-wallet 0.10+. If you see `META_STORAGE_ERROR` / `Meta-storage returned 522`, treat it as a missing-`--idl` workflow bug and rerun with the explicit IDL path. For every `PlaceBet`, use the same explicit-gas flow as in the main prompt: quote -> estimate -> send with `--gas-limit`.
 
 ### Explore markets only (no betting)
 
@@ -348,4 +352,4 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > 11. Print fixed report: agent name · baskets created (high/medium/low) · own + other bets · CHIP wagered · total TX · markets skipped · failed operations
 >
 > **Research fast, but always have a thesis. Skip markets where you have no edge. Do not pause or ask questions.**
-> Browse baskets ON-CHAIN via `vara-wallet call` (NOT via HTTP). Hex address, always `--idl`, mainnet only. Requires vara-wallet 0.10+.
+> Browse baskets ON-CHAIN via `vara-wallet call` (NOT via HTTP). Hex address, always `--idl`, mainnet only. Requires vara-wallet 0.10+. For every `PlaceBet`, use the same explicit-gas flow as in the main prompt: quote -> estimate -> send with `--gas-limit`.
