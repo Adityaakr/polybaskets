@@ -73,6 +73,8 @@ import {
 import type { Basket } from '@/types/basket.ts';
 
 type ContestDisplayStatus = 'live' | 'ready' | 'settled' | 'no_winner';
+type AllTimeWinningsSortKey = 'pnl' | 'rewards';
+type SortDirection = 'asc' | 'desc';
 
 const CONTEST_QUERY_ERROR =
   'Unable to load the daily contest leaderboard from the indexer.';
@@ -855,6 +857,8 @@ function CommunityVaraLeaderboard() {
   const [communityBasketSearchQuery, setCommunityBasketSearchQuery] = useState('');
   const [communityCuratorSearchQuery, setCommunityCuratorSearchQuery] = useState('');
   const [communityWinningsSearchQuery, setCommunityWinningsSearchQuery] = useState('');
+  const [allTimeWinningsSortKey, setAllTimeWinningsSortKey] = useState<AllTimeWinningsSortKey>('pnl');
+  const [allTimeWinningsSortDirection, setAllTimeWinningsSortDirection] = useState<SortDirection>('desc');
   const [basketsPage, setBasketsPage] = useState(1);
   const [curatorsPage, setCuratorsPage] = useState(1);
   const [winningsPage, setWinningsPage] = useState(1);
@@ -1122,8 +1126,37 @@ function CommunityVaraLeaderboard() {
     [communityWinningsSearchQuery, topAllTimeWinners],
   );
 
+  const sortedCommunityWinnings = useMemo(() => {
+    const entries = [...filteredCommunityWinnings];
+    const directionMultiplier = allTimeWinningsSortDirection === 'desc' ? -1 : 1;
+
+    entries.sort((left, right) => {
+      const leftValue =
+        allTimeWinningsSortKey === 'pnl'
+          ? BigInt(left.totalRealizedProfit)
+          : BigInt(left.totalRewards);
+      const rightValue =
+        allTimeWinningsSortKey === 'pnl'
+          ? BigInt(right.totalRealizedProfit)
+          : BigInt(right.totalRewards);
+
+      if (leftValue === rightValue) {
+        const fallback = BigInt(right.totalRealizedProfit) - BigInt(left.totalRealizedProfit);
+        if (fallback !== 0n) {
+          return fallback > 0n ? 1 : -1;
+        }
+
+        return left.user.localeCompare(right.user);
+      }
+
+      return leftValue > rightValue ? directionMultiplier : -directionMultiplier;
+    });
+
+    return entries;
+  }, [allTimeWinningsSortDirection, allTimeWinningsSortKey, filteredCommunityWinnings]);
+
   const curatorsTotalPages = Math.max(1, Math.ceil(filteredCommunityCurators.length / COMMUNITY_PAGE_SIZE));
-  const winningsTotalPages = Math.max(1, Math.ceil(filteredCommunityWinnings.length / COMMUNITY_PAGE_SIZE));
+  const winningsTotalPages = Math.max(1, Math.ceil(sortedCommunityWinnings.length / COMMUNITY_PAGE_SIZE));
 
   useEffect(() => setBasketsPage(1), [communityBasketSearchQuery]);
   useEffect(() => setCuratorsPage(1), [communityCuratorSearchQuery]);
@@ -1148,8 +1181,8 @@ function CommunityVaraLeaderboard() {
 
   const pagedWinnings = useMemo(() => {
     const start = (winningsPage - 1) * COMMUNITY_PAGE_SIZE;
-    return filteredCommunityWinnings.slice(start, start + COMMUNITY_PAGE_SIZE);
-  }, [filteredCommunityWinnings, winningsPage]);
+    return sortedCommunityWinnings.slice(start, start + COMMUNITY_PAGE_SIZE);
+  }, [sortedCommunityWinnings, winningsPage]);
 
   const activeCommunitySearchValue =
     activeCommunityView === 'baskets'
@@ -1178,8 +1211,8 @@ function CommunityVaraLeaderboard() {
           : communityCuratorSearchQuery.trim()
             ? 'No matching agents'
             : 'No ranked agents yet'
-        : filteredCommunityWinnings.length > 0
-          ? `Showing ${(winningsPage - 1) * COMMUNITY_PAGE_SIZE + 1}-${Math.min(winningsPage * COMMUNITY_PAGE_SIZE, filteredCommunityWinnings.length)} of ${filteredCommunityWinnings.length}`
+        : sortedCommunityWinnings.length > 0
+          ? `Showing ${(winningsPage - 1) * COMMUNITY_PAGE_SIZE + 1}-${Math.min(winningsPage * COMMUNITY_PAGE_SIZE, sortedCommunityWinnings.length)} of ${sortedCommunityWinnings.length}`
           : communityWinningsSearchQuery.trim()
             ? 'No matching agents'
             : 'No all-time PnL yet';
@@ -1618,7 +1651,7 @@ function CommunityVaraLeaderboard() {
               </p>
             </CardContent>
           </Card>
-        ) : filteredCommunityWinnings.length === 0 ? (
+        ) : sortedCommunityWinnings.length === 0 ? (
           <Card>
             <CardContent className="py-12 text-center">
               <Coins className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
@@ -1634,19 +1667,63 @@ function CommunityVaraLeaderboard() {
                 <div className="grid grid-cols-[72px_minmax(0,1.6fr)_160px_160px] gap-4 px-6 py-3 text-xs font-medium text-muted-foreground bg-muted/50">
                   <span className="text-center">#</span>
                   <span>Agent</span>
-                  <span className="text-right">All-Time PnL</span>
-                  <span className="text-right">Won VARA</span>
+                  <button
+                    type="button"
+                    className="flex items-center justify-end gap-1 text-right transition-colors hover:text-foreground"
+                    onClick={() => {
+                      if (allTimeWinningsSortKey === 'pnl') {
+                        setAllTimeWinningsSortDirection((current) => (current === 'desc' ? 'asc' : 'desc'));
+                      } else {
+                        setAllTimeWinningsSortKey('pnl');
+                        setAllTimeWinningsSortDirection('desc');
+                      }
+                    }}
+                  >
+                    <span>All-Time PnL</span>
+                    {allTimeWinningsSortKey === 'pnl' ? (
+                      allTimeWinningsSortDirection === 'desc' ? (
+                        <ChevronDown className="h-3.5 w-3.5" />
+                      ) : (
+                        <ChevronUp className="h-3.5 w-3.5" />
+                      )
+                    ) : (
+                      <ChevronDown className="h-3.5 w-3.5 opacity-30" />
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    className="flex items-center justify-end gap-1 text-right transition-colors hover:text-foreground"
+                    onClick={() => {
+                      if (allTimeWinningsSortKey === 'rewards') {
+                        setAllTimeWinningsSortDirection((current) => (current === 'desc' ? 'asc' : 'desc'));
+                      } else {
+                        setAllTimeWinningsSortKey('rewards');
+                        setAllTimeWinningsSortDirection('desc');
+                      }
+                    }}
+                  >
+                    <span>Won VARA</span>
+                    {allTimeWinningsSortKey === 'rewards' ? (
+                      allTimeWinningsSortDirection === 'desc' ? (
+                        <ChevronDown className="h-3.5 w-3.5" />
+                      ) : (
+                        <ChevronUp className="h-3.5 w-3.5" />
+                      )
+                    ) : (
+                      <ChevronDown className="h-3.5 w-3.5 opacity-30" />
+                    )}
+                  </button>
                 </div>
               </div>
               <div className="divide-y overflow-x-auto">
-                {pagedWinnings.map((entry) => (
+                {pagedWinnings.map((entry, index) => (
                   <Link
                     key={entry.user}
                     to={`/agents/${encodeURIComponent(getAgentRouteId(entry.publicId))}`}
                     className="group grid grid-cols-[72px_minmax(0,1.6fr)_160px_160px] gap-4 px-6 py-4 items-center transition-colors hover:bg-muted/20"
                   >
                     <span className="text-center font-semibold text-muted-foreground">
-                      {entry.rank}
+                      {(winningsPage - 1) * COMMUNITY_PAGE_SIZE + index + 1}
                     </span>
                     <div className="min-w-0">
                       <div className="truncate text-sm font-semibold transition-colors group-hover:text-primary">
@@ -1671,7 +1748,7 @@ function CommunityVaraLeaderboard() {
                   </Link>
                 ))}
               </div>
-              {filteredCommunityWinnings.length > 0 ? (
+              {sortedCommunityWinnings.length > 0 ? (
                 <div className="flex flex-col gap-3 border-t border-primary/10 px-6 py-4 md:flex-row md:items-center md:justify-between">
                   <div className="text-sm text-muted-foreground">
                     Page {winningsPage} of {winningsTotalPages}
