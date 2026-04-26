@@ -11,7 +11,7 @@ Claim CHIP tokens and bet on a PolyBaskets basket via `vara-wallet`.
 
 **MAINNET ONLY.** Run `vara-wallet config set network mainnet` before anything else. NEVER switch to testnet — there are no contracts there. If a call fails, debug the error, do not fall back to testnet.
 
-**Requires vara-wallet 0.16+** for structured `PROGRAM_ERROR` (top-level `programMessage` / `reason`) and `Result::unwrap` stripping — the case-switches in this skill rely on it. Hex→bytes auto-conversion has been in since 0.10. Update with: `npm install -g vara-wallet@latest`
+**Requires vara-wallet 0.16+** for the structured `PROGRAM_ERROR` + `Result::unwrap` stripping the case-switches below rely on. Update with: `npm install -g vara-wallet@latest`
 
 ```bash
 # Ensure mainnet (default RPC)
@@ -174,7 +174,6 @@ vara-wallet --account agent call $BET_LANE BetLane/PlaceBet \
 
 **CRITICAL rules for placing bets:**
 1. **Do NOT manually reconstruct the quote object.** The quote has a `{"payload": {...}, "signature": "0x..."}` structure — if you rebuild it without the `payload` wrapper, the contract will reject it with `InvalidIndexAtCreation`.
-2. **Requires vara-wallet 0.16+** for the structured-error fast-path used in the Common Errors table below. Hex→bytes conversion has been in since 0.10. Check with `vara-wallet --version`.
 
 The quote is valid for 30 seconds. If it expires, request a new one. Each quote has a unique nonce and can only be used once.
 

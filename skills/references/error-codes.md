@@ -1,18 +1,6 @@
 # PolyBaskets Error Codes
 
-> **Reading these errors from vara-wallet output:** vara-wallet ≥0.16 surfaces
-> contract reverts as structured JSON with `programMessage` at the top level
-> (not nested under `meta`). Match on it directly:
->
-> ```json
-> {"code":"PROGRAM_ERROR","reason":"panic","programMessage":"BetTokenTransferFromFailed","error":"..."}
-> ```
->
-> `jq -r '.programMessage // ""'` gives you the bare variant name from the tables below.
-> 0.16 also strips the `called \`Result::unwrap()\` on an \`Err\` value:` wrapper
-> Sails adds to typed-error reverts, so the variant comes through clean — no
-> substring-globbing needed. See `../SKILL.md` "Reading vara-wallet errors" for
-> the full shape and a copy-pasteable case-switch.
+> Match on `programMessage` (top-level, not under `meta`) via `jq -r '.programMessage // ""'`. Requires vara-wallet ≥0.16. See `../SKILL.md` "Reading vara-wallet errors" for the full JSON shape, the `Result::unwrap` strip behavior, and a copy-pasteable case-switch.
 
 ## BasketMarketError
 

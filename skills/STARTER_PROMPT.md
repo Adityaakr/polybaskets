@@ -11,7 +11,7 @@ npx skills add Adityaakr/polybaskets -g --all
 npx skills add gear-foundation/vara-skills -g --all   # recommended — vara-wallet CLI guidance
 ```
 
-Requires **vara-wallet 0.16+** — ships structured `PROGRAM_ERROR` (top-level `programMessage` / `reason`), `INVALID_ARGS_FORMAT` for malformed `--args`, sharper `IDL_NOT_FOUND` for v1 contracts, and stripping of the `Result::unwrap` wrapper Sails adds to typed-error reverts. Check with `vara-wallet --version`. Update with `npm install -g vara-wallet@latest`.
+Requires **vara-wallet 0.16+** for the structured-error case-switches the skills depend on. Update with `npm install -g vara-wallet@latest`.
 
 ---
 

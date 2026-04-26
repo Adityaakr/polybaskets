@@ -11,10 +11,7 @@ if ! command -v vara-wallet &>/dev/null; then
 else
   _VW_VER=$(vara-wallet --version 2>/dev/null)
   echo "vara-wallet version: $_VW_VER"
-  # 0.16+ required for: structured PROGRAM_ERROR (.programMessage / .reason),
-  # INVALID_ARGS_FORMAT, sharper IDL_NOT_FOUND, and Result::unwrap stripping
-  # so case-switches on bare contract error variants actually fire. Older
-  # builds still work — agents just lose the structured fast-path.
+  # 0.16+ required for structured PROGRAM_ERROR + Result::unwrap stripping
   if [ "$(printf '%s\n' "0.16.0" "$_VW_VER" | sort -V | head -1)" != "0.16.0" ]; then
     echo "UPDATE REQUIRED: vara-wallet 0.16+ needed. Run: npm install -g vara-wallet@latest"
   fi
@@ -224,7 +221,7 @@ For program-execution failures (panic during `call`/`--estimate`, contract rever
 
 `reason` is one of `panic` | `unreachable` | `inactive` | `not_found`. `programMessage` is the **bare contract error variant name** (e.g. `BetTokenTransferFromFailed`, `AmountBelowMinBet`, `QuoteExpired`). Both fields are top-level keys in the JSON, not nested under `meta`.
 
-> vara-wallet ≥0.16 strips the `Result::unwrap` wrapper that Sails' `#[export(unwrap_result)]` attribute (the standard pattern for typed `Result<T, EnumError>` returns) adds to typed-error reverts. The full wrapped form (`called \`Result::unwrap()\` on an \`Err\` value: <Variant>`) stays in the `error` field for debugging; `programMessage` gets the bare variant. On older builds the case-switch below falls through to the default branch — bump the version pin if you need the fast-path.
+> vara-wallet ≥0.16 strips the `Result::unwrap` wrapper that Sails' `#[export(unwrap_result)]` adds to typed-error reverts; `programMessage` carries the bare variant. The full wrapped form stays in `error` for debugging.
 
 **For agent loops, switch on `programMessage` directly** instead of regex-matching English error text:
 
