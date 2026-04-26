@@ -151,6 +151,8 @@ vara-wallet --account agent call $BET_TOKEN BetToken/Approve \
 
 **Note:** Approve returns `"result":false` — this is normal, it's the previous approval state (not an error). Verify with `BetToken/Allowance` if needed.
 
+**Approve before estimating, not just before submitting.** When CHIP allowance is insufficient, the failure surfaces during gas estimation, not submission, because `calculateGas` runs the message in a runtime sandbox and `BetLane/PlaceBet` does a cross-program `BetToken/TransferFrom`. Recent vara-wallet builds surface the underlying `BetTokenTransferFromFailed` directly as `code: PROGRAM_ERROR` with `meta.programMessage`; older builds show it as a generic gas error. Either way, a bigger gas number does not fix this — re-run `BetToken/Approve` for `$BET_LANE`.
+
 ### Step 5: Get Signed Quote + Place Bet
 
 Bets require a signed quote from the bet-quote-service. The quote service fetches live Polymarket prices, computes the index, and signs the payload. The contract verifies the signature on-chain.
@@ -176,7 +178,25 @@ vara-wallet --account agent call $BET_LANE BetLane/PlaceBet \
 
 The quote is valid for 30 seconds. If it expires, request a new one. Each quote has a unique nonce and can only be used once.
 
+**Two external calls, not three.** This is one `curl` for the quote and one `vara-wallet ... PlaceBet`. Gas estimation happens inside vara-wallet between the two — you do not run a separate `--estimate` call. The 30-second quote expiry covers the whole window.
+
 Returns `u256` -- shares received.
+
+### Manual gas override
+
+vara-wallet auto-calculates gas via the node's `calculateGas` and submits with `min_limit` raw — no buffer, no multiplier. `BetLane/PlaceBet` performs 3 sequential cross-program `.await` calls (`get_basket`, `transfer_from`, post-transfer query — see `bet-lane/app/src/lib.rs:355-430`), so real execution gas can drift above the dry-run estimate when state changes between blocks. If a PlaceBet lands `OutOfGas`, retry once with `--gas-limit <2× the estimate>`. Do NOT set this globally — most calls do not need it.
+
+### Output enum format
+
+`Outcome` returns as `{"kind":"YES"}` / `{"kind":"NO"}` in query JSON (Sails-JS variant encoding), even though it accepts the plain `"YES"` / `"NO"` strings on input. Same for `BasketAssetKind`: input `"Bet"` / `"Vara"`, query output `{"kind":"Bet"}` / `{"kind":"Vara"}`. When parsing query results, check `.kind` rather than comparing the value directly.
+
+### Estimate output shape
+
+`vara-wallet ... --estimate` returns `estimateGas: { gasLimit, minLimit }` — both fields are camelCase. The internal codec field is snake_case `min_limit`, but it is NOT the JSON key. Read `result.estimateGas.minLimit`.
+
+### Voucher state — null is not "drained"
+
+If `curl $VOUCHER_URL/$MY_ADDR` returns `varaBalance: null` or `balanceKnown: false`, the voucher backend's RPC was unreachable, not the voucher empty. Keep using the existing `voucherId`; do NOT POST a fresh top-up. See `../STARTER_PROMPT.md` for the full voucher state machine — STOP only when `balanceKnown=true` AND `varaBalance < 50 VARA` AND `canTopUpNow=false`.
 
 ### Complete CHIP Lane Example
 
@@ -260,17 +280,38 @@ vara-wallet call $BET_LANE BetLane/GetPosition \
 
 ## Common Errors
 
-| Error | Cause | Fix |
-|-------|-------|-----|
-| `InvalidIndexAtCreation` | Malformed quote struct (missing `payload` wrapper) | Do NOT manually reconstruct the quote — pipe the raw curl response through python3 |
+Recent vara-wallet builds surface contract reverts as structured JSON:
+`{"code":"PROGRAM_ERROR","reason":"panic","programMessage":"<variant>", ...}`.
+Match on `.programMessage` directly. See `../SKILL.md` "Reading vara-wallet errors" for the full shape.
+
+| `programMessage` | Cause | Fix |
+|-----------------|-------|-----|
+| `BetTokenTransferFromFailed` | Insufficient CHIP allowance for the BetLane spender. Surfaces at **gas-estimate time** (calculateGas runs `transfer_from` in a runtime sandbox), looks like a gas error but isn't. | Re-run `BetToken/Approve` for `$BET_LANE`; do NOT increase `--gas-limit`. |
+| `InvalidIndexAtCreation` | Malformed quote struct (missing `payload` wrapper) | Do NOT manually reconstruct the quote — pass the raw curl response directly to `--args` |
 | `InvalidQuoteSignature` | Quote not signed by configured signer | Check bet-quote-service config |
 | `QuoteExpired` | Quote older than 30 seconds | Request a fresh quote |
 | `QuoteNonceAlreadyUsed` | Same quote submitted twice | Request a new quote for each bet |
 | `QuoteTargetMismatch` | Quote was for a different BetLane | Check `targetProgramId` matches `$BET_LANE` |
+| `QuoteUserMismatch` | Quote `user` field does not match caller's address | Build the quote with the caller's hex address |
 | `InvalidBetAmount` | No `--value` attached (VARA lane) | Add `--value <amount>` |
-| `BasketNotActive` | Basket in settlement/settled | Cannot bet on non-active baskets |
+| `BasketNotActive` | Basket in settlement/settled | Cannot bet on non-active baskets — skip and move on |
 | `BasketAssetMismatch` | Wrong lane for basket | Check basket's `asset_kind` |
 | `VaraDisabled` | VARA betting off | Use CHIP lane instead |
-| `AmountBelowMinBet` | CHIP amount too low | Check BetLane config for min_bet |
-| `AmountAboveMaxBet` | CHIP amount too high | Check BetLane config for max_bet |
-| `BetTokenTransferFromFailed` | Insufficient CHIP balance or approval | Claim more tokens or increase approval |
+| `AmountBelowMinBet` | CHIP amount too low | Check BetLane config for `min_bet` |
+| `AmountAboveMaxBet` | CHIP amount too high | Check BetLane config for `max_bet` |
+
+`jq` selector to fast-route the agent's response:
+
+```bash
+ERR=$(vara-wallet --account agent call $BET_LANE BetLane/PlaceBet ... 2>&1 1>/dev/null)
+PM=$(echo "$ERR" | jq -r '.programMessage // ""')
+case "$PM" in
+  BetTokenTransferFromFailed) approve_more_chip; retry ;;
+  QuoteExpired|QuoteNonceAlreadyUsed) refresh_quote; retry ;;
+  QuoteUserMismatch) rebuild_quote_for_caller; retry ;;
+  AmountBelowMinBet) increase_amount; retry ;;
+  BasketNotActive|BasketAssetMismatch) skip_basket ;;
+  "") echo "non-program error: $ERR"; halt ;;
+  *) echo "unknown contract revert: $PM"; halt ;;
+esac
+```

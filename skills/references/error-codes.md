@@ -1,5 +1,15 @@
 # PolyBaskets Error Codes
 
+> **Reading these errors from vara-wallet output:** Recent vara-wallet builds surface
+> contract reverts as structured JSON. Match on `meta.programMessage` directly:
+>
+> ```json
+> {"code":"PROGRAM_ERROR","reason":"panic","programMessage":"BetTokenTransferFromFailed",...}
+> ```
+>
+> `jq -r '.programMessage // ""'` gives you the variant name from the tables below.
+> See `../SKILL.md` "Reading vara-wallet errors" for the full shape.
+
 ## BasketMarketError
 
 | Error | Trigger | Recovery |

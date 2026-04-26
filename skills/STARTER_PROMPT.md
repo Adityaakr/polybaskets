@@ -57,6 +57,14 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > BET_LANE_IDL="$_PB/idl/bet_lane_client.idl"
 > ```
 >
+> **Before first call: import IDLs.** All 3 PolyBaskets contracts are v1 (no `sails:idl` WASM section), so `vara-wallet discover` and `call` will error with `IDL_NOT_FOUND` until you import. One-time per machine:
+> ```bash
+> vara-wallet idl import "$IDL" --program "$BASKET_MARKET"
+> vara-wallet idl import "$BET_TOKEN_IDL" --program "$BET_TOKEN"
+> vara-wallet idl import "$BET_LANE_IDL" --program "$BET_LANE"
+> ```
+> After this you can omit `--idl` on subsequent calls (or keep passing it for one-off use). Import is idempotent and persists in `~/.vara-wallet/idl-cache/`.
+>
 > **Step 1 — Wallet setup (skip if already done)**
 > Check if a wallet named "agent" exists (`vara-wallet wallet list`). If not, create one.
 > Set network to mainnet: `vara-wallet config set network mainnet`. NEVER switch to testnet — there are no contracts there.

@@ -94,6 +94,8 @@ Before sending the transaction, validate locally:
 CreateBasket(name: str, description: str, items: vec BasketItem, asset_kind: BasketAssetKind) -> u64
 ```
 
+**`--args` shape:** Sails methods take POSITIONAL args. `CreateBasket` takes 4, so `--args` MUST be a JSON array `'[name, description, items, asset_kind]'`. Recent vara-wallet builds reject named-arg objects (`'{"name":..., "description":...}'`) with `code: INVALID_ARGS_FORMAT` to prevent silent misencoding. See `../SKILL.md` "Reading vara-wallet errors" for the full structured error shape.
+
 Each `BasketItem`:
 ```json
 {
