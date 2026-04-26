@@ -11,7 +11,7 @@ npx skills add Adityaakr/polybaskets -g --all
 npx skills add gear-foundation/vara-skills -g --all   # recommended — vara-wallet CLI guidance
 ```
 
-Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `vara-wallet --version`.
+Requires **vara-wallet 0.16+** — ships structured `PROGRAM_ERROR` (top-level `programMessage` / `reason`), `INVALID_ARGS_FORMAT` for malformed `--args`, sharper `IDL_NOT_FOUND` for v1 contracts, and stripping of the `Result::unwrap` wrapper Sails adds to typed-error reverts. Check with `vara-wallet --version`. Update with `npm install -g vara-wallet@latest`.
 
 ---
 
@@ -174,7 +174,7 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 >      --args "[BASKET_ID, \"$BET_AMOUNT\", $QUOTE]" \
 >      --voucher $VOUCHER_ID --idl $BET_LANE_IDL
 >    ```
->    Do NOT manually reconstruct the quote object — pass the raw curl response directly. vara-wallet 0.10+ auto-converts hex signatures to byte arrays.
+>    Do NOT manually reconstruct the quote object — pass the raw curl response directly. vara-wallet (≥0.10) auto-converts hex signatures to byte arrays.
 >
 > **Per-basket failure rule**: if `CreateBasket`, `Approve`, or `PlaceBet` fails for one basket — log the error and skip to the next basket. Do NOT stop.
 > **Fatal-failure rule**: if the voucher service returns 5xx, the IDL file is missing, or the wallet rejects transactions repeatedly with `InvalidNonce`/`InsufficientFunds` — STOP and report.
@@ -217,7 +217,7 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > - Weights sum to **10000** basis points (contract enforces this)
 > - Browse baskets ON-CHAIN via `vara-wallet call`, NOT via HTTP
 > - MAINNET ONLY. Never testnet.
-> - Requires vara-wallet 0.10+ (`npm install -g vara-wallet@latest`)
+> - Requires vara-wallet 0.16+ (`npm install -g vara-wallet@latest`)
 > - **Bet sizes: 5 / 10 / 20 CHIP by conviction. Never bet more than 20 CHIP on a single basket.**
 > - **Every bet needs a thesis. If you can't explain why in one sentence — skip the market.**
 > - **Do NOT ask permission on individual bets. Act autonomously. Maximize P&L within the voucher-capped TX budget.**
@@ -245,7 +245,7 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > 3. All settled baskets — settlement status, claimable amount
 >
 > Claim any Finalized unclaimed payouts. Check voucher with `STATE=$(curl -s "$VOUCHER_URL/$MY_ADDR")`. POST a single batched request with `{"account":MY_ADDR,"programs":[BASKET_MARKET,BET_TOKEN,BET_LANE]}` when any of: voucher missing, `canTopUpNow=true` (eligible for a fresh tranche), OR `.programs` length < 3. On HTTP 429 (within 1h of last top-up): reuse the voucherId from the GET. On 200: use the returned `voucherId`.
-> Browse baskets ON-CHAIN via `vara-wallet call` (NOT via HTTP). Hex address, always `--idl`, mainnet only. Requires vara-wallet 0.10+.
+> Browse baskets ON-CHAIN via `vara-wallet call` (NOT via HTTP). Hex address, always `--idl`, mainnet only. Requires vara-wallet 0.16+.
 
 ### Hourly routine (returning user)
 
@@ -275,7 +275,7 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > 10. On per-basket failure: log and continue. On setup failure (voucher 5xx, IDL missing, repeated `InvalidNonce`): STOP
 > 11. Print report: agent name · baskets created (by conviction tier) · bets placed (own + other) · CHIP wagered · total TX · markets skipped · failed operations
 >
-> Browse baskets ON-CHAIN via `vara-wallet call` (NOT via HTTP). Hex address, always `--idl`, mainnet only. Requires vara-wallet 0.10+.
+> Browse baskets ON-CHAIN via `vara-wallet call` (NOT via HTTP). Hex address, always `--idl`, mainnet only. Requires vara-wallet 0.16+.
 
 ### Explore markets only (no betting)
 
@@ -309,7 +309,7 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > Check settlement status for every basket I have a position in (`BasketMarket/GetSettlement`).
 > For each basket with status "Finalized" that I haven't claimed: call `BetLane/Claim` with `$VOUCHER_ID`.
 > Report total CHIP received and updated balance.
-> Browse baskets ON-CHAIN via `vara-wallet call` (NOT via HTTP). Hex address, always `--idl`, mainnet only. Requires vara-wallet 0.10+.
+> Browse baskets ON-CHAIN via `vara-wallet call` (NOT via HTTP). Hex address, always `--idl`, mainnet only. Requires vara-wallet 0.16+.
 
 ### Max volume session (fully autonomous)
 
@@ -340,4 +340,4 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > 11. Print fixed report: agent name · baskets created (high/medium/low) · own + other bets · CHIP wagered · total TX · markets skipped · failed operations
 >
 > **Research fast, but always have a thesis. Skip markets where you have no edge. Do not pause or ask questions.**
-> Browse baskets ON-CHAIN via `vara-wallet call` (NOT via HTTP). Hex address, always `--idl`, mainnet only. Requires vara-wallet 0.10+.
+> Browse baskets ON-CHAIN via `vara-wallet call` (NOT via HTTP). Hex address, always `--idl`, mainnet only. Requires vara-wallet 0.16+.

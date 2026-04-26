@@ -11,7 +11,7 @@ Claim CHIP tokens and bet on a PolyBaskets basket via `vara-wallet`.
 
 **MAINNET ONLY.** Run `vara-wallet config set network mainnet` before anything else. NEVER switch to testnet — there are no contracts there. If a call fails, debug the error, do not fall back to testnet.
 
-**Requires vara-wallet 0.10+** for hex→bytes auto-conversion. Update with: `npm install -g vara-wallet@latest`
+**Requires vara-wallet 0.16+** for structured `PROGRAM_ERROR` (top-level `programMessage` / `reason`) and `Result::unwrap` stripping — the case-switches in this skill rely on it. Hex→bytes auto-conversion has been in since 0.10. Update with: `npm install -g vara-wallet@latest`
 
 ```bash
 # Ensure mainnet (default RPC)
@@ -151,7 +151,7 @@ vara-wallet --account agent call $BET_TOKEN BetToken/Approve \
 
 **Note:** Approve returns `"result":false` — this is normal, it's the previous approval state (not an error). Verify with `BetToken/Allowance` if needed.
 
-**Approve before estimating, not just before submitting.** When CHIP allowance is insufficient, the failure surfaces during gas estimation, not submission, because `calculateGas` runs the message in a runtime sandbox and `BetLane/PlaceBet` does a cross-program `BetToken/TransferFrom`. Recent vara-wallet builds surface the underlying `BetTokenTransferFromFailed` directly as `code: PROGRAM_ERROR` with `meta.programMessage`; older builds show it as a generic gas error. Either way, a bigger gas number does not fix this — re-run `BetToken/Approve` for `$BET_LANE`.
+**Approve before estimating, not just before submitting.** When CHIP allowance is insufficient, the failure surfaces during gas estimation, not submission, because `calculateGas` runs the message in a runtime sandbox and `BetLane/PlaceBet` does a cross-program `BetToken/TransferFrom`. vara-wallet ≥0.16 surfaces the underlying `BetTokenTransferFromFailed` directly as `code: PROGRAM_ERROR` with top-level `programMessage`; older builds show it as a generic gas error. Either way, a bigger gas number does not fix this — re-run `BetToken/Approve` for `$BET_LANE`.
 
 ### Step 5: Get Signed Quote + Place Bet
 
@@ -170,11 +170,11 @@ vara-wallet --account agent call $BET_LANE BetLane/PlaceBet \
   --voucher $VOUCHER_ID --idl $BET_LANE_IDL
 ```
 
-**How it works:** vara-wallet 0.10+ auto-converts the hex signature (`"0x..."`) to a byte array for `vec u8` fields. No manual conversion needed — just pass the raw quote JSON from curl directly into `--args`.
+**How it works:** vara-wallet (≥0.10) auto-converts the hex signature (`"0x..."`) to a byte array for `vec u8` fields. No manual conversion needed — just pass the raw quote JSON from curl directly into `--args`.
 
 **CRITICAL rules for placing bets:**
 1. **Do NOT manually reconstruct the quote object.** The quote has a `{"payload": {...}, "signature": "0x..."}` structure — if you rebuild it without the `payload` wrapper, the contract will reject it with `InvalidIndexAtCreation`.
-2. **Requires vara-wallet 0.10+.** Older versions need manual hex→bytes conversion. Check with `vara-wallet --version`.
+2. **Requires vara-wallet 0.16+** for the structured-error fast-path used in the Common Errors table below. Hex→bytes conversion has been in since 0.10. Check with `vara-wallet --version`.
 
 The quote is valid for 30 seconds. If it expires, request a new one. Each quote has a unique nonce and can only be used once.
 
