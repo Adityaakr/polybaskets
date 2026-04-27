@@ -4,6 +4,8 @@ import { DAY_MS, config, emptyDayPolicy } from "../config";
 import { getAgentPublicId } from "../helpers/agent-public-id";
 import { isSailsEvent, isUserMessageSentEvent } from "../helpers/is";
 import {
+  AllTimeAgentStat,
+  AllTimeBasketStat,
   Basket,
   BasketSettlement,
   ChipPosition,
@@ -254,6 +256,8 @@ const sortedWinners = (
 
 export class DailyContestHandler extends BaseHandler {
   private decoders = new Map<string, SailsDecoder>();
+  private allTimeBasketStatsToSave = new Map<string, AllTimeBasketStat>();
+  private allTimeAgentStatsToSave = new Map<string, AllTimeAgentStat>();
   private basketsToSave = new Map<string, Basket>();
   private basketSettlementsToSave = new Map<string, BasketSettlement>();
   private chipPositionsToSave = new Map<string, ChipPosition>();
@@ -300,6 +304,8 @@ export class DailyContestHandler extends BaseHandler {
   }
 
   clear(): void {
+    this.allTimeBasketStatsToSave.clear();
+    this.allTimeAgentStatsToSave.clear();
     this.basketsToSave.clear();
     this.basketSettlementsToSave.clear();
     this.chipPositionsToSave.clear();
@@ -362,6 +368,8 @@ export class DailyContestHandler extends BaseHandler {
     }
 
     await this.saveGroup(this.basketsToSave.values(), "baskets");
+    await this.saveGroup(this.allTimeBasketStatsToSave.values(), "all-time basket stats");
+    await this.saveGroup(this.allTimeAgentStatsToSave.values(), "all-time agent stats");
     await this.saveGroup(this.basketSettlementsToSave.values(), "basket settlements");
     await this.saveGroup(this.chipPositionsToSave.values(), "chip positions");
     await this.saveGroup(this.contributionsToSave.values(), "daily contributions");
@@ -569,6 +577,10 @@ export class DailyContestHandler extends BaseHandler {
       messageId,
       { txCount: 1, basketsMade: 1 }
     );
+
+    if (payload.asset_kind === "Bet") {
+      await this.recomputeAllTimeAgentBasketStats(creator, blockTimestamp);
+    }
   }
 
   private async handleBetPlaced(
@@ -804,7 +816,130 @@ export class DailyContestHandler extends BaseHandler {
       this.contributionsToSave.set(contribution.id, contribution);
     }
 
+    await this.recomputeAllTimeBasketStat(basketId, finalizedAt);
     await this.recomputeDay(dayId, blockTimestamp);
+  }
+
+  private async recomputeAllTimeBasketStat(
+    basketId: string,
+    updatedAt: Date
+  ): Promise<void> {
+    const persisted = await this.ctx.store.find(DailyBasketContribution, {
+      where: { basketId } as FindOptionsWhere<DailyBasketContribution>,
+    });
+
+    const contributions = new Map(persisted.map((item) => [item.id, item]));
+    for (const [id, contribution] of this.contributionsToSave.entries()) {
+      if (contribution.basketId === basketId) {
+        contributions.set(id, contribution);
+      }
+    }
+
+    let totalPayout = 0n;
+    let totalRealizedProfit = 0n;
+    let totalPrincipal = 0n;
+    let participantCount = 0;
+
+    for (const contribution of contributions.values()) {
+      totalPayout += contribution.payout;
+      totalRealizedProfit += contribution.realizedProfit;
+      totalPrincipal += contribution.principal;
+      participantCount += 1;
+    }
+
+    this.allTimeBasketStatsToSave.set(
+      basketId,
+      new AllTimeBasketStat({
+        id: basketId,
+        basketId,
+        totalPayout: totalPayout.toString(),
+        totalRealizedProfit: totalRealizedProfit.toString(),
+        totalPrincipal: totalPrincipal.toString(),
+        participantCount,
+        updatedAt,
+      })
+    );
+  }
+
+  private async recomputeAllTimeAgentBasketStats(
+    address: string,
+    updatedAt: Date
+  ): Promise<void> {
+    const persisted = await this.ctx.store.find(Basket, {
+      where: { creator: address } as FindOptionsWhere<Basket>,
+    });
+
+    const baskets = new Map(persisted.map((basket) => [basket.id, basket]));
+    for (const [id, basket] of this.basketsToSave.entries()) {
+      if (basket.creator.toLowerCase() === address.toLowerCase()) {
+        baskets.set(id, basket);
+      }
+    }
+
+    const betBaskets = [...baskets.values()]
+      .filter((basket) => basket.assetKind.toLowerCase() === "bet")
+      .sort((left, right) => left.basketId.localeCompare(right.basketId));
+
+    const normalizedAddress = address.toLowerCase();
+    const existing =
+      this.allTimeAgentStatsToSave.get(normalizedAddress) ||
+      (await this.ctx.store.findOneBy(AllTimeAgentStat, { id: normalizedAddress }));
+
+    this.allTimeAgentStatsToSave.set(
+      normalizedAddress,
+      new AllTimeAgentStat({
+        id: normalizedAddress,
+        address,
+        publicId: betBaskets[0]?.creatorPublicId ?? existing?.publicId ?? getAgentPublicId(address),
+        basketCount: betBaskets.length,
+        totalRewards: existing?.totalRewards ?? "0",
+        basketIds: betBaskets.map((basket) => basket.id),
+        updatedAt,
+      })
+    );
+  }
+
+  private async recomputeAllTimeAgentRewards(
+    address: string,
+    updatedAt: Date
+  ): Promise<void> {
+    const persisted = await this.ctx.store.find(ContestDayWinner, {
+      where: { user: address } as FindOptionsWhere<ContestDayWinner>,
+    });
+
+    const winners = new Map(persisted.map((winner) => [winner.id, winner]));
+    for (const entries of this.winnersByDay.values()) {
+      for (const winner of entries) {
+        if (winner.user.toLowerCase() === address.toLowerCase()) {
+          winners.set(winner.id, winner);
+        }
+      }
+    }
+
+    let totalRewards = 0n;
+    let publicId = getAgentPublicId(address);
+    for (const winner of winners.values()) {
+      totalRewards += winner.reward ?? 0n;
+      publicId = winner.userPublicId || publicId;
+    }
+
+    const normalizedAddress = address.toLowerCase();
+    const existing =
+      this.allTimeAgentStatsToSave.get(normalizedAddress) ||
+      (await this.ctx.store.findOneBy(AllTimeAgentStat, { id: normalizedAddress }));
+
+    this.allTimeAgentStatsToSave.set(
+      normalizedAddress,
+      new AllTimeAgentStat({
+        id: normalizedAddress,
+        address,
+        publicId: existing?.publicId ?? publicId,
+        basketCount: existing?.basketCount ?? 0,
+        totalRewards: totalRewards.toString(),
+        basketIds: existing?.basketIds ?? [],
+        updatedAt,
+      })
+    );
   }
 
   private async recomputeDay(dayId: bigint, blockTimestamp: Date): Promise<void> {
@@ -990,6 +1125,9 @@ export class DailyContestHandler extends BaseHandler {
         })
     );
     this.winnersByDay.set(dayKey, winners);
+    for (const winner of winners) {
+      await this.recomputeAllTimeAgentRewards(winner.user, new Date());
+    }
 
     const existingDay =
       this.daysToSave.get(contestDayId(dayId)) ||

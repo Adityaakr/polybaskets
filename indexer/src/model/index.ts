@@ -1,4 +1,6 @@
 export * from "./basket.model";
+export * from "./allTimeBasketStat.model";
+export * from "./allTimeAgentStat.model";
 export * from "./basketSettlement.model";
 export * from "./chipPosition.model";
 export * from "./dailyBasketContribution.model";

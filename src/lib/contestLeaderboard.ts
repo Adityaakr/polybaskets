@@ -169,6 +169,30 @@ type CommunityCuratorStatsQuery = {
   };
 };
 
+type PagedAllTimeBasketStatsQuery = {
+  allAllTimeBasketStats: {
+    nodes: Array<{
+      basketId: string;
+      totalPayout: string;
+      totalRealizedProfit: string;
+      totalPrincipal: string;
+      participantCount: number;
+    }>;
+  };
+};
+
+type PagedAllTimeAgentStatsQuery = {
+  allAllTimeAgentStats: {
+    nodes: Array<{
+      address: string;
+      publicId: string;
+      basketCount: number;
+      totalRewards: string;
+      basketIds: string[];
+    }>;
+  };
+};
+
 export type ContestLeaderboardDay = ContestDayProjectionNode | null;
 
 export type ContestLeaderboardEntry = DailyUserAggregateNode & {
@@ -226,6 +250,11 @@ export type CommunityCuratorStats = {
   publicId: string;
   basketIds: string[];
   basketCount: number;
+};
+
+export type PagedResult<T> = {
+  items: T[];
+  hasNextPage: boolean;
 };
 
 const TODAY_CONTEST_LEADERBOARD_QUERY = `
@@ -459,6 +488,42 @@ const COMMUNITY_CURATOR_STATS_QUERY = `
         creatorPublicId
         basketId
         assetKind
+      }
+    }
+  }
+`;
+
+const PAGED_ALL_TIME_BASKET_STATS_QUERY = `
+  query PagedAllTimeBasketStats($offset: Int!, $first: Int!) {
+    allAllTimeBasketStats(
+      orderBy: [TOTAL_PAYOUT_DESC, BASKET_ID_ASC]
+      offset: $offset
+      first: $first
+    ) {
+      nodes {
+        basketId
+        totalPayout
+        totalRealizedProfit
+        totalPrincipal
+        participantCount
+      }
+    }
+  }
+`;
+
+const PAGED_ALL_TIME_AGENT_STATS_QUERY = `
+  query PagedAllTimeAgentStats($offset: Int!, $first: Int!) {
+    allAllTimeAgentStats(
+      orderBy: [BASKET_COUNT_DESC, TOTAL_REWARDS_DESC, ADDRESS_ASC]
+      offset: $offset
+      first: $first
+    ) {
+      nodes {
+        address
+        publicId
+        basketCount
+        totalRewards
+        basketIds
       }
     }
   }
@@ -1318,6 +1383,67 @@ export const fetchCommunityCuratorStats = async (): Promise<CommunityCuratorStat
   return Array.from(curatorsByKey.values()).sort((left, right) =>
     left.address.localeCompare(right.address),
   );
+};
+
+export const fetchPagedAllTimeBasketWinnings = async (
+  page: number,
+  pageSize: number,
+): Promise<PagedResult<AllTimeBasketWinningsEntry>> => {
+  const safePage = Math.max(1, page);
+  const safePageSize = Math.max(1, pageSize);
+  const offset = (safePage - 1) * safePageSize;
+
+  const data = await graphQLRequest<PagedAllTimeBasketStatsQuery>(
+    PAGED_ALL_TIME_BASKET_STATS_QUERY,
+    {
+      offset,
+      first: safePageSize + 1,
+    },
+  );
+
+  const nodes = data.allAllTimeBasketStats.nodes;
+  const items = nodes.slice(0, safePageSize).map((node, index) => ({
+    rank: offset + index + 1,
+    basketId: node.basketId,
+    totalPayout: node.totalPayout,
+    totalRealizedProfit: node.totalRealizedProfit,
+    totalPrincipal: node.totalPrincipal,
+    participantCount: node.participantCount,
+  }));
+
+  return {
+    items,
+    hasNextPage: nodes.length > safePageSize,
+  };
+};
+
+export const fetchPagedCommunityCurators = async (
+  page: number,
+  pageSize: number,
+): Promise<PagedResult<CommunityCuratorStats & { totalRewards: string }>> => {
+  const safePage = Math.max(1, page);
+  const safePageSize = Math.max(1, pageSize);
+  const offset = (safePage - 1) * safePageSize;
+
+  const data = await graphQLRequest<PagedAllTimeAgentStatsQuery>(
+    PAGED_ALL_TIME_AGENT_STATS_QUERY,
+    {
+      offset,
+      first: safePageSize + 1,
+    },
+  );
+
+  const nodes = data.allAllTimeAgentStats.nodes;
+  return {
+    items: nodes.slice(0, safePageSize).map((node) => ({
+      address: node.address,
+      publicId: node.publicId,
+      basketCount: node.basketCount,
+      basketIds: node.basketIds ?? [],
+      totalRewards: node.totalRewards,
+    })),
+    hasNextPage: nodes.length > safePageSize,
+  };
 };
 
 export const fetchAgentAddressByPublicId = async (

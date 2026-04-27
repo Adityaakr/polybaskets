@@ -17,8 +17,6 @@ import {
 import { basketMarketProgramFromApi } from '@/lib/varaClient';
 import {
   fetchAgentActivityStreak,
-  fetchCommunityAgentAddresses,
-  fetchCommunityCuratorStats,
   formatActivityIndex,
   formatChipAmount,
   formatCompactChipAmount,
@@ -29,8 +27,6 @@ import {
   getUtcDayLabel,
   type ContestLeaderboardEntry,
   type AllTimeTradingPnlEntry,
-  type CommunityAgentIdentity,
-  type CommunityCuratorStats,
   type TodayContestLeaderboard,
 } from '@/lib/contestLeaderboard.ts';
 import { useAgentNames } from '@/hooks/useAgentNames';
@@ -38,7 +34,8 @@ import { ENV, isBasketAssetKindEnabled } from '@/env';
 import { getAgentRouteId, truncateAddress } from '@/lib/basket-utils.ts';
 import { useContestLeaderboard } from '@/hooks/useTodayContestLeaderboard';
 import { useAllTimeContestWinners } from '@/hooks/useAllTimeContestWinners';
-import { useAllTimeBasketWinnings } from '@/hooks/useAllTimeBasketWinnings';
+import { usePagedAllTimeBasketWinnings } from '@/hooks/usePagedAllTimeBasketWinnings';
+import { usePagedCommunityCurators } from '@/hooks/usePagedCommunityCurators';
 import { actorIdFromAddress } from '@/lib/varaClient';
 import { getContestDayIdFromDate, getContestDayStartDate } from '@/lib/contestDay';
 import { cn } from '@/lib/utils';
@@ -849,7 +846,7 @@ function CommunityVaraLeaderboard() {
   const { api, isApiReady } = useApi();
   const { network } = useNetwork();
   const { address, connect } = useWallet();
-  const { agents, resolveAgentName } = useAgentNames();
+  const { resolveAgentName } = useAgentNames();
   const { toast } = useToast();
   const [basketDetailsByEntityId, setBasketDetailsByEntityId] = useState<Map<string, Basket>>(new Map());
   const [followVersion, setFollowVersion] = useState(0);
@@ -863,52 +860,18 @@ function CommunityVaraLeaderboard() {
   const [curatorsPage, setCuratorsPage] = useState(1);
   const [winningsPage, setWinningsPage] = useState(1);
   const allTimeWinnersQuery = useAllTimeContestWinners();
-  const allTimeBasketWinningsQuery = useAllTimeBasketWinnings(activeCommunityView === 'baskets');
-  const communityAgentAddressesQuery = useQuery<CommunityAgentIdentity[]>({
-    queryKey: ['contest-leaderboard', 'community-agent-addresses'],
-    queryFn: fetchCommunityAgentAddresses,
-    enabled: activeCommunityView === 'curators',
-    staleTime: 15_000,
-    refetchInterval: 30_000,
-    refetchOnWindowFocus: true,
-  });
-  const communityCuratorStatsQuery = useQuery<CommunityCuratorStats[]>({
-    queryKey: ['contest-leaderboard', 'community-curator-stats'],
-    queryFn: fetchCommunityCuratorStats,
-    enabled: activeCommunityView === 'curators',
-    staleTime: 15_000,
-    refetchInterval: 30_000,
-    refetchOnWindowFocus: true,
-  });
+  const allTimeBasketWinningsQuery = usePagedAllTimeBasketWinnings(
+    basketsPage,
+    COMMUNITY_PAGE_SIZE,
+    activeCommunityView === 'baskets',
+  );
+  const pagedCommunityCuratorsQuery = usePagedCommunityCurators(
+    curatorsPage,
+    COMMUNITY_PAGE_SIZE,
+    activeCommunityView === 'curators',
+  );
 
-  const communityBasketRankings = allTimeBasketWinningsQuery.data ?? [];
-
-  const communityAgentAddresses = useMemo(() => {
-    const agentsByKey = new Map<string, CommunityAgentIdentity>();
-
-    for (const agent of agents) {
-      agentsByKey.set(agent.address.toLowerCase(), {
-        user: agent.address,
-        publicId: '',
-      });
-    }
-
-    for (const identity of communityAgentAddressesQuery.data ?? []) {
-      agentsByKey.set(identity.user.toLowerCase(), identity);
-    }
-
-    return Array.from(agentsByKey.values());
-  }, [agents, communityAgentAddressesQuery.data]);
-
-  const publicIdByAddress = useMemo(() => {
-    const publicIds = new Map<string, string>();
-    for (const identity of communityAgentAddresses) {
-      if (identity.publicId) {
-        publicIds.set(identity.user.toLowerCase(), identity.publicId);
-      }
-    }
-    return publicIds;
-  }, [communityAgentAddresses]);
+  const communityBasketRankings = allTimeBasketWinningsQuery.data?.items ?? [];
 
   const filteredCommunityBasketRankings = useMemo(() => {
     const normalizedQuery = communityBasketSearchQuery.trim().toLowerCase();
@@ -929,34 +892,25 @@ function CommunityVaraLeaderboard() {
 
       const basketName = detail.name.toLowerCase();
       const owner = detail.owner.toLowerCase();
-      const ownerPublicId = publicIdByAddress.get(owner)?.toLowerCase() ?? '';
       const ownerName = resolveAgentName(detail.owner)?.trim().toLowerCase() ?? '';
       return (
         basketName.includes(normalizedQuery) ||
         owner.includes(normalizedQuery) ||
-        ownerPublicId.includes(normalizedQuery) ||
         ownerName.includes(normalizedQuery)
       );
     });
-  }, [basketDetailsByEntityId, communityBasketRankings, communityBasketSearchQuery, publicIdByAddress, resolveAgentName]);
-
-  const basketsTotalPages = Math.max(1, Math.ceil(filteredCommunityBasketRankings.length / COMMUNITY_PAGE_SIZE));
-
-  const pagedBasketRankings = useMemo(() => {
-    const start = (basketsPage - 1) * COMMUNITY_PAGE_SIZE;
-    return filteredCommunityBasketRankings.slice(start, start + COMMUNITY_PAGE_SIZE);
-  }, [basketsPage, filteredCommunityBasketRankings]);
+  }, [basketDetailsByEntityId, communityBasketRankings, communityBasketSearchQuery, resolveAgentName]);
 
   const currentPageBasketIds = useMemo(
     () =>
-      pagedBasketRankings
+      communityBasketRankings
         .map((entry) => {
           const rawBasketId = entry.basketId.split(':').pop() ?? entry.basketId;
           const parsed = Number.parseInt(rawBasketId, 10);
           return Number.isInteger(parsed) ? parsed : null;
         })
         .filter((basketId): basketId is number => basketId !== null),
-    [pagedBasketRankings],
+    [communityBasketRankings],
   );
 
   const pagedBasketDetailsQuery = useQuery<Basket[]>({
@@ -1013,59 +967,29 @@ function CommunityVaraLeaderboard() {
     });
   }, [pagedBasketDetailsQuery.data]);
 
-  const topCurators = useMemo(() => {
-    const rewardsByUser = new Map(
-      (allTimeWinnersQuery.data ?? []).map((entry) => [entry.user.toLowerCase(), entry.totalRewards]),
-    );
-    const curatorMap = new Map<string, { publicId: string | null; totalFollowers: number; basketCount: number }>();
+  const visibleCommunityCurators = useMemo(() => {
+    const normalizedQuery = communityCuratorSearchQuery.trim().toLowerCase();
+    const items = pagedCommunityCuratorsQuery.data?.items ?? [];
 
-    for (const identity of communityAgentAddresses) {
-      if (!identity.publicId) {
-        continue;
-      }
-
-      curatorMap.set(identity.user.toLowerCase(), {
-        publicId: identity.publicId,
-        totalFollowers: 0,
-        basketCount: 0,
-      });
-    }
-
-    for (const curator of communityCuratorStatsQuery.data ?? []) {
-      const key = curator.address.toLowerCase();
-      const current = curatorMap.get(key) ?? {
-        publicId: curator.publicId || publicIdByAddress.get(key) || null,
-        totalFollowers: 0,
-        basketCount: 0,
-      };
-
-      current.publicId = curator.publicId || current.publicId;
-      current.basketCount = curator.basketCount;
-      current.totalFollowers = curator.basketIds.reduce((sum, basketId) => {
-        try {
-          return sum + getFollowerCount(`onchain-${basketId}`);
-        } catch {
-          return sum;
-        }
-      }, 0);
-
-      curatorMap.set(key, current);
-    }
-
-    return Array.from(curatorMap.entries())
-      .map(([address, stats]) => ({
-        address,
-        ...stats,
-        totalRewards: rewardsByUser.get(address) ?? '0',
+    return items
+      .map((curator) => ({
+        ...curator,
+        totalFollowers: curator.basketIds.reduce((sum, basketId) => {
+          try {
+            return sum + getFollowerCount(`onchain-${basketId.split(':').pop() ?? basketId}`);
+          } catch {
+            return sum;
+          }
+        }, 0),
       }))
-      .sort((left, right) => {
-        if (right.basketCount === left.basketCount) {
-          return right.totalFollowers - left.totalFollowers;
+      .filter((entry) => {
+        if (!normalizedQuery) {
+          return true;
         }
 
-        return right.basketCount - left.basketCount;
+        return matchesUserQuery(entry.address, communityCuratorSearchQuery, entry.publicId);
       });
-  }, [allTimeWinnersQuery.data, communityAgentAddresses, communityCuratorStatsQuery.data, followVersion, publicIdByAddress]);
+  }, [communityCuratorSearchQuery, pagedCommunityCuratorsQuery.data?.items, followVersion, resolveAgentName]);
 
   const handleToggleFollow = async (basket: Basket) => {
     if (!address) {
@@ -1116,11 +1040,6 @@ function CommunityVaraLeaderboard() {
     );
   };
 
-  const filteredCommunityCurators = useMemo(
-    () => topCurators.filter((entry) => matchesUserQuery(entry.address, communityCuratorSearchQuery, entry.publicId)),
-    [communityCuratorSearchQuery, topCurators],
-  );
-
   const filteredCommunityWinnings = useMemo(
     () => topAllTimeWinners.filter((entry) => matchesUserQuery(entry.user, communityWinningsSearchQuery, entry.publicId)),
     [communityWinningsSearchQuery, topAllTimeWinners],
@@ -1155,7 +1074,6 @@ function CommunityVaraLeaderboard() {
     return entries;
   }, [allTimeWinningsSortDirection, allTimeWinningsSortKey, filteredCommunityWinnings]);
 
-  const curatorsTotalPages = Math.max(1, Math.ceil(filteredCommunityCurators.length / COMMUNITY_PAGE_SIZE));
   const winningsTotalPages = Math.max(1, Math.ceil(sortedCommunityWinnings.length / COMMUNITY_PAGE_SIZE));
 
   useEffect(() => setBasketsPage(1), [communityBasketSearchQuery]);
@@ -1163,21 +1081,8 @@ function CommunityVaraLeaderboard() {
   useEffect(() => setWinningsPage(1), [communityWinningsSearchQuery]);
 
   useEffect(() => {
-    setBasketsPage((currentPage) => Math.min(currentPage, basketsTotalPages));
-  }, [basketsTotalPages]);
-
-  useEffect(() => {
-    setCuratorsPage((currentPage) => Math.min(currentPage, curatorsTotalPages));
-  }, [curatorsTotalPages]);
-
-  useEffect(() => {
     setWinningsPage((currentPage) => Math.min(currentPage, winningsTotalPages));
   }, [winningsTotalPages]);
-
-  const pagedCurators = useMemo(() => {
-    const start = (curatorsPage - 1) * COMMUNITY_PAGE_SIZE;
-    return filteredCommunityCurators.slice(start, start + COMMUNITY_PAGE_SIZE);
-  }, [curatorsPage, filteredCommunityCurators]);
 
   const pagedWinnings = useMemo(() => {
     const start = (winningsPage - 1) * COMMUNITY_PAGE_SIZE;
@@ -1201,13 +1106,13 @@ function CommunityVaraLeaderboard() {
   const activeCommunityResultsLabel =
     activeCommunityView === 'baskets'
       ? filteredCommunityBasketRankings.length > 0
-        ? `Showing ${(basketsPage - 1) * COMMUNITY_PAGE_SIZE + 1}-${Math.min(basketsPage * COMMUNITY_PAGE_SIZE, filteredCommunityBasketRankings.length)} of ${filteredCommunityBasketRankings.length}`
+        ? `Showing ${filteredCommunityBasketRankings.length} on page ${basketsPage}`
         : communityBasketSearchQuery.trim()
           ? 'No matching baskets'
           : 'No ranked baskets yet'
       : activeCommunityView === 'curators'
-        ? filteredCommunityCurators.length > 0
-          ? `Showing ${(curatorsPage - 1) * COMMUNITY_PAGE_SIZE + 1}-${Math.min(curatorsPage * COMMUNITY_PAGE_SIZE, filteredCommunityCurators.length)} of ${filteredCommunityCurators.length}`
+        ? visibleCommunityCurators.length > 0
+          ? `Showing ${visibleCommunityCurators.length} on page ${curatorsPage}`
           : communityCuratorSearchQuery.trim()
             ? 'No matching agents'
             : 'No ranked agents yet'
@@ -1385,7 +1290,7 @@ function CommunityVaraLeaderboard() {
                 </div>
               </div>
               <div className="divide-y overflow-x-auto">
-                {pagedBasketRankings.map((entry, index) => {
+                {filteredCommunityBasketRankings.map((entry, index) => {
                   const basket = basketDetailsByEntityId.get(entry.basketId.toLowerCase());
                   const statusMeta = getCommunityBasketStatusMeta(basket?.status);
                   const basketLabel = basket?.name ?? `Basket #${entry.basketId.split(':').pop() ?? entry.basketId}`;
@@ -1457,33 +1362,31 @@ function CommunityVaraLeaderboard() {
                   );
                 })}
               </div>
-              {filteredCommunityBasketRankings.length > 0 ? (
+              {communityBasketRankings.length > 0 ? (
                 <div className="flex flex-col gap-3 border-t border-primary/10 px-6 py-4 md:flex-row md:items-center md:justify-between">
                   <div className="text-sm text-muted-foreground">
-                    Page {basketsPage} of {basketsTotalPages}
+                    Page {basketsPage}
                   </div>
-                  {basketsTotalPages > 1 ? (
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setBasketsPage((currentPage) => Math.max(1, currentPage - 1))}
-                        disabled={basketsPage === 1}
-                      >
-                        <ChevronLeft className="mr-1 h-4 w-4" />
-                        Prev
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setBasketsPage((currentPage) => Math.min(basketsTotalPages, currentPage + 1))}
-                        disabled={basketsPage === basketsTotalPages}
-                      >
-                        Next
-                        <ChevronRight className="ml-1 h-4 w-4" />
-                      </Button>
-                    </div>
-                  ) : null}
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setBasketsPage((currentPage) => Math.max(1, currentPage - 1))}
+                      disabled={basketsPage === 1}
+                    >
+                      <ChevronLeft className="mr-1 h-4 w-4" />
+                      Prev
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setBasketsPage((currentPage) => currentPage + 1)}
+                      disabled={!allTimeBasketWinningsQuery.data?.hasNextPage}
+                    >
+                      Next
+                      <ChevronRight className="ml-1 h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               ) : null}
             </CardContent>
@@ -1492,7 +1395,7 @@ function CommunityVaraLeaderboard() {
       </TabsContent>
 
       <TabsContent value="curators">
-        {communityCuratorStatsQuery.isLoading || communityAgentAddressesQuery.isLoading ? (
+        {pagedCommunityCuratorsQuery.isLoading ? (
           <Card className="card-elevated">
             <CardContent className="p-0">
               <div className="border-b px-6 py-3">
@@ -1513,17 +1416,17 @@ function CommunityVaraLeaderboard() {
               </div>
             </CardContent>
           </Card>
-        ) : communityCuratorStatsQuery.isError || communityAgentAddressesQuery.isError ? (
+        ) : pagedCommunityCuratorsQuery.isError ? (
           <Card className="card-elevated border-destructive/40">
             <CardContent className="py-12 text-center">
               <Loader2 className="mx-auto mb-4 h-10 w-10 text-destructive" />
               <p className="text-lg font-medium">Unable to load community agents</p>
               <p className="mt-2 text-sm text-muted-foreground">
-                {((communityCuratorStatsQuery.error ?? communityAgentAddressesQuery.error) as Error)?.message ?? 'Unknown indexer error'}
+                {(pagedCommunityCuratorsQuery.error as Error)?.message ?? 'Unknown indexer error'}
               </p>
             </CardContent>
           </Card>
-        ) : filteredCommunityCurators.length === 0 ? (
+        ) : visibleCommunityCurators.length === 0 ? (
           <Card>
             <CardContent className="py-12 text-center">
               <Crown className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
@@ -1545,7 +1448,7 @@ function CommunityVaraLeaderboard() {
                 </div>
               </div>
               <div className="divide-y overflow-x-auto">
-                {pagedCurators.map((curator, index) => {
+                {visibleCommunityCurators.map((curator, index) => {
                   const absoluteRank = (curatorsPage - 1) * COMMUNITY_PAGE_SIZE + index + 1;
                   return (
                   <Link
@@ -1585,33 +1488,31 @@ function CommunityVaraLeaderboard() {
                   );
                 })}
               </div>
-              {filteredCommunityCurators.length > 0 ? (
+              {(pagedCommunityCuratorsQuery.data?.items.length ?? 0) > 0 ? (
                 <div className="flex flex-col gap-3 border-t border-primary/10 px-6 py-4 md:flex-row md:items-center md:justify-between">
                   <div className="text-sm text-muted-foreground">
-                    Page {curatorsPage} of {curatorsTotalPages}
+                    Page {curatorsPage}
                   </div>
-                  {curatorsTotalPages > 1 ? (
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setCuratorsPage((currentPage) => Math.max(1, currentPage - 1))}
-                        disabled={curatorsPage === 1}
-                      >
-                        <ChevronLeft className="mr-1 h-4 w-4" />
-                        Prev
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setCuratorsPage((currentPage) => Math.min(curatorsTotalPages, currentPage + 1))}
-                        disabled={curatorsPage === curatorsTotalPages}
-                      >
-                        Next
-                        <ChevronRight className="ml-1 h-4 w-4" />
-                      </Button>
-                    </div>
-                  ) : null}
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCuratorsPage((currentPage) => Math.max(1, currentPage - 1))}
+                      disabled={curatorsPage === 1}
+                    >
+                      <ChevronLeft className="mr-1 h-4 w-4" />
+                      Prev
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCuratorsPage((currentPage) => currentPage + 1)}
+                      disabled={!pagedCommunityCuratorsQuery.data?.hasNextPage}
+                    >
+                      Next
+                      <ChevronRight className="ml-1 h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               ) : null}
             </CardContent>
