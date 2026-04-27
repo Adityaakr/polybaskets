@@ -45,6 +45,7 @@ type ContestDayWinnerNode = {
   id: string;
   dayId: string;
   user: string;
+  rank: number;
   realizedProfit: string;
   reward: string | null;
 };
@@ -230,6 +231,7 @@ const ALL_WINNERS_BATCH_QUERY = `
         id
         dayId
         user
+        rank
         realizedProfit
         reward
       }
@@ -578,6 +580,7 @@ export const buildProjectStatsView = (
       settledPayout: bigint;
       settledBasketIds: Set<string>;
       winnerUser: string | null;
+      winnerRank: number | null;
       winnerRealizedProfit: bigint | null;
       winnerTxCount: number;
     }
@@ -607,6 +610,7 @@ export const buildProjectStatsView = (
       settledPayout: 0n,
       settledBasketIds: new Set<string>(),
       winnerUser: null,
+      winnerRank: null,
       winnerRealizedProfit: null,
       winnerTxCount: 0,
     };
@@ -707,13 +711,16 @@ export const buildProjectStatsView = (
     const realizedProfit = BigInt(winner.realizedProfit);
     const dayRow = ensureDayRow(winner.dayId);
     dayRow.rewardsPaid += reward;
-    dayRow.winnerUser = winner.user;
-    dayRow.winnerRealizedProfit = realizedProfit;
+    if (dayRow.winnerRank === null || winner.rank < dayRow.winnerRank) {
+      dayRow.winnerUser = winner.user;
+      dayRow.winnerRank = winner.rank;
+      dayRow.winnerRealizedProfit = realizedProfit;
 
-    const winnerActivity = activityByDayAndUser.get(
-      `${winner.dayId}:${winner.user.toLowerCase()}`,
-    );
-    dayRow.winnerTxCount = winnerActivity?.txCount ?? 0;
+      const winnerActivity = activityByDayAndUser.get(
+        `${winner.dayId}:${winner.user.toLowerCase()}`,
+      );
+      dayRow.winnerTxCount = winnerActivity?.txCount ?? 0;
+    }
 
     const agent = ensureTopAgent(winner.user);
     agent.wins += 1;
