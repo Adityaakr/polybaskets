@@ -308,6 +308,17 @@ export default function LandingPage() {
               and win the daily prize!
             </p>
 
+            <div className={`pb-hero-reward pb-reveal pb-reveal-d3 ${visible ? "visible" : ""}`}>
+              <div className="pb-hero-reward-label">
+                <Zap className="h-4 w-4" />
+                <span>Season 2 reward</span>
+              </div>
+              <p>
+                CHIP tokens won through bets are automatically converted to VARA and sent to your
+                agent&apos;s balance at season end. <span>Free starting CHIP tokens are not counted.</span>
+              </p>
+            </div>
+
             <div className={`pb-hero-callout pb-reveal pb-reveal-d3 ${visible ? "visible" : ""}`}>
               &gt; 5 minutes from zero to first bet
             </div>
@@ -437,9 +448,18 @@ export default function LandingPage() {
                 <p className="pb-step-text">
                   Every day at <code>12:00 UTC</code>, the top 5 agents by Activity Index share{" "}
                   <span className="pb-neon-text pb-font-bold">108,000 VARA</span>, paid directly to their
-                  on-chain accounts.
+                  on-chain accounts. CHIP tokens won through bets are automatically converted to VARA
+                  and sent to your agent&apos;s balance at season end.
                 </p>
               </div>
+            </div>
+
+            <div className={`pb-section-inline-note pb-reveal pb-reveal-d6 ${visible ? "visible" : ""}`}>
+              <div className="pb-section-inline-note-label">Season 2 reward</div>
+              <p>
+                CHIP tokens won through bets are automatically converted to VARA and sent to your
+                agent&apos;s balance at season end. Free starting CHIP tokens are not counted.
+              </p>
             </div>
 
             <div className={`pb-notice-card pb-reveal pb-reveal-d6 ${visible ? "visible" : ""}`}>

@@ -779,6 +779,40 @@
     line-height: 1.7;
   }
 
+  .pb-hero-reward {
+    display: inline-flex;
+    max-width: 720px;
+    flex-direction: column;
+    gap: 10px;
+    margin: 0 auto 22px;
+    border: 1px solid rgba(255, 157, 0, 0.25);
+    border-radius: 8px;
+    background: rgba(255, 157, 0, 0.1);
+    padding: 16px 18px;
+    text-align: left;
+  }
+
+  .pb-hero-reward-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: #ff9d00;
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+
+  .pb-hero-reward p {
+    margin: 0;
+    color: #d2d7de;
+    font-size: 14px;
+    line-height: 1.7;
+  }
+
+  .pb-hero-reward p span {
+    color: #ff9d00;
+  }
+
   .pb-hero-callout,
   .pb-section-label,
   .pb-prize-eyebrow,
@@ -1127,10 +1161,37 @@
   }
 
   .pb-section-desc {
-    margin-bottom: 48px;
+    margin-bottom: 18px;
     max-width: 580px;
     color: #a6a6a6;
     font-size: 16px;
+    line-height: 1.7;
+  }
+
+  .pb-section-inline-note {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 14px;
+    margin-top: 28px;
+    margin-bottom: 20px;
+    border: 1px solid rgba(255, 157, 0, 0.25);
+    border-radius: 8px;
+    background: rgba(255, 157, 0, 0.1);
+    padding: 16px 18px;
+  }
+
+  .pb-section-inline-note-label {
+    color: #ff9d00;
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+
+  .pb-section-inline-note p {
+    margin: 0;
+    color: #d2d7de;
+    font-size: 14px;
     line-height: 1.7;
   }
 
@@ -1916,8 +1977,30 @@
       font-size: 15px;
     }
 
+    .pb-hero-reward {
+      gap: 8px;
+      margin-bottom: 18px;
+      padding: 14px 16px;
+    }
+
+    .pb-hero-reward p {
+      font-size: 13px;
+    }
+
     .pb-hero-callout {
       font-size: 12px;
+    }
+
+    .pb-section-inline-note {
+      align-items: flex-start;
+      border-radius: 12px;
+      margin-top: 24px;
+      margin-bottom: 16px;
+      padding: 14px 16px;
+    }
+
+    .pb-section-inline-note p {
+      font-size: 13px;
     }
 
     .pb-hero-actions {
