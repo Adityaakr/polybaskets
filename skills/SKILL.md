@@ -11,9 +11,9 @@ if ! command -v vara-wallet &>/dev/null; then
 else
   _VW_VER=$(vara-wallet --version 2>/dev/null)
   echo "vara-wallet version: $_VW_VER"
-  # 0.10+ required for hex→bytes auto-conversion in PlaceBet args
-  if [ "$(printf '%s\n' "0.10.0" "$_VW_VER" | sort -V | head -1)" != "0.10.0" ]; then
-    echo "UPDATE REQUIRED: vara-wallet 0.10+ needed. Run: npm install -g vara-wallet@latest"
+  # 0.16+ required for structured PROGRAM_ERROR + Result::unwrap stripping
+  if [ "$(printf '%s\n' "0.16.0" "$_VW_VER" | sort -V | head -1)" != "0.16.0" ]; then
+    echo "UPDATE REQUIRED: vara-wallet 0.16+ needed. Run: npm install -g vara-wallet@latest"
   fi
 fi
 
@@ -204,7 +204,7 @@ You can also bet on existing baskets created by other users — skip step 1.
 6. **CHIP amounts are in raw units** (12 decimals). 1 CHIP = `"1000000000000"`. 100 CHIP = `"100000000000000"`. Always pass as a quoted string.
 7. **Check / refresh gas voucher (hourly-tranche model).** `GET $VOUCHER_URL/$MY_ADDR` is free — always check first. POST only when: no voucher yet, the voucher doesn't cover all 3 programs, OR `balanceKnown=true` AND `varaBalance < 10 VARA` AND `canTopUpNow=true`. Do not top up just because `canTopUpNow=true`; reuse the current voucher while it has at least 10 VARA. Each POST is a single batched request with `programs: [$BASKET_MARKET, $BET_TOKEN, $BET_LANE]` — the backend funds the voucher with 500 VARA and extends validity by 24h. 2nd POST within the 1h window returns `429` with `retryAfterSec`; reuse the existing `voucherId` and continue — do NOT abort. `programs` is the **array of contract program IDs**, NOT your wallet address. Use the response's `balanceKnown` field before trusting `varaBalance` — if `balanceKnown=false` the backend couldn't reach the chain, so don't treat a zero balance as "drained" and don't top up solely from `canTopUpNow`. STOP only when `BALANCE_KNOWN=true` AND `varaBalance < 10 VARA` AND `canTopUpNow=false`; wait until `nextTopUpEligibleAt`.
 8. **Register your agent name on-chain.** Call `BasketMarket/RegisterAgent` with a unique name (3-20 chars, lowercase alphanumeric + hyphens) so the leaderboard and agent profile show your name instead of only your address. If you are already registered, keep going with the rest of the flow. If the chosen name is taken, generate another unique name and try again before continuing.
-9. **Approve before betting.** You must call `BetToken/Approve` for the BetLane contract before calling `BetLane/PlaceBet`. Without approval, the bet will fail with `BetTokenTransferFromFailed`.
+9. **Approve before betting.** You must call `BetToken/Approve` for the BetLane contract before calling `BetLane/PlaceBet`. Without approval, the bet will fail with `BetTokenTransferFromFailed`. vara-wallet ≥0.16 surfaces this as `code: PROGRAM_ERROR` with top-level `programMessage: "BetTokenTransferFromFailed"` — match with `jq -r '.programMessage'` directly (see "Reading vara-wallet errors" below).
 10. **Use an explicit `--gas-limit` on `PlaceBet`; prefer quote -> estimate -> send.** For `BetLane/PlaceBet`, the default path is: request the quote, run the exact same call with `--estimate`, then send the real transaction with an explicit `--gas-limit` equal to the estimate plus a safety buffer (recommended: `estimate * 1.2 + 5_000_000_000`). Vouchers pay for gas, but they do not protect you from `Message ran out of gas while executing` or `Failed to reserve gas for system signal: Ext(Execution(NotEnoughGas))`.
 11. **If `PlaceBet` fails with a gas error, check state before retrying.** After `Message ran out of gas while executing` or `...NotEnoughGas`, first query `BetLane/GetPosition` for that `(user, basket_id)`. If the position changed, do not resend. If nothing changed, request a fresh quote if needed, increase the gas buffer, and resend once with an explicit `--gas-limit`. Do not blind-loop retries.
 12. **Avoid parallel `PlaceBet` sends from the same account.** Send bets one by one and wait for each result before the next. If you hit `OperationInProgress`, treat it as a state-check moment, not a green light to spam retries: wait briefly, re-check position, refresh the quote if needed, and only continue if the pair is clearly idle again. If the same `(user, basket_id)` keeps returning `OperationInProgress`, stop and report it.
@@ -212,3 +212,48 @@ You can also bet on existing baskets created by other users — skip step 1.
 14. **Do NOT call ProposeSettlement** unless you have the settler role. `FinalizeSettlement` is permissionless after the configured challenge deadline, but still only use it when you are intentionally helping finalize an existing proposal.
 15. **VARA is disabled.** Use CHIP (BetLane) for all bets. Create baskets with `asset_kind: "Bet"`.
 16. **poly_market_id is a numeric string** like `"540816"`, not the hex conditionId.
+
+## Reading vara-wallet errors
+
+vara-wallet returns errors as structured JSON on stderr. The minimum shape:
+
+```json
+{ "error": "<full text>", "code": "ERROR_CODE" }
+```
+
+For program-execution failures (panic during `call`/`--estimate`, contract revert from a Sails `Result::unwrap` on `Err`), the error includes structured subcodes:
+
+```json
+{
+  "error": "Program execution failed: 8000: Runtime error: \"...panicked with 'BetTokenTransferFromFailed'...\"",
+  "code": "PROGRAM_ERROR",
+  "reason": "panic",
+  "programMessage": "BetTokenTransferFromFailed"
+}
+```
+
+`reason` is one of `panic` | `unreachable` | `inactive` | `not_found`. `programMessage` is the **bare contract error variant name** (e.g. `BetTokenTransferFromFailed`, `AmountBelowMinBet`, `QuoteExpired`). Both fields are top-level keys in the JSON, not nested under `meta`.
+
+> vara-wallet ≥0.16 strips the `Result::unwrap` wrapper that Sails' `#[export(unwrap_result)]` adds to typed-error reverts; `programMessage` carries the bare variant. The full wrapped form stays in `error` for debugging.
+
+**For agent loops, switch on `programMessage` directly** instead of regex-matching English error text:
+
+```bash
+ERR=$(vara-wallet ... 2>&1 1>/dev/null)
+case "$(echo "$ERR" | jq -r '.programMessage // ""')" in
+  BetTokenTransferFromFailed) approve_chip ;;        # state, not gas
+  AmountBelowMinBet)          increase_amount ;;
+  QuoteExpired)               refresh_quote ;;
+  QuoteUserMismatch)          rebuild_quote_for_caller ;;
+  InvalidQuoteSignature)      rebuild_quote ;;
+  BasketNotActive)            skip_basket ;;
+  *)                          handle_generic ;;
+esac
+```
+
+**Common error codes** (and what to do):
+
+- `INVALID_ARGS_FORMAT`: `--args` shape mismatch. Sails methods take positional args; pass as a JSON array. 1-arg struct methods also accept the bare object form.
+- `INVALID_ADDRESS`: `actor_id` field received the wrong shape. Field name is in the error: `Invalid ActorId for "<field>": ...`. Use hex (0x + 64 chars).
+- `IDL_NOT_FOUND` (with "This is a v1 contract"): all PolyBaskets contracts are v1. Run `vara-wallet idl import <path.idl> --program <id>` once, then retry.
+- `PROGRAM_ERROR` with `reason: "panic"`: real contract revert. Read `programMessage` for the variant. Do NOT increase `--gas-limit` — state problems are not gas problems.

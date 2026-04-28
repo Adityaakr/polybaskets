@@ -1,5 +1,7 @@
 # PolyBaskets Error Codes
 
+> Match on `programMessage` (top-level, not under `meta`) via `jq -r '.programMessage // ""'`. Requires vara-wallet ≥0.16. See `../SKILL.md` "Reading vara-wallet errors" for the full JSON shape, the `Result::unwrap` strip behavior, and a copy-pasteable case-switch.
+
 ## BasketMarketError
 
 | Error | Trigger | Recovery |
