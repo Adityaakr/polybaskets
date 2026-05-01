@@ -20,6 +20,7 @@ const mockVoucherIssue = jest.fn();
 const mockVoucherUpdate = jest.fn();
 const mockVoucherRevoke = jest.fn();
 const mockGetBlockNumber = jest.fn();
+const mockGetFinalizedHead = jest.fn();
 const mockGetExtrinsicFailedError = jest.fn();
 const mockDisconnect = jest.fn();
 
@@ -30,11 +31,16 @@ jest.mock('@gear-js/api', () => ({
     disconnect: mockDisconnect,
     balance: { findOut: mockBalance },
     voucher: {
+      minDuration: 1,
+      maxDuration: 28_800,
       issue: mockVoucherIssue,
       update: mockVoucherUpdate,
       revoke: mockVoucherRevoke,
     },
-    blocks: { getBlockNumber: mockGetBlockNumber },
+    blocks: {
+      getBlockNumber: mockGetBlockNumber,
+      getFinalizedHead: mockGetFinalizedHead,
+    },
     getExtrinsicFailedError: mockGetExtrinsicFailedError,
   })),
   HexString: {},
@@ -89,6 +95,8 @@ describe('VoucherService', () => {
     mockVoucherRevoke.mockReset();
     mockGetBlockNumber.mockReset();
     mockGetBlockNumber.mockResolvedValue({ toNumber: () => 123 });
+    mockGetFinalizedHead.mockReset();
+    mockGetFinalizedHead.mockResolvedValue({ toHex: () => '0xhead' });
     mockGetExtrinsicFailedError.mockReset();
     mockGetExtrinsicFailedError.mockReturnValue(new Error('extrinsic failed'));
     mockDisconnect.mockReset();
@@ -271,6 +279,33 @@ describe('VoucherService', () => {
     await expect(service.update(makeVoucher(), 10, 86400)).rejects.toThrow(
       'voucher no longer exists',
     );
+  });
+
+  it('update() does not prolong when voucher already has the target validity window', async () => {
+    mockGetBlockNumber
+      .mockResolvedValueOnce({ toNumber: () => 100 })
+      .mockResolvedValueOnce({ toNumber: () => 123 });
+    mockVoucherUpdate.mockReturnValue({
+      signAndSend: jest.fn().mockImplementation(async (_account: unknown, cb: any) => {
+        cb({
+          status: {
+            isDropped: false,
+            isInvalid: false,
+            isUsurped: false,
+            isInBlock: true,
+            asInBlock: { toHex: () => '0xblock' },
+          },
+          events: [{ event: { method: 'VoucherUpdated' } }],
+        });
+        return jest.fn();
+      }),
+    });
+
+    await service.update(makeVoucher({ validUpToBlock: 28_900n }), 500, 86400);
+
+    expect(mockVoucherUpdate).toHaveBeenCalledWith('0xabc', '0xvoucher', {
+      balanceTopUp: 500n * 10n ** 12n,
+    });
   });
 
   // ── getVoucherBalance() ────────────────────────────────────────────────────

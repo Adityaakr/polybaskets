@@ -60,6 +60,10 @@ function getExtrinsicFailedError(api: GearApi, event: unknown): Error {
   return new Error(formatUnknownError(decoded));
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
 @Injectable()
 export class VoucherService implements OnModuleInit {
   private logger = new Logger('VoucherService');
@@ -189,7 +193,7 @@ export class VoucherService implements OnModuleInit {
     amount: number,
     durationInSec: number,
   ): Promise<string> {
-    const durationInBlocks = Math.round(durationInSec / SECONDS_PER_BLOCK);
+    const requestedDurationInBlocks = Math.round(durationInSec / SECONDS_PER_BLOCK);
 
     this.logger.log(
       `Issuing voucher: account=${account} amount=${amount} VARA duration=${durationInSec}s programs=[${programIds.join(', ')}]`,
@@ -207,6 +211,12 @@ export class VoucherService implements OnModuleInit {
             `Insufficient issuer balance (${issuerBalance / PLANCK_PER_VARA} VARA). Min reserve: ${MIN_RESERVE_VARA} VARA.`,
           );
         }
+
+        const durationInBlocks = clamp(
+          requestedDurationInBlocks,
+          api.voucher.minDuration,
+          api.voucher.maxDuration,
+        );
 
         const { extrinsic } = await api.voucher.issue(
           account,
@@ -251,6 +261,11 @@ export class VoucherService implements OnModuleInit {
       },
     );
 
+    const durationInBlocks = clamp(
+      requestedDurationInBlocks,
+      this.api.voucher.minDuration,
+      this.api.voucher.maxDuration,
+    );
     const validUpToBlock = BigInt(blockNumber + durationInBlocks);
     const validUpTo = new Date(Date.now() + durationInSec * 1000);
     const now = new Date();
@@ -274,8 +289,9 @@ export class VoucherService implements OnModuleInit {
   }
 
   /**
-   * Additive top-up: adds `amountToAdd` VARA to the voucher balance AND extends
-   * duration by `prolongDurationInSec` AND optionally appends new programs.
+   * Additive top-up: adds `amountToAdd` VARA to the voucher balance and keeps
+   * voucher validity near `prolongDurationInSec` from now without exceeding
+   * runtime voucher duration bounds. It also optionally appends new programs.
    *
    * Unlike the legacy "top up to target" semantic, this method always adds
    * exactly `amountToAdd` — no on-chain balance subtraction. This is what the
@@ -292,12 +308,7 @@ export class VoucherService implements OnModuleInit {
       throw new Error(`Cannot update revoked voucher ${voucher.voucherId} — issue a new one instead`);
     }
 
-    const durationInBlocks = prolongDurationInSec
-      ? Math.round(prolongDurationInSec / SECONDS_PER_BLOCK)
-      : 0;
-
     const params: IUpdateVoucherParams = {};
-    if (durationInBlocks) params.prolongDuration = durationInBlocks;
     if (addPrograms && addPrograms.length) {
       params.appendPrograms = addPrograms;
     }
@@ -312,6 +323,28 @@ export class VoucherService implements OnModuleInit {
     const blockNumber = await this.sendWithOutdatedRetry(
       `update ${voucher.voucherId}`,
       async (api) => {
+        const currentHead = await api.blocks.getFinalizedHead();
+        const currentBlock = (
+          await api.blocks.getBlockNumber(currentHead.toHex())
+        ).toNumber();
+        const targetDurationInBlocks = prolongDurationInSec
+          ? clamp(
+              Math.round(prolongDurationInSec / SECONDS_PER_BLOCK),
+              api.voucher.minDuration,
+              api.voucher.maxDuration,
+            )
+          : 0;
+        const currentRemainingBlocks = Math.max(
+          0,
+          Number(voucher.validUpToBlock - BigInt(currentBlock)),
+        );
+        const durationInBlocks = targetDurationInBlocks
+          ? Math.max(0, targetDurationInBlocks - currentRemainingBlocks)
+          : 0;
+        if (durationInBlocks) {
+          params.prolongDuration = durationInBlocks;
+        }
+
         const tx = api.voucher.update(voucher.account, voucher.voucherId, params);
         const blockHash = await withTimeout(
           new Promise<HexString>((resolve, reject) => {
@@ -362,9 +395,17 @@ export class VoucherService implements OnModuleInit {
     if (addPrograms && addPrograms.length) {
       voucher.programs.push(...addPrograms);
     }
-    if (durationInBlocks) {
-      voucher.validUpToBlock = BigInt(blockNumber + durationInBlocks);
-      voucher.validUpTo = new Date(Date.now() + prolongDurationInSec * 1000);
+    if (prolongDurationInSec) {
+      const targetDurationInBlocks = clamp(
+        Math.round(prolongDurationInSec / SECONDS_PER_BLOCK),
+        this.api.voucher.minDuration,
+        this.api.voucher.maxDuration,
+      );
+      const desiredValidUpToBlock = BigInt(blockNumber + targetDurationInBlocks);
+      if (desiredValidUpToBlock > voucher.validUpToBlock) {
+        voucher.validUpToBlock = desiredValidUpToBlock;
+        voucher.validUpTo = new Date(Date.now() + prolongDurationInSec * 1000);
+      }
     }
     voucher.lastRenewedAt = now;
 
