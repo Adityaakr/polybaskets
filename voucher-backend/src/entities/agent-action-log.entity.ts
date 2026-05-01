@@ -20,6 +20,6 @@ export class AgentActionLog {
   @Column({ type: 'varchar', length: 16 })
   action: AgentActionType;
 
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'created_at', type: 'datetime' })
   createdAt: Date;
 }
