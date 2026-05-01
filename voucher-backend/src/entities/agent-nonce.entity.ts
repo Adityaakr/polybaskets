@@ -6,6 +6,6 @@ export class AgentNonce {
   nonce: string;
 
   @Index()
-  @Column({ name: 'expires_at', type: 'timestamptz' })
+  @Column({ name: 'expires_at', type: 'datetime' })
   expiresAt: Date;
 }
