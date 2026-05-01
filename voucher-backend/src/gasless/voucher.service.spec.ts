@@ -1,6 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
+import { DataSource } from 'typeorm';
 import { VoucherService } from './voucher.service';
 import { Voucher } from '../entities/voucher.entity';
 
@@ -16,12 +17,24 @@ import { Voucher } from '../entities/voucher.entity';
 const mockBalance = jest.fn();
 const mockIsReadyOrError = jest.fn();
 const mockVoucherIssue = jest.fn();
+const mockVoucherUpdate = jest.fn();
+const mockVoucherRevoke = jest.fn();
+const mockGetBlockNumber = jest.fn();
+const mockDisconnect = jest.fn();
 
 jest.mock('@gear-js/api', () => ({
   GearApi: jest.fn().mockImplementation(() => ({
     isReadyOrError: mockIsReadyOrError(),
+    isConnected: true,
+    disconnect: mockDisconnect,
     balance: { findOut: mockBalance },
-    voucher: { issue: mockVoucherIssue },
+    voucher: {
+      issue: mockVoucherIssue,
+      update: mockVoucherUpdate,
+      revoke: mockVoucherRevoke,
+    },
+    blocks: { getBlockNumber: mockGetBlockNumber },
+    getExtrinsicFailedError: jest.fn().mockReturnValue(new Error('extrinsic failed')),
   })),
   HexString: {},
   IUpdateVoucherParams: {},
@@ -63,11 +76,20 @@ describe('VoucherService', () => {
   let service: VoucherService;
   let repo: { findOneBy: jest.Mock; save: jest.Mock };
   let cfg: { get: jest.Mock };
+  let ds: { createQueryRunner: jest.Mock };
+  let qrQuery: jest.Mock;
+  let qrRelease: jest.Mock;
 
   beforeEach(async () => {
     mockIsReadyOrError.mockReturnValue(Promise.resolve());
     mockBalance.mockResolvedValue({ toBigInt: () => BigInt(100 * 1e12) });
     mockVoucherIssue.mockReset();
+    mockVoucherUpdate.mockReset();
+    mockVoucherRevoke.mockReset();
+    mockGetBlockNumber.mockReset();
+    mockGetBlockNumber.mockResolvedValue({ toNumber: () => 123 });
+    mockDisconnect.mockReset();
+    mockDisconnect.mockResolvedValue(undefined);
 
     repo = {
       findOneBy: jest.fn().mockResolvedValue(null),
@@ -80,12 +102,22 @@ describe('VoucherService', () => {
         return undefined;
       }),
     };
+    qrQuery = jest.fn().mockResolvedValue([]);
+    qrRelease = jest.fn().mockResolvedValue(undefined);
+    ds = {
+      createQueryRunner: jest.fn().mockReturnValue({
+        connect: jest.fn().mockResolvedValue(undefined),
+        query: qrQuery,
+        release: qrRelease,
+      }),
+    };
 
     const module = await Test.createTestingModule({
       providers: [
         VoucherService,
         { provide: getRepositoryToken(Voucher), useValue: repo },
         { provide: ConfigService, useValue: cfg },
+        { provide: DataSource, useValue: ds },
       ],
     }).compile();
 
@@ -96,17 +128,17 @@ describe('VoucherService', () => {
   // ── onModuleInit ───────────────────────────────────────────────────────────
 
   it('throws when GearApi rejects — does not silently continue', async () => {
-    mockIsReadyOrError.mockReturnValue(Promise.reject(new Error('node unreachable')));
-
     const failingModule = await Test.createTestingModule({
       providers: [
         VoucherService,
         { provide: getRepositoryToken(Voucher), useValue: repo },
         { provide: ConfigService, useValue: cfg },
+        { provide: DataSource, useValue: ds },
       ],
     }).compile();
 
     const failingSvc = failingModule.get(VoucherService);
+    (failingSvc as any).api.isReadyOrError = Promise.reject(new Error('node unreachable'));
     await expect(failingSvc.onModuleInit()).rejects.toThrow('node unreachable');
   });
 
@@ -169,6 +201,41 @@ describe('VoucherService', () => {
       Math.round(86400 / 3),
       programs,
     );
+  });
+
+  it('retries issue() once when the RPC returns Transaction is outdated', async () => {
+    mockBalance.mockResolvedValue({ toBigInt: () => BigInt(1000 * 1e12) });
+
+    const outdated = new Error('1010: Invalid Transaction: Transaction is outdated');
+    const okExtrinsic = {
+      signAndSend: jest.fn().mockImplementation(async (_account: unknown, cb: any) => {
+        cb({
+          status: { isDropped: false, isInvalid: false, isUsurped: false, isInBlock: true, asInBlock: { toHex: () => '0xblock' } },
+          events: [
+            {
+              event: {
+                method: 'VoucherIssued',
+                data: { voucherId: { toHex: () => '0xvoucher' } },
+              },
+            },
+          ],
+        });
+        return jest.fn();
+      }),
+    };
+
+    mockVoucherIssue
+      .mockResolvedValueOnce({
+        extrinsic: {
+          signAndSend: jest.fn().mockRejectedValue(outdated),
+        },
+      })
+      .mockResolvedValueOnce({ extrinsic: okExtrinsic });
+
+    const voucherId = await service.issue('0xaccount' as any, ['0xprog'] as any, 500, 86400);
+
+    expect(voucherId).toBe('0xvoucher');
+    expect(mockVoucherIssue).toHaveBeenCalledTimes(2);
   });
 
   // ── update() guard ─────────────────────────────────────────────────────────

@@ -7,11 +7,12 @@ import {
 import { waitReady } from '@polkadot/wasm-crypto';
 import { hexToU8a } from '@polkadot/util';
 import { Keyring } from '@polkadot/api';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Voucher } from '../entities/voucher.entity';
+import { getWalletLockKey } from './wallet-lock';
 
 const SECONDS_PER_BLOCK = 3;
 const PLANCK_PER_VARA = BigInt(1e12);
@@ -37,6 +38,7 @@ export class VoucherService implements OnModuleInit {
   constructor(
     @InjectRepository(Voucher) private readonly repo: Repository<Voucher>,
     private readonly configService: ConfigService,
+    private readonly dataSource: DataSource,
   ) {
     this.nodeUrl = configService.get('nodeUrl');
     this.api = new GearApi({ providerAddress: this.nodeUrl });
@@ -50,6 +52,10 @@ export class VoucherService implements OnModuleInit {
   private async ensureConnected(): Promise<GearApi> {
     if (this.api.isConnected) return this.api;
 
+    return this.reconnectApi();
+  }
+
+  private async reconnectApi(): Promise<GearApi> {
     this.logger.warn('GearApi disconnected — reconnecting...');
     try {
       await this.api.disconnect();
@@ -60,6 +66,63 @@ export class VoucherService implements OnModuleInit {
     await this.api.isReadyOrError;
     this.logger.log('GearApi reconnected');
     return this.api;
+  }
+
+  private isOutdatedTransactionError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return (
+      message.includes('Invalid Transaction: Transaction is outdated') ||
+      (message.includes('1010') && message.toLowerCase().includes('outdated'))
+    );
+  }
+
+  /**
+   * Serializes all signed sends made by the shared voucher issuer account.
+   * Per-wallet locks in GaslessService stop duplicate mints for one user,
+   * but different users still sign with the same issuer account and can
+   * race on signer nonce across pods without this global lock.
+   */
+  private async withIssuerLock<T>(operation: string, fn: () => Promise<T>): Promise<T> {
+    if (!this.account?.address) {
+      throw new Error('Voucher issuer account is not initialized');
+    }
+
+    const [k1, k2] = getWalletLockKey(this.account.address);
+    const qr = this.dataSource.createQueryRunner();
+    let lockAcquired = false;
+
+    try {
+      await qr.connect();
+      await qr.query('SELECT pg_advisory_lock($1, $2)', [k1, k2]);
+      lockAcquired = true;
+      return await fn();
+    } finally {
+      if (lockAcquired) {
+        await qr.query('SELECT pg_advisory_unlock($1, $2)', [k1, k2]);
+      }
+      await qr.release();
+      this.logger.debug(`Issuer lock released after ${operation}`);
+    }
+  }
+
+  private async sendWithOutdatedRetry<T>(
+    operation: string,
+    fn: (api: GearApi) => Promise<T>,
+  ): Promise<T> {
+    return this.withIssuerLock(operation, async () => {
+      const api = await this.ensureConnected();
+      try {
+        return await fn(api);
+      } catch (error) {
+        if (!this.isOutdatedTransactionError(error)) throw error;
+
+        this.logger.warn(
+          `${operation} hit "Transaction is outdated" for issuer ${this.account.address}; reconnecting and retrying once`,
+        );
+        const freshApi = await this.reconnectApi();
+        return fn(freshApi);
+      }
+    });
   }
 
   getAccountBalance() {
@@ -94,54 +157,63 @@ export class VoucherService implements OnModuleInit {
     amount: number,
     durationInSec: number,
   ): Promise<string> {
-    await this.ensureConnected();
     const durationInBlocks = Math.round(durationInSec / SECONDS_PER_BLOCK);
-
-    const issuerBalance = (await this.getAccountBalance()).toBigInt();
-    if (issuerBalance < BigInt(amount) * PLANCK_PER_VARA + MIN_RESERVE_VARA * PLANCK_PER_VARA) {
-      throw new Error(
-        `Insufficient issuer balance (${issuerBalance / PLANCK_PER_VARA} VARA). Min reserve: ${MIN_RESERVE_VARA} VARA.`,
-      );
-    }
 
     this.logger.log(
       `Issuing voucher: account=${account} amount=${amount} VARA duration=${durationInSec}s programs=[${programIds.join(', ')}]`,
     );
 
-    const { extrinsic } = await this.api.voucher.issue(
-      account,
-      BigInt(amount) * PLANCK_PER_VARA,
-      durationInBlocks,
-      programIds,
-    );
+    const [voucherId, blockHash] = await this.sendWithOutdatedRetry(
+      `issue ${account}`,
+      async (api) => {
+        const issuerBalance = (await api.balance.findOut(this.account.address)).toBigInt();
+        if (
+          issuerBalance <
+          BigInt(amount) * PLANCK_PER_VARA + MIN_RESERVE_VARA * PLANCK_PER_VARA
+        ) {
+          throw new Error(
+            `Insufficient issuer balance (${issuerBalance / PLANCK_PER_VARA} VARA). Min reserve: ${MIN_RESERVE_VARA} VARA.`,
+          );
+        }
 
-    const [voucherId, blockHash] = await withTimeout(
-      new Promise<[HexString, HexString]>((resolve, reject) => {
-        extrinsic.signAndSend(this.account, ({ events, status }) => {
-          if (status.isDropped || status.isInvalid || status.isUsurped) {
-            return reject(new Error(`Transaction ${status.type} — not included in block`));
-          }
-          if (status.isInBlock) {
-            const viEvent = events.find(
-              ({ event }) => event.method === 'VoucherIssued',
-            );
-            if (viEvent) {
-              const data = viEvent.event.data as VoucherIssuedData;
-              resolve([data.voucherId.toHex(), status.asInBlock.toHex()]);
-            } else {
-              const efEvent = events.find(
-                ({ event }) => event.method === 'ExtrinsicFailed',
-              );
-              reject(
-                efEvent
-                  ? this.api.getExtrinsicFailedError(efEvent?.event)
-                  : new Error('VoucherIssued event not found'),
-              );
-            }
-          }
-        }).catch(reject);
-      }),
-      'signAndSend timed out after 60s — transaction may or may not have landed',
+        const { extrinsic } = await api.voucher.issue(
+          account,
+          BigInt(amount) * PLANCK_PER_VARA,
+          durationInBlocks,
+          programIds,
+        );
+
+        return withTimeout(
+          new Promise<[HexString, HexString]>((resolve, reject) => {
+            extrinsic.signAndSend(this.account, ({ events, status }) => {
+              if (status.isDropped || status.isInvalid || status.isUsurped) {
+                return reject(
+                  new Error(`Transaction ${status.type} — not included in block`),
+                );
+              }
+              if (status.isInBlock) {
+                const viEvent = events.find(
+                  ({ event }) => event.method === 'VoucherIssued',
+                );
+                if (viEvent) {
+                  const data = viEvent.event.data as VoucherIssuedData;
+                  resolve([data.voucherId.toHex(), status.asInBlock.toHex()]);
+                } else {
+                  const efEvent = events.find(
+                    ({ event }) => event.method === 'ExtrinsicFailed',
+                  );
+                  reject(
+                    efEvent
+                      ? api.getExtrinsicFailedError(efEvent?.event)
+                      : new Error('VoucherIssued event not found'),
+                  );
+                }
+              }
+            }).catch(reject);
+          }),
+          'signAndSend timed out after 60s — transaction may or may not have landed',
+        );
+      },
     );
 
     const blockNumber = (
@@ -188,7 +260,6 @@ export class VoucherService implements OnModuleInit {
       throw new Error(`Cannot update revoked voucher ${voucher.voucherId} — issue a new one instead`);
     }
 
-    await this.ensureConnected();
     const durationInBlocks = prolongDurationInSec
       ? Math.round(prolongDurationInSec / SECONDS_PER_BLOCK)
       : 0;
@@ -206,30 +277,40 @@ export class VoucherService implements OnModuleInit {
       `Updating voucher: ${voucher.voucherId} for ${voucher.account} (+${amountToAdd} VARA, +${prolongDurationInSec ?? 0}s)`,
     );
 
-    const tx = this.api.voucher.update(voucher.account, voucher.voucherId, params);
-
-    const blockHash = await withTimeout(
-      new Promise<HexString>((resolve, reject) => {
-        tx.signAndSend(this.account, ({ events, status }) => {
-          if (status.isDropped || status.isInvalid || status.isUsurped) {
-            return reject(new Error(`Transaction ${status.type} — not included in block`));
-          }
-          if (status.isInBlock) {
-            const vuEvent = events.find(({ event }) => event.method === 'VoucherUpdated');
-            if (vuEvent) {
-              resolve(status.asInBlock.toHex());
-            } else {
-              const efEvent = events.find(({ event }) => event.method === 'ExtrinsicFailed');
-              reject(
-                efEvent
-                  ? JSON.stringify(this.api.getExtrinsicFailedError(efEvent?.event))
-                  : new Error('VoucherUpdated event not found'),
-              );
-            }
-          }
-        }).catch(reject);
-      }),
-      'signAndSend timed out after 60s',
+    const blockHash = await this.sendWithOutdatedRetry(
+      `update ${voucher.voucherId}`,
+      async (api) => {
+        const tx = api.voucher.update(voucher.account, voucher.voucherId, params);
+        return withTimeout(
+          new Promise<HexString>((resolve, reject) => {
+            tx.signAndSend(this.account, ({ events, status }) => {
+              if (status.isDropped || status.isInvalid || status.isUsurped) {
+                return reject(
+                  new Error(`Transaction ${status.type} — not included in block`),
+                );
+              }
+              if (status.isInBlock) {
+                const vuEvent = events.find(
+                  ({ event }) => event.method === 'VoucherUpdated',
+                );
+                if (vuEvent) {
+                  resolve(status.asInBlock.toHex());
+                } else {
+                  const efEvent = events.find(
+                    ({ event }) => event.method === 'ExtrinsicFailed',
+                  );
+                  reject(
+                    efEvent
+                      ? JSON.stringify(api.getExtrinsicFailedError(efEvent?.event))
+                      : new Error('VoucherUpdated event not found'),
+                  );
+                }
+              }
+            }).catch(reject);
+          }),
+          'signAndSend timed out after 60s',
+        );
+      },
     );
 
     // Chain confirmed. Persist new state with retry — a DB save failure here
@@ -309,38 +390,47 @@ export class VoucherService implements OnModuleInit {
     }
     if (!programIds.length) return;
 
-    await this.ensureConnected();
-
     this.logger.log(
       `Appending programs (no fund) to voucher ${voucher.voucherId}: ${programIds.join(', ')}`,
     );
 
-    const tx = this.api.voucher.update(voucher.account, voucher.voucherId, {
-      appendPrograms: programIds,
-    });
+    await this.sendWithOutdatedRetry(
+      `appendPrograms ${voucher.voucherId}`,
+      async (api) => {
+        const tx = api.voucher.update(voucher.account, voucher.voucherId, {
+          appendPrograms: programIds,
+        });
 
-    await withTimeout(
-      new Promise<HexString>((resolve, reject) => {
-        tx.signAndSend(this.account, ({ events, status }) => {
-          if (status.isDropped || status.isInvalid || status.isUsurped) {
-            return reject(new Error(`Transaction ${status.type} — not included in block`));
-          }
-          if (status.isInBlock) {
-            const vuEvent = events.find(({ event }) => event.method === 'VoucherUpdated');
-            if (vuEvent) {
-              resolve(status.asInBlock.toHex());
-            } else {
-              const efEvent = events.find(({ event }) => event.method === 'ExtrinsicFailed');
-              reject(
-                efEvent
-                  ? JSON.stringify(this.api.getExtrinsicFailedError(efEvent?.event))
-                  : new Error('VoucherUpdated event not found'),
-              );
-            }
-          }
-        }).catch(reject);
-      }),
-      'appendProgramsFreeOfCharge signAndSend timed out after 60s',
+        return withTimeout(
+          new Promise<HexString>((resolve, reject) => {
+            tx.signAndSend(this.account, ({ events, status }) => {
+              if (status.isDropped || status.isInvalid || status.isUsurped) {
+                return reject(
+                  new Error(`Transaction ${status.type} — not included in block`),
+                );
+              }
+              if (status.isInBlock) {
+                const vuEvent = events.find(
+                  ({ event }) => event.method === 'VoucherUpdated',
+                );
+                if (vuEvent) {
+                  resolve(status.asInBlock.toHex());
+                } else {
+                  const efEvent = events.find(
+                    ({ event }) => event.method === 'ExtrinsicFailed',
+                  );
+                  reject(
+                    efEvent
+                      ? JSON.stringify(api.getExtrinsicFailedError(efEvent?.event))
+                      : new Error('VoucherUpdated event not found'),
+                  );
+                }
+              }
+            }).catch(reject);
+          }),
+          'appendProgramsFreeOfCharge signAndSend timed out after 60s',
+        );
+      },
     );
 
     // Chain confirmed. Persist program list with retry — same reasoning as
@@ -352,30 +442,38 @@ export class VoucherService implements OnModuleInit {
   }
 
   async revoke(voucher: Voucher) {
-    await this.ensureConnected();
-    const tx = this.api.voucher.revoke(voucher.account, voucher.voucherId);
     try {
-      await withTimeout(
-        new Promise<HexString>((resolve, reject) => {
-          tx.signAndSend(this.account, ({ events, status }) => {
-            if (status.isDropped || status.isInvalid || status.isUsurped) {
-              return reject(new Error(`Transaction ${status.type}`));
-            }
-            if (status.isInBlock) {
-              const vrEvent = events.find(({ event }) => event.method === 'VoucherRevoked');
-              if (vrEvent) resolve(status.asInBlock.toHex());
-              else {
-                const efEvent = events.find(({ event }) => event.method === 'ExtrinsicFailed');
-                reject(
-                  efEvent
-                    ? JSON.stringify(this.api.getExtrinsicFailedError(efEvent?.event))
-                    : new Error('VoucherRevoked event not found'),
-                );
-              }
-            }
-          }).catch(reject);
-        }),
-        'revoke signAndSend timed out after 60s',
+      await this.sendWithOutdatedRetry(
+        `revoke ${voucher.voucherId}`,
+        async (api) => {
+          const tx = api.voucher.revoke(voucher.account, voucher.voucherId);
+          return withTimeout(
+            new Promise<HexString>((resolve, reject) => {
+              tx.signAndSend(this.account, ({ events, status }) => {
+                if (status.isDropped || status.isInvalid || status.isUsurped) {
+                  return reject(new Error(`Transaction ${status.type}`));
+                }
+                if (status.isInBlock) {
+                  const vrEvent = events.find(
+                    ({ event }) => event.method === 'VoucherRevoked',
+                  );
+                  if (vrEvent) resolve(status.asInBlock.toHex());
+                  else {
+                    const efEvent = events.find(
+                      ({ event }) => event.method === 'ExtrinsicFailed',
+                    );
+                    reject(
+                      efEvent
+                        ? JSON.stringify(api.getExtrinsicFailedError(efEvent?.event))
+                        : new Error('VoucherRevoked event not found'),
+                    );
+                  }
+                }
+              }).catch(reject);
+            }),
+            'revoke signAndSend timed out after 60s',
+          );
+        },
       );
     } catch (e) {
       this.logger.error(
