@@ -20,6 +20,7 @@ const mockVoucherIssue = jest.fn();
 const mockVoucherUpdate = jest.fn();
 const mockVoucherRevoke = jest.fn();
 const mockGetBlockNumber = jest.fn();
+const mockGetExtrinsicFailedError = jest.fn();
 const mockDisconnect = jest.fn();
 
 jest.mock('@gear-js/api', () => ({
@@ -34,7 +35,7 @@ jest.mock('@gear-js/api', () => ({
       revoke: mockVoucherRevoke,
     },
     blocks: { getBlockNumber: mockGetBlockNumber },
-    getExtrinsicFailedError: jest.fn().mockReturnValue(new Error('extrinsic failed')),
+    getExtrinsicFailedError: mockGetExtrinsicFailedError,
   })),
   HexString: {},
   IUpdateVoucherParams: {},
@@ -88,6 +89,8 @@ describe('VoucherService', () => {
     mockVoucherRevoke.mockReset();
     mockGetBlockNumber.mockReset();
     mockGetBlockNumber.mockResolvedValue({ toNumber: () => 123 });
+    mockGetExtrinsicFailedError.mockReset();
+    mockGetExtrinsicFailedError.mockReturnValue(new Error('extrinsic failed'));
     mockDisconnect.mockReset();
     mockDisconnect.mockResolvedValue(undefined);
 
@@ -245,6 +248,29 @@ describe('VoucherService', () => {
     await expect(
       service.update(revoked, 10, 86400),
     ).rejects.toThrow('Cannot update revoked voucher');
+  });
+
+  it('update() preserves the decoded ExtrinsicFailed error message', async () => {
+    mockVoucherUpdate.mockReturnValue({
+      signAndSend: jest.fn().mockImplementation(async (_account: unknown, cb: any) => {
+        cb({
+          status: {
+            isDropped: false,
+            isInvalid: false,
+            isUsurped: false,
+            isInBlock: true,
+            asInBlock: { toHex: () => '0xblock' },
+          },
+          events: [{ event: { method: 'ExtrinsicFailed' } }],
+        });
+        return jest.fn();
+      }),
+    });
+    mockGetExtrinsicFailedError.mockReturnValue(new Error('voucher no longer exists'));
+
+    await expect(service.update(makeVoucher(), 10, 86400)).rejects.toThrow(
+      'voucher no longer exists',
+    );
   });
 
   // ── getVoucherBalance() ────────────────────────────────────────────────────

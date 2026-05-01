@@ -58,6 +58,32 @@ export type RequestVoucherResult =
   | { status: 'ok'; voucherId: string }
   | RateLimitedResult;
 
+function formatUnknownError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.stack ? `${error.name}: ${error.message}\n${error.stack}` : `${error.name}: ${error.message}`;
+  }
+  if (typeof error === 'string') return error;
+
+  try {
+    return JSON.stringify(error, (_key, value) =>
+      typeof value === 'bigint' ? value.toString() : value,
+    );
+  } catch {
+    return String(error);
+  }
+}
+
+function isStaleOnChainVoucherError(error: unknown): boolean {
+  const message = formatUnknownError(error).toLowerCase();
+  return (
+    message.includes('inexistentvoucher') ||
+    message.includes('voucherexpired') ||
+    message.includes("doesn't exist") ||
+    message.includes('does not exist') ||
+    message.includes('voucher has expired')
+  );
+}
+
 @Injectable()
 export class GaslessService implements OnModuleInit {
   private logger = new Logger(GaslessService.name);
@@ -94,7 +120,7 @@ export class GaslessService implements OnModuleInit {
       `);
       this.logger.log('ip_tranche_usage table ensured');
     } catch (e) {
-      this.logger.error('Failed to ensure ip_tranche_usage table', e);
+      this.logger.error(`Failed to ensure ip_tranche_usage table: ${formatUnknownError(e)}`);
       throw e; // Fail boot — ceiling is a hard gate, we must not run without it.
     }
   }
@@ -397,14 +423,33 @@ export class GaslessService implements OnModuleInit {
           }
           return ipLimit;
         }
-        await this.voucherService.update(
-          existing,
-          trancheVara,
-          trancheDurationSec,
-          missingPrograms.length
-            ? (missingPrograms as HexString[])
-            : undefined,
-        );
+        try {
+          await this.voucherService.update(
+            existing,
+            trancheVara,
+            trancheDurationSec,
+            missingPrograms.length
+              ? (missingPrograms as HexString[])
+              : undefined,
+          );
+        } catch (error) {
+          if (!isStaleOnChainVoucherError(error)) throw error;
+
+          this.logger.warn(
+            `Voucher ${existing.voucherId} for account=${address} is stale on-chain (${formatUnknownError(error)}); issuing replacement`,
+          );
+          await this.voucherService.markRevokedLocally(
+            existing,
+            `stale on-chain during update: ${formatUnknownError(error)}`,
+          );
+          const voucherId = await this.voucherService.issue(
+            address,
+            programs as HexString[],
+            trancheVara,
+            trancheDurationSec,
+          );
+          return { status: 'ok', voucherId };
+        }
         return { status: 'ok', voucherId: existing.voucherId };
       }
 
@@ -420,10 +465,31 @@ export class GaslessService implements OnModuleInit {
       // If all requested programs are already on the voucher, it's a true
       // rate-limit violation → 429.
       if (missingPrograms.length > 0) {
-        await this.voucherService.appendProgramsFreeOfCharge(
-          existing,
-          missingPrograms as HexString[],
-        );
+        try {
+          await this.voucherService.appendProgramsFreeOfCharge(
+            existing,
+            missingPrograms as HexString[],
+          );
+        } catch (error) {
+          if (!isStaleOnChainVoucherError(error)) throw error;
+
+          this.logger.warn(
+            `Voucher ${existing.voucherId} for account=${address} is stale on-chain (${formatUnknownError(error)}); issuing replacement`,
+          );
+          await this.voucherService.markRevokedLocally(
+            existing,
+            `stale on-chain during append: ${formatUnknownError(error)}`,
+          );
+          const ipLimit = await this.reserveIpTrancheCount(ip);
+          if (ipLimit) return ipLimit;
+          const voucherId = await this.voucherService.issue(
+            address,
+            programs as HexString[],
+            trancheVara,
+            trancheDurationSec,
+          );
+          return { status: 'ok', voucherId };
+        }
         return { status: 'ok', voucherId: existing.voucherId };
       }
 
@@ -445,7 +511,9 @@ export class GaslessService implements OnModuleInit {
       };
     } catch (error) {
       if (error instanceof HttpException) throw error;
-      this.logger.error('Failed to process voucher request', error);
+      this.logger.error(
+        `Failed to process voucher request for account=${address} ip=${ip}: ${formatUnknownError(error)}`,
+      );
       throw new InternalServerErrorException('Voucher processing failed — please retry');
     } finally {
       if (lockAcquired) {

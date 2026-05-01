@@ -74,7 +74,7 @@ function hoursAgo(n: number): Date {
 describe('GaslessService (hourly-tranche model)', () => {
   let service: GaslessService;
   let voucherSvc: jest.Mocked<
-    Pick<VoucherService, 'getVoucher' | 'issue' | 'update' | 'getVoucherBalance' | 'appendProgramsFreeOfCharge'>
+    Pick<VoucherService, 'getVoucher' | 'issue' | 'update' | 'getVoucherBalance' | 'appendProgramsFreeOfCharge' | 'markRevokedLocally'>
   >;
   let programRepo: { findBy: jest.Mock; findOneBy: jest.Mock };
   let voucherRepo: Record<string, never>;
@@ -146,6 +146,7 @@ describe('GaslessService (hourly-tranche model)', () => {
       update: jest.fn().mockResolvedValue(undefined),
       getVoucherBalance: jest.fn().mockResolvedValue(0n),
       appendProgramsFreeOfCharge: jest.fn().mockResolvedValue(undefined),
+      markRevokedLocally: jest.fn().mockResolvedValue(undefined),
     };
 
     const module = await Test.createTestingModule({
@@ -397,6 +398,36 @@ describe('GaslessService (hourly-tranche model)', () => {
     );
   });
 
+  it('recovers from a stale on-chain voucher during top-up by issuing a replacement', async () => {
+    const existing = makeVoucher({
+      programs: [PROGRAM_A],
+      lastRenewedAt: hoursAgo(2),
+      voucherId: '0xstale',
+    });
+    voucherSvc.getVoucher.mockResolvedValue(existing);
+    voucherSvc.update.mockRejectedValueOnce(
+      new Error('gearVoucher.InexistentVoucher: Voucher with given identifier does not exist'),
+    );
+    voucherSvc.issue.mockResolvedValueOnce('0xreplacement');
+
+    const result = await service.requestVoucher(
+      { account: ACCOUNT, programs: [PROGRAM_A, PROGRAM_B] },
+      IP,
+    );
+
+    expect(voucherSvc.markRevokedLocally).toHaveBeenCalledWith(
+      existing,
+      expect.stringContaining('stale on-chain during update'),
+    );
+    expect(voucherSvc.issue).toHaveBeenCalledWith(
+      DECODED,
+      [PROGRAM_A, PROGRAM_B],
+      TRANCHE_VARA,
+      TRANCHE_DURATION_SEC,
+    );
+    expect(result).toEqual({ status: 'ok', voucherId: '0xreplacement' });
+  });
+
   // ── Branch (c): within 1h → 429 ───────────────────────────────────────────
 
   it('returns rate-limited result when within 1h with Retry-After seconds', async () => {
@@ -473,6 +504,36 @@ describe('GaslessService (hourly-tranche model)', () => {
     expect(voucherSvc.update).not.toHaveBeenCalled();
     // IP ceiling not charged (no tranche).
     expect(ipRows.size).toBe(0);
+  });
+
+  it('recovers from a stale on-chain voucher during free append by issuing a replacement', async () => {
+    const existing = makeVoucher({
+      programs: [PROGRAM_A],
+      lastRenewedAt: hoursAgo(0.3),
+      voucherId: '0xstale',
+    });
+    voucherSvc.getVoucher.mockResolvedValue(existing);
+    voucherSvc.appendProgramsFreeOfCharge.mockRejectedValueOnce(
+      new Error('gearVoucher.VoucherExpired: Voucher has expired and could not be used'),
+    );
+    voucherSvc.issue.mockResolvedValueOnce('0xreplacement');
+
+    const result = await service.requestVoucher(
+      { account: ACCOUNT, programs: [PROGRAM_A, PROGRAM_B, PROGRAM_C] },
+      IP,
+    );
+
+    expect(voucherSvc.markRevokedLocally).toHaveBeenCalledWith(
+      existing,
+      expect.stringContaining('stale on-chain during append'),
+    );
+    expect(voucherSvc.issue).toHaveBeenCalledWith(
+      DECODED,
+      [PROGRAM_A, PROGRAM_B, PROGRAM_C],
+      TRANCHE_VARA,
+      TRANCHE_DURATION_SEC,
+    );
+    expect(result).toEqual({ status: 'ok', voucherId: '0xreplacement' });
   });
 
   it('exact 1h boundary: top-up eligible (no spurious 429 at nextTopUpEligibleAt)', async () => {

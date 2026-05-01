@@ -28,6 +28,38 @@ function withTimeout<T>(promise: Promise<T>, message: string): Promise<T> {
   ]);
 }
 
+function formatUnknownError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.stack ? `${error.name}: ${error.message}\n${error.stack}` : `${error.name}: ${error.message}`;
+  }
+  if (typeof error === 'string') return error;
+
+  try {
+    return JSON.stringify(error, (_key, value) =>
+      typeof value === 'bigint' ? value.toString() : value,
+    );
+  } catch {
+    return String(error);
+  }
+}
+
+function getExtrinsicFailedError(api: GearApi, event: unknown): Error {
+  const decoded = api.getExtrinsicFailedError(event as never);
+  if (decoded instanceof Error) return decoded;
+
+  if (decoded && typeof decoded === 'object') {
+    const { method, name, docs } = decoded as {
+      method?: string;
+      name?: string;
+      docs?: string;
+    };
+    const label = [method, name].filter(Boolean).join('.');
+    return new Error([label || 'ExtrinsicFailed', docs].filter(Boolean).join(': '));
+  }
+
+  return new Error(formatUnknownError(decoded));
+}
+
 @Injectable()
 export class VoucherService implements OnModuleInit {
   private logger = new Logger('VoucherService');
@@ -204,7 +236,7 @@ export class VoucherService implements OnModuleInit {
                   );
                   reject(
                     efEvent
-                      ? api.getExtrinsicFailedError(efEvent?.event)
+                      ? getExtrinsicFailedError(api, efEvent.event)
                       : new Error('VoucherIssued event not found'),
                   );
                 }
@@ -301,7 +333,7 @@ export class VoucherService implements OnModuleInit {
                   );
                   reject(
                     efEvent
-                      ? JSON.stringify(api.getExtrinsicFailedError(efEvent?.event))
+                      ? getExtrinsicFailedError(api, efEvent.event)
                       : new Error('VoucherUpdated event not found'),
                   );
                 }
@@ -422,7 +454,7 @@ export class VoucherService implements OnModuleInit {
                   );
                   reject(
                     efEvent
-                      ? JSON.stringify(api.getExtrinsicFailedError(efEvent?.event))
+                      ? getExtrinsicFailedError(api, efEvent.event)
                       : new Error('VoucherUpdated event not found'),
                   );
                 }
@@ -465,7 +497,7 @@ export class VoucherService implements OnModuleInit {
                     );
                     reject(
                       efEvent
-                        ? JSON.stringify(api.getExtrinsicFailedError(efEvent?.event))
+                        ? getExtrinsicFailedError(api, efEvent.event)
                         : new Error('VoucherRevoked event not found'),
                     );
                   }
@@ -481,13 +513,20 @@ export class VoucherService implements OnModuleInit {
       return true;
     } catch (e) {
       this.logger.error(
-        `On-chain revoke failed for ${voucher.voucherId} — marking DB as revoked to stop retries`,
-        e,
+        `On-chain revoke failed for ${voucher.voucherId} — marking DB as revoked to stop retries: ${formatUnknownError(e)}`,
       );
       voucher.revoked = true;
       await this.repo.save(voucher);
       return false;
     }
+  }
+
+  async markRevokedLocally(voucher: Voucher, reason: string): Promise<void> {
+    voucher.revoked = true;
+    await this.repo.save(voucher);
+    this.logger.warn(
+      `Marked voucher ${voucher.voucherId} as revoked locally: ${reason}`,
+    );
   }
 
   async getVoucher(account: string): Promise<Voucher | null> {
