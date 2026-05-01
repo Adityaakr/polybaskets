@@ -163,7 +163,7 @@ export class VoucherService implements OnModuleInit {
       `Issuing voucher: account=${account} amount=${amount} VARA duration=${durationInSec}s programs=[${programIds.join(', ')}]`,
     );
 
-    const [voucherId, blockHash] = await this.sendWithOutdatedRetry(
+    const [voucherId, blockNumber] = await this.sendWithOutdatedRetry(
       `issue ${account}`,
       async (api) => {
         const issuerBalance = (await api.balance.findOut(this.account.address)).toBigInt();
@@ -183,7 +183,7 @@ export class VoucherService implements OnModuleInit {
           programIds,
         );
 
-        return withTimeout(
+        const [voucherId, blockHash] = await withTimeout(
           new Promise<[HexString, HexString]>((resolve, reject) => {
             extrinsic.signAndSend(this.account, ({ events, status }) => {
               if (status.isDropped || status.isInvalid || status.isUsurped) {
@@ -213,12 +213,12 @@ export class VoucherService implements OnModuleInit {
           }),
           'signAndSend timed out after 60s — transaction may or may not have landed',
         );
+
+        const blockNumber = (await api.blocks.getBlockNumber(blockHash)).toNumber();
+        return [voucherId, blockNumber] as const;
       },
     );
 
-    const blockNumber = (
-      await this.api.blocks.getBlockNumber(blockHash)
-    ).toNumber();
     const validUpToBlock = BigInt(blockNumber + durationInBlocks);
     const validUpTo = new Date(Date.now() + durationInSec * 1000);
     const now = new Date();
@@ -277,11 +277,11 @@ export class VoucherService implements OnModuleInit {
       `Updating voucher: ${voucher.voucherId} for ${voucher.account} (+${amountToAdd} VARA, +${prolongDurationInSec ?? 0}s)`,
     );
 
-    const blockHash = await this.sendWithOutdatedRetry(
+    const blockNumber = await this.sendWithOutdatedRetry(
       `update ${voucher.voucherId}`,
       async (api) => {
         const tx = api.voucher.update(voucher.account, voucher.voucherId, params);
-        return withTimeout(
+        const blockHash = await withTimeout(
           new Promise<HexString>((resolve, reject) => {
             tx.signAndSend(this.account, ({ events, status }) => {
               if (status.isDropped || status.isInvalid || status.isUsurped) {
@@ -310,6 +310,8 @@ export class VoucherService implements OnModuleInit {
           }),
           'signAndSend timed out after 60s',
         );
+
+        return (await api.blocks.getBlockNumber(blockHash)).toNumber();
       },
     );
 
@@ -329,7 +331,6 @@ export class VoucherService implements OnModuleInit {
       voucher.programs.push(...addPrograms);
     }
     if (durationInBlocks) {
-      const blockNumber = (await this.api.blocks.getBlockNumber(blockHash)).toNumber();
       voucher.validUpToBlock = BigInt(blockNumber + durationInBlocks);
       voucher.validUpTo = new Date(Date.now() + prolongDurationInSec * 1000);
     }
@@ -441,7 +442,7 @@ export class VoucherService implements OnModuleInit {
     await this.saveWithRetry(voucher, `appendPrograms ${voucher.voucherId}`);
   }
 
-  async revoke(voucher: Voucher) {
+  async revoke(voucher: Voucher): Promise<boolean> {
     try {
       await this.sendWithOutdatedRetry(
         `revoke ${voucher.voucherId}`,
@@ -475,14 +476,18 @@ export class VoucherService implements OnModuleInit {
           );
         },
       );
+      voucher.revoked = true;
+      await this.repo.save(voucher);
+      return true;
     } catch (e) {
       this.logger.error(
         `On-chain revoke failed for ${voucher.voucherId} — marking DB as revoked to stop retries`,
         e,
       );
+      voucher.revoked = true;
+      await this.repo.save(voucher);
+      return false;
     }
-    voucher.revoked = true;
-    await this.repo.save(voucher);
   }
 
   async getVoucher(account: string): Promise<Voucher | null> {

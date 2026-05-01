@@ -11,6 +11,7 @@ const MAX_PER_ITERATION = 100;
 @Injectable()
 export class VoucherTask {
   private readonly logger = new Logger(VoucherTask.name);
+  private readonly warnLogger = new Logger(VoucherTask.name);
 
   constructor(
     @InjectRepository(Voucher)
@@ -29,13 +30,19 @@ export class VoucherTask {
       order: { validUpTo: 'ASC' },
     });
 
-    let succeeded = 0;
+    let revokedOnChain = 0;
+    let markedDbOnly = 0;
     for (const voucher of expired) {
       try {
-        const didRevoke = await this.revokeWithLock(voucher);
-        if (didRevoke) {
-          succeeded++;
+        const outcome = await this.revokeWithLock(voucher);
+        if (outcome === 'revoked') {
+          revokedOnChain++;
           this.logger.log(`Revoked voucher ${voucher.voucherId}`);
+        } else if (outcome === 'db_only') {
+          markedDbOnly++;
+          this.warnLogger.warn(
+            `Marked voucher ${voucher.voucherId} revoked in DB after on-chain revoke failure`,
+          );
         } else {
           this.logger.log(
             `Skipped revoke for ${voucher.voucherId} — voucher was renewed concurrently`,
@@ -46,7 +53,9 @@ export class VoucherTask {
       }
     }
 
-    this.logger.log(`Revoked ${succeeded}/${expired.length} expired vouchers`);
+    this.logger.log(
+      `Revocation sweep finished: on-chain=${revokedOnChain}, db-only=${markedDbOnly}, total=${expired.length}`,
+    );
   }
 
   /**
@@ -61,9 +70,14 @@ export class VoucherTask {
    *   3. If the row still has `revoked=false` AND `validUpTo < now`, revoke.
    *      Otherwise skip — the concurrent request already renewed or revoked it.
    *
-   * Returns true when revoke ran, false when skipped.
+   * Returns:
+   *   - `revoked` when the on-chain revoke succeeded
+   *   - `db_only` when on-chain revoke failed but the row was marked revoked
+   *   - `skipped` when a concurrent renewal/revoke won the race
    */
-  private async revokeWithLock(voucher: Voucher): Promise<boolean> {
+  private async revokeWithLock(
+    voucher: Voucher,
+  ): Promise<'revoked' | 'db_only' | 'skipped'> {
     const [k1, k2] = getWalletLockKey(voucher.account);
     const qr = this.dataSource.createQueryRunner();
     let lockAcquired = false;
@@ -73,12 +87,11 @@ export class VoucherTask {
       lockAcquired = true;
 
       const fresh = await this.vouchersRepo.findOne({ where: { id: voucher.id } });
-      if (!fresh) return false; // row deleted
-      if (fresh.revoked) return false; // already revoked by another path
-      if (fresh.validUpTo.getTime() >= Date.now()) return false; // renewed mid-cron
+      if (!fresh) return 'skipped'; // row deleted
+      if (fresh.revoked) return 'skipped'; // already revoked by another path
+      if (fresh.validUpTo.getTime() >= Date.now()) return 'skipped'; // renewed mid-cron
 
-      await this.voucherService.revoke(fresh);
-      return true;
+      return (await this.voucherService.revoke(fresh)) ? 'revoked' : 'db_only';
     } finally {
       if (lockAcquired) {
         await qr.query('SELECT pg_advisory_unlock($1, $2)', [k1, k2]);

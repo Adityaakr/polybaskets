@@ -37,7 +37,7 @@ describe('VoucherTask', () => {
         return (repo.find.mock.results[0]?.value ?? []).find((v: Voucher) => v.id === id) ?? null;
       }),
     };
-    voucherSvc = { revoke: jest.fn().mockResolvedValue(undefined) };
+    voucherSvc = { revoke: jest.fn().mockResolvedValue(true) };
     qrQuery = jest.fn().mockResolvedValue([]);
     qrRelease = jest.fn().mockResolvedValue(undefined);
     ds = {
@@ -89,6 +89,15 @@ describe('VoucherTask', () => {
       .mockResolvedValueOnce(undefined);
     await task.revokeExpiredVouchers();
     expect(voucherSvc.revoke).toHaveBeenCalledTimes(3);
+  });
+
+  it('logs db-only fallback when on-chain revoke fails but the row is marked revoked', async () => {
+    const v = makeVoucher('aaa');
+    repo.find.mockResolvedValue([v]);
+    repo.findOne.mockResolvedValue(v);
+    voucherSvc.revoke.mockResolvedValue(false);
+    await task.revokeExpiredVouchers();
+    expect(voucherSvc.revoke).toHaveBeenCalledWith(v);
   });
 
   it('queries only non-revoked vouchers with validUpTo < now', async () => {
