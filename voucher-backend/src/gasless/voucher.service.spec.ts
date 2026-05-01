@@ -301,7 +301,7 @@ describe('VoucherService', () => {
       }),
     });
 
-    await service.update(makeVoucher({ validUpToBlock: 28_900n }), 500, 86400);
+    await service.update(makeVoucher({ validUpToBlock: '28900' as any }), 500, 86400);
 
     expect(mockVoucherUpdate).toHaveBeenCalledWith('0xabc', '0xvoucher', {
       balanceTopUp: 500n * 10n ** 12n,

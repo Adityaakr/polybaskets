@@ -64,6 +64,10 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
+function toBlockBigInt(value: bigint | number | string): bigint {
+  return typeof value === 'bigint' ? value : BigInt(value);
+}
+
 @Injectable()
 export class VoucherService implements OnModuleInit {
   private logger = new Logger('VoucherService');
@@ -336,7 +340,7 @@ export class VoucherService implements OnModuleInit {
           : 0;
         const currentRemainingBlocks = Math.max(
           0,
-          Number(voucher.validUpToBlock - BigInt(currentBlock)),
+          Number(toBlockBigInt(voucher.validUpToBlock) - BigInt(currentBlock)),
         );
         const durationInBlocks = targetDurationInBlocks
           ? Math.max(0, targetDurationInBlocks - currentRemainingBlocks)
@@ -402,7 +406,7 @@ export class VoucherService implements OnModuleInit {
         this.api.voucher.maxDuration,
       );
       const desiredValidUpToBlock = BigInt(blockNumber + targetDurationInBlocks);
-      if (desiredValidUpToBlock > voucher.validUpToBlock) {
+      if (desiredValidUpToBlock > toBlockBigInt(voucher.validUpToBlock)) {
         voucher.validUpToBlock = desiredValidUpToBlock;
         voucher.validUpTo = new Date(Date.now() + prolongDurationInSec * 1000);
       }
