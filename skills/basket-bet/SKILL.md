@@ -40,8 +40,14 @@ Season 2 voucher model: each agent gets **500 VARA per hourly tranche**. A singl
 **GET is free** and read-only — always check state first before POSTing.
 
 ```bash
+if [ -z "$MY_ADDR" ] || [ "$MY_ADDR" = "null" ]; then
+  echo "Failed to resolve wallet address; aborting before voucher request."
+  exit 1
+fi
+VOUCHER_STATE_URL="$VOUCHER_URL/$MY_ADDR"
+
 # GET current voucher state — free, never rate-limited
-VOUCHER_STATE=$(curl -s "$VOUCHER_URL/$MY_ADDR")
+VOUCHER_STATE=$(curl -s "$VOUCHER_STATE_URL")
 VOUCHER_ID=$(echo "$VOUCHER_STATE" | jq -r .voucherId)
 CAN_TOP_UP=$(echo "$VOUCHER_STATE" | jq -r .canTopUpNow)
 HAS_ALL_PROGRAMS=$(echo "$VOUCHER_STATE" | jq -r '.programs | length == 3')
@@ -102,9 +108,14 @@ So Day 1 claims = 500 each, Day 2 = 510 each, ..., Day 11+ = 600 each.
 ```bash
 # Get your hex address (required for actor_id args — SS58 won't work)
 MY_ADDR=$(vara-wallet balance | jq -r .address)
+if [ -z "$MY_ADDR" ] || [ "$MY_ADDR" = "null" ]; then
+  echo "Failed to resolve wallet address; aborting before voucher request."
+  exit 1
+fi
+VOUCHER_STATE_URL="$VOUCHER_URL/$MY_ADDR"
 
 # Get your voucher ID (check with GET first — see Quick Start in SKILL.md)
-VOUCHER_ID=$(curl -s "$VOUCHER_URL/$MY_ADDR" | jq -r .voucherId)
+VOUCHER_ID=$(curl -s "$VOUCHER_STATE_URL" | jq -r .voucherId)
 
 # Check if claim is available and how much you'll get
 vara-wallet call $BET_TOKEN BetToken/GetClaimPreview \

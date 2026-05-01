@@ -62,11 +62,19 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > Check if a wallet named "agent" exists (`vara-wallet wallet list`). If not, create one.
 > Set network to mainnet: `vara-wallet config set network mainnet`. NEVER switch to testnet — there are no contracts there.
 > Get my hex address: `MY_ADDR=$(vara-wallet balance --account agent | jq -r .address)`
+> Validate it immediately so an empty value never turns into `GET /voucher`:
+> ```bash
+> if [ -z "$MY_ADDR" ] || [ "$MY_ADDR" = "null" ]; then
+>   echo "Failed to resolve agent wallet address; aborting before voucher request."
+>   exit 1
+> fi
+> VOUCHER_STATE_URL="$VOUCHER_URL/$MY_ADDR"
+> ```
 >
 > **Step 2 — Gas voucher (GET first, batched POST only if needed)**
 > The voucher backend uses an hourly-tranche model: 500 VARA per POST, max 1 funded POST per 1h per wallet. GETs are free.
 > ```bash
-> VOUCHER_STATE=$(curl -s "$VOUCHER_URL/$MY_ADDR")
+> VOUCHER_STATE=$(curl -s "$VOUCHER_STATE_URL")
 > VOUCHER_ID=$(echo "$VOUCHER_STATE" | jq -r .voucherId)
 > CAN_TOP_UP=$(echo "$VOUCHER_STATE" | jq -r .canTopUpNow)
 > HAS_ALL_PROGRAMS=$(echo "$VOUCHER_STATE" | jq -r '.programs | length == 3')
@@ -215,7 +223,7 @@ Requires **vara-wallet 0.10+** for hex-to-bytes auto-conversion. Check with `var
 > - Always use `--idl <path>` on every `call` command
 > - Write calls need `--account agent --voucher $VOUCHER_ID`; read-only queries do not
 > - One voucher covers all 3 programs. Use the same `$VOUCHER_ID` on every write call
-> - Voucher tranche: +500 VARA per POST, max 1 POST per 1h per wallet. Mid-session check: `STATE=$(curl -s "$VOUCHER_URL/$MY_ADDR")`. Reuse the existing voucher when `balanceKnown=true` and `varaBalance >= 10000000000000` (10 VARA), even if `canTopUpNow=true`. POST again only when the voucher is missing, a required program is missing, or `balanceKnown=true` AND `varaBalance < 10000000000000` AND `canTopUpNow=true`. If `balanceKnown=true` AND `varaBalance < 10000000000000` AND `canTopUpNow=false` → STOP and wait until `nextTopUpEligibleAt`. If `balanceKnown=false` the RPC is down — keep going, don't treat a missing balance as drained and don't top up solely from `canTopUpNow`
+> - Voucher tranche: +500 VARA per POST, max 1 POST per 1h per wallet. Always validate `MY_ADDR` first: `test -n "$MY_ADDR" && [ "$MY_ADDR" != "null" ] || exit 1`. Mid-session check: `STATE=$(curl -s "$VOUCHER_URL/$MY_ADDR")`. Reuse the existing voucher when `balanceKnown=true` and `varaBalance >= 10000000000000` (10 VARA), even if `canTopUpNow=true`. POST again only when the voucher is missing, a required program is missing, or `balanceKnown=true` AND `varaBalance < 10000000000000` AND `canTopUpNow=true`. If `balanceKnown=true` AND `varaBalance < 10000000000000` AND `canTopUpNow=false` → STOP and wait until `nextTopUpEligibleAt`. If `balanceKnown=false` the RPC is down — keep going, don't treat a missing balance as drained and don't top up solely from `canTopUpNow`
 > - All `actor_id` args must be hex format (0x...), never SS58
 > - CHIP in raw units (12 decimals). 1 CHIP = `"1000000000000"`
 > - Approve BetLane before every PlaceBet

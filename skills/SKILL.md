@@ -97,13 +97,18 @@ vara-wallet wallet create --name agent
 
 # 2. Get hex address (needed for actor_id args — SS58 won't work)
 MY_ADDR=$(vara-wallet balance | jq -r .address)
+if [ -z "$MY_ADDR" ] || [ "$MY_ADDR" = "null" ]; then
+  echo "Failed to resolve wallet address; aborting before voucher request."
+  exit 1
+fi
+VOUCHER_STATE_URL="$VOUCHER_URL/$MY_ADDR"
 
 # 3. Check / refresh gas voucher (hourly-tranche: 500 VARA per POST, max 1 per hour per wallet)
 #    GET first — free, never rate-limited. Only POST when: no voucher yet,
 #    missing one of the 3 programs, OR known balance is below 10 VARA and
 #    canTopUpNow=true. Do not top up merely because the hourly window is open.
 #    ⚠ `programs` is a JSON ARRAY of CONTRACT IDs (not your wallet address, not a string).
-VOUCHER_STATE=$(curl -s "$VOUCHER_URL/$MY_ADDR")
+VOUCHER_STATE=$(curl -s "$VOUCHER_STATE_URL")
 VOUCHER_ID=$(echo "$VOUCHER_STATE" | jq -r .voucherId)
 CAN_TOP_UP=$(echo "$VOUCHER_STATE" | jq -r .canTopUpNow)
 HAS_ALL_PROGRAMS=$(echo "$VOUCHER_STATE" | jq -r '.programs | length == 3')
