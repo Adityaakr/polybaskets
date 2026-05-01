@@ -78,5 +78,18 @@ export default () => {
     // (sliding window — voucher expires only if user abandons ≥24h).
     trancheDurationSec,
     infoApiKey: process.env.INFO_API_KEY || '',
+    namespace: {
+      apiKey: process.env.NAMESPACE_API_KEY,
+      mode: (process.env.NAMESPACE_MODE ?? 'mainnet') as 'mainnet' | 'sepolia',
+      parentName: process.env.AGENT_PARENT_NAME ?? 'polybaskets.eth',
+      ownerEvm: process.env.POLYBASKETS_OWNER_EVM,
+    },
+    agents: {
+      retryIntervalMs: parseInt(process.env.AGENT_RETRY_INTERVAL_MS ?? '30000', 10),
+      retryMaxAttempts: parseInt(process.env.AGENT_RETRY_MAX_ATTEMPTS ?? '288', 10),
+      bulkReverseLookupMax: 100,
+      payloadMaxAgeSeconds: 600,
+      payloadClockSkewSeconds: 30,
+    },
   };
 };
