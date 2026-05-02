@@ -20,6 +20,7 @@ import { RateLimitService } from './ratelimit.service';
 import { ChainSubmitter } from './chain-submitter.service';
 import { OffchainManagerClient } from './offchain-manager.client';
 import { RetryWorker } from './retry-worker.task';
+import { MigrationTask } from './migration.task';
 
 @Module({
   imports: [
@@ -46,6 +47,8 @@ import { RetryWorker } from './retry-worker.task';
     ChainSubmitter,
     OffchainManagerClient,
     RetryWorker,
+    MigrationTask,
+    { provide: 'ChainAgentReader', useExisting: ChainSubmitter },
   ],
   exports: [GaslessService, VoucherService],
 })

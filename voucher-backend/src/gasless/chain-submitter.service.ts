@@ -1,6 +1,7 @@
 import { GearApi } from '@gear-js/api';
 import { Keyring } from '@polkadot/api';
 import { hexToU8a } from '@polkadot/util';
+import { encodeAddress } from '@polkadot/util-crypto';
 import { waitReady } from '@polkadot/wasm-crypto';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -47,6 +48,32 @@ export class ChainSubmitter implements OnModuleInit {
     this.logger.log(
       `ChainSubmitter ready: program ${this.programId} account ${this.account.address}`,
     );
+  }
+
+  async getAllAgents(): Promise<Array<{ address: string; name: string }>> {
+    if (!this.program) return [];
+    // getAllAgents() is a QueryBuilder — call .call() to execute the on-chain query.
+    // The response type is Vec<AgentInfo>; toJSON() decodes it to an array of plain
+    // objects with camelCase keys. The `address` field comes back as a 0x-hex public
+    // key (32 bytes); we encode it to ss58 format 137 (Vara) to match the ss58
+    // values stored in agent_pending.
+    const result = await (this.program.basketMarket.getAllAgents() as any).call();
+    if (!Array.isArray(result)) return [];
+    return result.map((a: any) => {
+      const rawAddress: string = a.address ?? '';
+      let ss58Address = rawAddress;
+      try {
+        // encodeAddress accepts a 0x-hex string or Uint8Array and returns ss58.
+        ss58Address = encodeAddress(rawAddress, 137);
+      } catch {
+        // If encoding fails, fall back to the raw value (already ss58 or empty).
+        ss58Address = rawAddress;
+      }
+      return {
+        address: ss58Address,
+        name: (a.name as string) ?? '',
+      };
+    });
   }
 
   async registerAgent(label: string): Promise<RegisterChainResult> {

@@ -91,6 +91,7 @@ export default () => {
       bulkReverseLookupMax: 100,
       payloadMaxAgeSeconds: 600,
       payloadClockSkewSeconds: 30,
+      migrationEnabled: process.env.MIGRATION_ENABLED === 'true',
     },
   };
 };
