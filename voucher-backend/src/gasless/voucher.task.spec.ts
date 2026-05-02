@@ -37,7 +37,7 @@ describe('VoucherTask', () => {
         return (repo.find.mock.results[0]?.value ?? []).find((v: Voucher) => v.id === id) ?? null;
       }),
     };
-    voucherSvc = { revoke: jest.fn().mockResolvedValue(true) };
+    voucherSvc = { revoke: jest.fn().mockResolvedValue('revoked') };
     qrQuery = jest.fn().mockResolvedValue([]);
     qrRelease = jest.fn().mockResolvedValue(undefined);
     ds = {
@@ -84,9 +84,9 @@ describe('VoucherTask', () => {
       expired.find((v) => v.id === id) ?? null,
     );
     voucherSvc.revoke
-      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce('revoked')
       .mockRejectedValueOnce(new Error('chain error'))
-      .mockResolvedValueOnce(undefined);
+      .mockResolvedValueOnce('revoked');
     await task.revokeExpiredVouchers();
     expect(voucherSvc.revoke).toHaveBeenCalledTimes(3);
   });
@@ -95,7 +95,16 @@ describe('VoucherTask', () => {
     const v = makeVoucher('aaa');
     repo.find.mockResolvedValue([v]);
     repo.findOne.mockResolvedValue(v);
-    voucherSvc.revoke.mockResolvedValue(false);
+    voucherSvc.revoke.mockResolvedValue('db_only');
+    await task.revokeExpiredVouchers();
+    expect(voucherSvc.revoke).toHaveBeenCalledWith(v);
+  });
+
+  it('does not mark DB revoked when chain says voucher is still valid', async () => {
+    const v = makeVoucher('aaa');
+    repo.find.mockResolvedValue([v]);
+    repo.findOne.mockResolvedValue(v);
+    voucherSvc.revoke.mockResolvedValue('still_valid');
     await task.revokeExpiredVouchers();
     expect(voucherSvc.revoke).toHaveBeenCalledWith(v);
   });

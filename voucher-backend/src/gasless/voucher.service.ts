@@ -68,6 +68,12 @@ function toBlockBigInt(value: bigint | number | string): bigint {
   return typeof value === 'bigint' ? value : BigInt(value);
 }
 
+function isIrrevocableYetError(error: unknown): boolean {
+  return formatUnknownError(error).toLowerCase().includes('irrevocableyet');
+}
+
+export type RevokeResult = 'revoked' | 'db_only' | 'still_valid';
+
 @Injectable()
 export class VoucherService implements OnModuleInit {
   private logger = new Logger('VoucherService');
@@ -519,7 +525,22 @@ export class VoucherService implements OnModuleInit {
     await this.saveWithRetry(voucher, `appendPrograms ${voucher.voucherId}`);
   }
 
-  async revoke(voucher: Voucher): Promise<boolean> {
+  private async syncVoucherValidityFromChain(voucher: Voucher): Promise<void> {
+    const api = await this.ensureConnected();
+    const details = await api.voucher.getDetails(voucher.account, voucher.voucherId);
+    const expiryBlock = BigInt(details.expiry);
+    const currentHead = await api.blocks.getFinalizedHead();
+    const currentBlock = (
+      await api.blocks.getBlockNumber(currentHead.toHex())
+    ).toNumber();
+    const remainingBlocks = Math.max(1, Number(expiryBlock - BigInt(currentBlock)));
+
+    voucher.validUpToBlock = expiryBlock;
+    voucher.validUpTo = new Date(Date.now() + remainingBlocks * SECONDS_PER_BLOCK * 1000);
+    await this.repo.save(voucher);
+  }
+
+  async revoke(voucher: Voucher): Promise<RevokeResult> {
     try {
       await this.sendWithOutdatedRetry(
         `revoke ${voucher.voucherId}`,
@@ -555,14 +576,28 @@ export class VoucherService implements OnModuleInit {
       );
       voucher.revoked = true;
       await this.repo.save(voucher);
-      return true;
+      return 'revoked';
     } catch (e) {
+      if (isIrrevocableYetError(e)) {
+        this.logger.warn(
+          `On-chain revoke skipped for ${voucher.voucherId}: voucher is still valid. Syncing DB validity instead.`,
+        );
+        try {
+          await this.syncVoucherValidityFromChain(voucher);
+        } catch (syncError) {
+          this.logger.warn(
+            `Failed to sync still-valid voucher ${voucher.voucherId} from chain: ${formatUnknownError(syncError)}`,
+          );
+        }
+        return 'still_valid';
+      }
+
       this.logger.error(
         `On-chain revoke failed for ${voucher.voucherId} — marking DB as revoked to stop retries: ${formatUnknownError(e)}`,
       );
       voucher.revoked = true;
       await this.repo.save(voucher);
-      return false;
+      return 'db_only';
     }
   }
 

@@ -32,6 +32,7 @@ export class VoucherTask {
 
     let revokedOnChain = 0;
     let markedDbOnly = 0;
+    let stillValid = 0;
     for (const voucher of expired) {
       try {
         const outcome = await this.revokeWithLock(voucher);
@@ -42,6 +43,11 @@ export class VoucherTask {
           markedDbOnly++;
           this.warnLogger.warn(
             `Marked voucher ${voucher.voucherId} revoked in DB after on-chain revoke failure`,
+          );
+        } else if (outcome === 'still_valid') {
+          stillValid++;
+          this.warnLogger.warn(
+            `Skipped revoke for ${voucher.voucherId} — chain says voucher is still valid`,
           );
         } else {
           this.logger.log(
@@ -54,7 +60,7 @@ export class VoucherTask {
     }
 
     this.logger.log(
-      `Revocation sweep finished: on-chain=${revokedOnChain}, db-only=${markedDbOnly}, total=${expired.length}`,
+      `Revocation sweep finished: on-chain=${revokedOnChain}, db-only=${markedDbOnly}, still-valid=${stillValid}, total=${expired.length}`,
     );
   }
 
@@ -73,11 +79,12 @@ export class VoucherTask {
    * Returns:
    *   - `revoked` when the on-chain revoke succeeded
    *   - `db_only` when on-chain revoke failed but the row was marked revoked
+   *   - `still_valid` when chain rejected revoke because voucher is still valid
    *   - `skipped` when a concurrent renewal/revoke won the race
    */
   private async revokeWithLock(
     voucher: Voucher,
-  ): Promise<'revoked' | 'db_only' | 'skipped'> {
+  ): Promise<'revoked' | 'db_only' | 'still_valid' | 'skipped'> {
     const [k1, k2] = getWalletLockKey(voucher.account);
     const qr = this.dataSource.createQueryRunner();
     let lockAcquired = false;
@@ -91,7 +98,7 @@ export class VoucherTask {
       if (fresh.revoked) return 'skipped'; // already revoked by another path
       if (fresh.validUpTo.getTime() >= Date.now()) return 'skipped'; // renewed mid-cron
 
-      return (await this.voucherService.revoke(fresh)) ? 'revoked' : 'db_only';
+      return this.voucherService.revoke(fresh);
     } finally {
       if (lockAcquired) {
         await qr.query('SELECT pg_advisory_unlock($1, $2)', [k1, k2]);
