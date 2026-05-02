@@ -219,4 +219,28 @@ export class AgentService {
       return { ok: false, reason: 'invalid_field', message: err?.message };
     }
   }
+
+  async forward(label: string) {
+    return this.ens.forwardLookup(label);
+  }
+
+  async reverse(ss58: string) {
+    return this.ens.reverseLookup(ss58);
+  }
+
+  async bulkReverse(ss58s: string[]) {
+    const max = this.config.get<number>('agents.bulkReverseLookupMax') ?? 100;
+    const slice = ss58s.slice(0, max);
+    const results = await Promise.all(
+      slice.map(async (s) => [s, await this.ens.reverseLookup(s)] as const),
+    );
+    return Object.fromEntries(results);
+  }
+
+  async availability(label: string) {
+    const labelOk = this.nameValidator.validate(label);
+    if (!labelOk.ok) return { available: false, reason: labelOk.reason };
+    const free = await this.ens.isAvailable(label);
+    return { available: free };
+  }
 }

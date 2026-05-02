@@ -255,3 +255,102 @@ describe('AgentService.update', () => {
     });
   });
 });
+
+describe('AgentService.reads', () => {
+  let service: AgentService;
+  let ens: jest.Mocked<OffchainManagerClient>;
+
+  beforeEach(async () => {
+    ens = {
+      forwardLookup: jest.fn(),
+      reverseLookup: jest.fn(),
+      isAvailable: jest.fn(),
+      createForAgent: jest.fn(),
+      updateForAgent: jest.fn(),
+    } as any;
+
+    const readsConfig = {
+      get: (k: string) => {
+        const m: Record<string, any> = {
+          'agents.payloadMaxAgeSeconds': 600,
+          'agents.payloadClockSkewSeconds': 30,
+          'agents.bulkReverseLookupMax': 100,
+        };
+        return m[k];
+      },
+    } as any as ConfigService;
+
+    const module = await Test.createTestingModule({
+      imports: [
+        TypeOrmModule.forRoot({
+          type: 'sqlite',
+          database: ':memory:',
+          entities: [AgentNonce, AgentActionLog, AgentPending],
+          synchronize: true,
+        }),
+        TypeOrmModule.forFeature([AgentNonce, AgentActionLog, AgentPending]),
+      ],
+      providers: [
+        AgentService,
+        NameValidator,
+        SignatureVerifier,
+        NonceService,
+        RateLimitService,
+        { provide: ConfigService, useValue: readsConfig },
+        { provide: ChainSubmitter, useValue: { registerAgent: jest.fn() } },
+        { provide: OffchainManagerClient, useValue: ens },
+      ],
+    }).compile();
+
+    service = module.get(AgentService);
+  });
+
+  it('forward delegates to ens.forwardLookup', async () => {
+    ens.forwardLookup.mockResolvedValueOnce({ label: 'alice' } as any);
+    const result = await service.forward('alice');
+    expect(result).toEqual({ label: 'alice' });
+    expect(ens.forwardLookup).toHaveBeenCalledWith('alice');
+  });
+
+  it('reverse delegates to ens.reverseLookup', async () => {
+    ens.reverseLookup.mockResolvedValueOnce({ label: 'alice' } as any);
+    const result = await service.reverse('kGkAlice');
+    expect(result).toEqual({ label: 'alice' });
+    expect(ens.reverseLookup).toHaveBeenCalledWith('kGkAlice');
+  });
+
+  it('bulkReverse fans out and returns a map keyed by ss58', async () => {
+    ens.reverseLookup.mockImplementation(async (s: string) => {
+      if (s === 'a') return { label: 'aaa' } as any;
+      if (s === 'b') return { label: 'bbb' } as any;
+      return null;
+    });
+    const result = await service.bulkReverse(['a', 'b', 'c']);
+    expect(result).toEqual({
+      a: { label: 'aaa' },
+      b: { label: 'bbb' },
+      c: null,
+    });
+    expect(ens.reverseLookup).toHaveBeenCalledTimes(3);
+  });
+
+  it('bulkReverse caps at the configured max', async () => {
+    ens.reverseLookup.mockResolvedValue(null);
+    const inputs = Array.from({ length: 150 }, (_, i) => `ss58-${i}`);
+    await service.bulkReverse(inputs);
+    expect(ens.reverseLookup).toHaveBeenCalledTimes(100);
+  });
+
+  it('availability rejects invalid label without calling ens', async () => {
+    const result = await service.availability('AB');
+    expect(result.available).toBe(false);
+    expect(ens.isAvailable).not.toHaveBeenCalled();
+  });
+
+  it('availability returns ens.isAvailable result for valid label', async () => {
+    ens.isAvailable.mockResolvedValueOnce(true);
+    const result = await service.availability('alice');
+    expect(result.available).toBe(true);
+    expect(ens.isAvailable).toHaveBeenCalledWith('alice');
+  });
+});
