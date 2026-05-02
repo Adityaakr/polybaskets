@@ -27,6 +27,45 @@ export type RegisterResult =
   | { ok: true; label: string }
   | { ok: false; reason: RegisterFailure; message?: string };
 
+export type UpdateFailure =
+  | 'expired'
+  | 'replay'
+  | 'invalid_signature'
+  | 'audience_mismatch'
+  | 'rate_limited'
+  | 'forbidden'
+  | 'not_registered'
+  | 'invalid_field';
+
+export type UpdateResult =
+  | { ok: true }
+  | { ok: false; reason: UpdateFailure; message?: string };
+
+const IMMUTABLE_METADATA_KEYS = new Set(['varaAddress']);
+
+function validateProfileFields(
+  texts?: Record<string, string>,
+  metadata?: Record<string, string>,
+): { ok: true } | { ok: false; reason: 'invalid_field' } {
+  if (texts) {
+    if (texts['avatar'] && !/^(https:\/\/|ipfs:\/\/)/.test(texts['avatar']))
+      return { ok: false, reason: 'invalid_field' };
+    if (texts['url'] && !texts['url'].startsWith('https://'))
+      return { ok: false, reason: 'invalid_field' };
+    if (texts['description'] && texts['description'].length > 500)
+      return { ok: false, reason: 'invalid_field' };
+    if (texts['com.twitter'] && !/^[A-Za-z0-9_]{1,32}$/.test(texts['com.twitter']))
+      return { ok: false, reason: 'invalid_field' };
+  }
+  if (metadata) {
+    for (const key of Object.keys(metadata)) {
+      if (IMMUTABLE_METADATA_KEYS.has(key))
+        return { ok: false, reason: 'invalid_field' };
+    }
+  }
+  return { ok: true };
+}
+
 interface SignedRequest {
   payload: AgentSignedPayload;
   signature: `0x${string}`;
@@ -134,5 +173,50 @@ export class AgentService {
     }
 
     return { ok: true, label: payload.label };
+  }
+
+  async update(req: SignedRequest): Promise<UpdateResult> {
+    const { payload, signature } = req;
+    const now = Math.floor(Date.now() / 1000);
+    const skew = this.config.get<number>('agents.payloadClockSkewSeconds') ?? 30;
+
+    if (payload.action !== 'update') return { ok: false, reason: 'invalid_field' };
+    if (payload.audience !== 'polybaskets.eth')
+      return { ok: false, reason: 'audience_mismatch' };
+    if (now < payload.issuedAt - skew || now > payload.expiresAt)
+      return { ok: false, reason: 'expired' };
+
+    const fields = validateProfileFields(payload.texts, payload.metadata);
+    if (!fields.ok) return fields;
+
+    const nonceOk = await this.nonces.consume(
+      payload.nonce,
+      new Date((payload.expiresAt + 60) * 1000),
+    );
+    if (!nonceOk) return { ok: false, reason: 'replay' };
+
+    const sig = this.verifier.verify(payload, signature);
+    if (!sig.ok) return { ok: false, reason: 'invalid_signature' };
+
+    const existing: any = await this.ens.reverseLookup(payload.ss58);
+    if (!existing) return { ok: false, reason: 'not_registered' };
+    if (existing.metadata?.varaAddress !== payload.ss58)
+      return { ok: false, reason: 'forbidden' };
+
+    if (!(await this.limits.canPerform(payload.ss58, 'update', 'day', 10))) {
+      return { ok: false, reason: 'rate_limited' };
+    }
+
+    try {
+      await this.ens.updateForAgent({
+        label: existing.label,
+        texts: payload.texts,
+        metadata: payload.metadata,
+      });
+      await this.limits.record(payload.ss58, 'update');
+      return { ok: true };
+    } catch (err: any) {
+      return { ok: false, reason: 'invalid_field', message: err?.message };
+    }
   }
 }
