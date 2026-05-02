@@ -67,6 +67,7 @@ export default () => {
     },
     nodeUrl: required('NODE_URL'),
     voucherAccount: required('VOUCHER_ACCOUNT'),
+    basketMarketProgramId: required('BASKET_MARKET_PROGRAM_ID') as `0x${string}`,
     // Per-tranche VARA amount added on issue() and every hourly top-up.
     hourlyTrancheVara: posInt('HOURLY_TRANCHE_VARA', '500'),
     // Max tranches per IP per UTC day (second abuse gate — the only aggregate limit).
