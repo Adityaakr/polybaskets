@@ -47,7 +47,7 @@ describe('ChainSubmitter (unit)', () => {
     const result = await submitter.registerAgent('taken');
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.reason).toBe('name_taken');
+      expect((result as any).reason).toBe('name_taken');
     }
   });
 
@@ -68,7 +68,7 @@ describe('ChainSubmitter (unit)', () => {
     const result = await submitter.registerAgent('alice');
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.reason).toBe('rejected');
+      expect((result as any).reason).toBe('rejected');
     }
   });
 });

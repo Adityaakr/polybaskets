@@ -48,20 +48,22 @@ export class AgentController {
   @HttpCode(200)
   async register(@Body() body: RegisterAgentDto) {
     const result = await this.agents.register(body);
-    if (!result.ok) {
-      this.throwFor(REGISTER_HTTP[result.reason], result.reason, result.message);
+    if (result.ok) {
+      return { label: result.label };
     }
-    return { label: (result as any).label };
+    const fail = result as { ok: false; reason: RegisterFailure; message?: string };
+    this.throwFor(REGISTER_HTTP[fail.reason], fail.reason, fail.message);
   }
 
   @Patch('/profile')
   @HttpCode(200)
   async update(@Body() body: UpdateAgentDto) {
     const result = await this.agents.update(body);
-    if (!result.ok) {
-      this.throwFor(UPDATE_HTTP[result.reason], result.reason, result.message);
+    if (result.ok) {
+      return { ok: true };
     }
-    return { ok: true };
+    const fail = result as { ok: false; reason: UpdateFailure; message?: string };
+    this.throwFor(UPDATE_HTTP[fail.reason], fail.reason, fail.message);
   }
 
   @Get('/availability/:label')
