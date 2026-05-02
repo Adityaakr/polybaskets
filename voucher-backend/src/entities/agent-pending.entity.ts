@@ -25,10 +25,10 @@ export class AgentPending {
   @Column({ type: 'varchar', length: 32 })
   status: AgentPendingStatus;
 
-  @CreateDateColumn({ name: 'requested_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'requested_at', type: 'datetime' })
   requestedAt: Date;
 
-  @UpdateDateColumn({ name: 'last_attempt_at', type: 'timestamptz' })
+  @UpdateDateColumn({ name: 'last_attempt_at', type: 'datetime' })
   lastAttemptAt: Date;
 
   @Column({ name: 'attempt_count', type: 'int', default: 0 })
