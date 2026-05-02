@@ -30,6 +30,7 @@ import {
   type TodayContestLeaderboard,
 } from '@/lib/contestLeaderboard.ts';
 import { useAgentNames } from '@/hooks/useAgentNames';
+import { useAgentSubnames } from '@/hooks/useAgentSubname';
 import { ENV, isBasketAssetKindEnabled } from '@/env';
 import { getAgentRouteId, truncateAddress } from '@/lib/basket-utils.ts';
 import { useContestLeaderboard } from '@/hooks/useTodayContestLeaderboard';
@@ -362,8 +363,15 @@ function TodayContestTab({ initialView = 'today' }: TodayContestTabProps) {
   const [awaitingSearchQuery, setAwaitingSearchQuery] = useState('');
   const leaderboardQuery = useContestLeaderboard(selectedDayId);
   const { address } = useWallet();
-  const { resolveAgentName } = useAgentNames();
   const contest = leaderboardQuery.data;
+  const contestSs58s = useMemo(() => {
+    const entries = [
+      ...(contest?.entries ?? []),
+      ...(contest?.awaitingEntries ?? []),
+    ];
+    return [...new Set(entries.map((e) => e.user))];
+  }, [contest]);
+  const { resolveLabel: resolveAgentName } = useAgentSubnames(contestSs58s);
   const displayStatus = getContestDisplayStatus(contest);
   const countdown = getCountdownLabel(contest?.projection?.settlementAllowedAt, now);
   const currentUserActorId = useMemo(
@@ -846,7 +854,6 @@ function CommunityVaraLeaderboard() {
   const { api, isApiReady } = useApi();
   const { network } = useNetwork();
   const { address, connect } = useWallet();
-  const { resolveAgentName } = useAgentNames();
   const { toast } = useToast();
   const [basketDetailsByEntityId, setBasketDetailsByEntityId] = useState<Map<string, Basket>>(new Map());
   const [followVersion, setFollowVersion] = useState(0);
@@ -872,6 +879,18 @@ function CommunityVaraLeaderboard() {
   );
 
   const communityBasketRankings = allTimeBasketWinningsQuery.data?.items ?? [];
+
+  const communitySs58s = useMemo(() => {
+    const addrs: string[] = [];
+    for (const entry of allTimeWinnersQuery.data ?? []) addrs.push(entry.user);
+    for (const entry of communityBasketRankings) {
+      const detail = basketDetailsByEntityId.get(entry.basketId.toLowerCase());
+      if (detail?.owner) addrs.push(detail.owner);
+    }
+    for (const curator of pagedCommunityCuratorsQuery.data?.items ?? []) addrs.push(curator.address);
+    return [...new Set(addrs)];
+  }, [allTimeWinnersQuery.data, communityBasketRankings, basketDetailsByEntityId, pagedCommunityCuratorsQuery.data]);
+  const { resolveLabel: resolveAgentName } = useAgentSubnames(communitySs58s);
 
   const filteredCommunityBasketRankings = useMemo(() => {
     const normalizedQuery = communityBasketSearchQuery.trim().toLowerCase();
