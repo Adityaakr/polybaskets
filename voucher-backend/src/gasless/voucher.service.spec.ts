@@ -12,7 +12,7 @@ import { Voucher } from '../entities/voucher.entity';
 //   • issue() rejects with a clear error when issuer balance is too low
 //   • issue() passes the programIds array unmodified to the Gear SDK
 //   • update() guards against revoked vouchers
-//   • signAndSend timeout kicks in after 60s
+//   • signAndSend timeout kicks in after a bounded wait
 
 const mockBalance = jest.fn();
 const mockIsReadyOrError = jest.fn();
@@ -324,20 +324,20 @@ describe('VoucherService', () => {
 
   // ── signAndSend timeout ────────────────────────────────────────────────────
 
-  it('rejects with timeout error when signAndSend does not settle within 60s', async () => {
+  it('rejects with timeout error when signAndSend does not settle within the bounded wait', async () => {
     jest.useFakeTimers();
     const neverResolves = new Promise<never>(() => {});
     const racePromise = Promise.race([
       neverResolves,
       new Promise<never>((_, reject) =>
         setTimeout(
-          () => reject(new Error('signAndSend timed out after 60s — transaction may or may not have landed')),
-          60_000,
+          () => reject(new Error('signAndSend timed out after 180s — transaction may or may not have landed')),
+          180_000,
         ),
       ),
     ]);
-    jest.advanceTimersByTime(61_000);
-    await expect(racePromise).rejects.toThrow('timed out after 60s');
+    jest.advanceTimersByTime(181_000);
+    await expect(racePromise).rejects.toThrow('timed out after 180s');
     jest.useRealTimers();
   });
 });

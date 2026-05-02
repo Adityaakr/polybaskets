@@ -17,7 +17,8 @@ import { getWalletLockKey } from './wallet-lock';
 const SECONDS_PER_BLOCK = 3;
 const PLANCK_PER_VARA = BigInt(1e12);
 const MIN_RESERVE_VARA = 10n;
-const SIGN_AND_SEND_TIMEOUT_MS = 60_000;
+const SIGN_AND_SEND_TIMEOUT_MS = 180_000;
+const SIGN_AND_SEND_TIMEOUT_SEC = SIGN_AND_SEND_TIMEOUT_MS / 1000;
 
 function withTimeout<T>(promise: Promise<T>, message: string): Promise<T> {
   return Promise.race([
@@ -263,7 +264,7 @@ export class VoucherService implements OnModuleInit {
               }
             }).catch(reject);
           }),
-          'signAndSend timed out after 60s — transaction may or may not have landed',
+          `signAndSend timed out after ${SIGN_AND_SEND_TIMEOUT_SEC}s — transaction may or may not have landed`,
         );
 
         const blockNumber = (await api.blocks.getBlockNumber(blockHash)).toNumber();
@@ -383,7 +384,7 @@ export class VoucherService implements OnModuleInit {
               }
             }).catch(reject);
           }),
-          'signAndSend timed out after 60s',
+          `signAndSend timed out after ${SIGN_AND_SEND_TIMEOUT_SEC}s`,
         );
 
         return (await api.blocks.getBlockNumber(blockHash)).toNumber();
@@ -512,7 +513,7 @@ export class VoucherService implements OnModuleInit {
               }
             }).catch(reject);
           }),
-          'appendProgramsFreeOfCharge signAndSend timed out after 60s',
+          `appendProgramsFreeOfCharge signAndSend timed out after ${SIGN_AND_SEND_TIMEOUT_SEC}s`,
         );
       },
     );
@@ -570,7 +571,7 @@ export class VoucherService implements OnModuleInit {
                 }
               }).catch(reject);
             }),
-            'revoke signAndSend timed out after 60s',
+            `revoke signAndSend timed out after ${SIGN_AND_SEND_TIMEOUT_SEC}s`,
           );
         },
       );
