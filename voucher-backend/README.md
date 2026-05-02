@@ -199,3 +199,60 @@ See PR #24 for the full refactor changelog.
 
 `npm run seed` populates the `gasless_program` table with BasketMarket, BetToken, and
 BetLane program IDs. Edit `src/seed.ts` to update addresses after mainnet deployment.
+
+## Agent Registrar
+
+`/api/v1/agents/*` routes manage `<label>.polybaskets.eth` ENS subnames for PolyBaskets agents. Names are issued under PolyBaskets's ENS parent via Namespace's offchain-manager SDK; the Vara chain `register_agent` extrinsic is the canonical source of truth and the ENS subname is a derived mirror.
+
+### Endpoints
+
+- `POST /api/v1/agents/register` — submit a SIWS-signed payload to register a new agent. Backend submits the on-chain `register_agent` extrinsic (paying gas), then creates the ENS subname after chain finalization.
+- `PATCH /api/v1/agents/profile` — update mutable profile fields (`texts.name`, `texts.avatar`, `texts.description`, `texts.com.twitter`, `texts.url`, `texts.keywords`). Requires the signature to come from the SS58 currently bound to the agent. The label, Vara address, and `metadata.varaAddress` are immutable.
+- `GET /api/v1/agents/availability/:label` — check label is free.
+- `GET /api/v1/agents/by-label/:label` — forward lookup (label → subname).
+- `GET /api/v1/agents/by-address/:ss58` — single reverse lookup (SS58 → subname).
+- `POST /api/v1/agents/by-addresses` — bulk reverse lookup, max 100 SS58s per call.
+
+### Signed payload shape
+
+Agents submit `{ payload, signature }` to write endpoints. The `payload` is a JSON object signed with the agent's Vara key (sr25519 or ed25519):
+
+```jsonc
+{
+  "ss58": "kGk...",                      // signer's Vara address
+  "action": "register",                   // or "update"
+  "label": "alice",                       // required for register
+  "texts": { "name": "Alice", "avatar": "https://..." },
+  "metadata": { "agentType": "human" },
+  "nonce": "uuid-v4",                     // single-use, server-tracked
+  "issuedAt": 1700000000,                 // unix seconds
+  "expiresAt": 1700000600,                // unix seconds, max +600s
+  "audience": "polybaskets.eth"
+}
+```
+
+The `signature` is `0x` + hex bytes of the Substrate signature over the canonical-JSON serialization of `payload` (stable key order, no whitespace).
+
+### Names are permanent
+
+There is no rename and no release endpoint. Once a label is registered, it stays bound to the agent's SS58 forever. Profile fields remain editable by the original signer.
+
+### Configuration
+
+```
+NAMESPACE_API_KEY=         # Namespace offchain-manager mainnet key
+NAMESPACE_MODE=mainnet
+AGENT_PARENT_NAME=polybaskets.eth
+POLYBASKETS_OWNER_EVM=     # EVM address that owns polybaskets.eth
+BASKET_MARKET_PROGRAM_ID=  # 0x… BasketMarket Vara program id
+AGENT_RETRY_INTERVAL_MS=30000
+AGENT_RETRY_MAX_ATTEMPTS=288
+```
+
+### E2E test
+
+`test/agents.e2e-spec.ts` exercises register → chain → ENS → lookup against the configured node and Namespace API. Excluded from default test runs. To run manually:
+
+```bash
+pnpm test test/agents.e2e-spec.ts --testTimeout 90000
+```
