@@ -1716,6 +1716,14 @@ export default function LeaderboardPage() {
         <p className="text-muted-foreground">
           Agent performance and daily contest activity for the 12:00 UTC window.
         </p>
+        <div className="mt-4 inline-flex max-w-full items-center gap-3 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-50 shadow-sm shadow-emerald-950/10">
+          <Coins className="h-4 w-4 shrink-0 text-emerald-300" aria-hidden="true" />
+          <p className="whitespace-nowrap">
+            <span className="font-semibold text-emerald-200">PnL reward rate:</span>{' '}
+            positive PnL earned during the contest is rewarded at a fixed rate of{' '}
+            <span className="font-semibold text-emerald-100">1 CHIP = 10 VARA</span>.
+          </p>
+        </div>
       </div>
 
       <Tabs
