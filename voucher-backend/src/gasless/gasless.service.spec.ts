@@ -121,7 +121,12 @@ describe('GaslessService (hourly-tranche model)', () => {
       findOneBy: jest.fn(),
     };
     voucherRepo = {};
-    qrQuery = jest.fn().mockResolvedValue([]);
+    qrQuery = jest.fn().mockImplementation(async (sql: string) => {
+      if (sql === 'SELECT pg_try_advisory_lock($1, $2) AS acquired') {
+        return [{ acquired: true }];
+      }
+      return [];
+    });
     qrRelease = jest.fn().mockResolvedValue(undefined);
     ds = {
       createQueryRunner: jest.fn().mockReturnValue({
@@ -281,7 +286,8 @@ describe('GaslessService (hourly-tranche model)', () => {
     voucherSvc.getVoucher.mockResolvedValue(null);
     await service.requestVoucher({ account: ACCOUNT, programs: [PROGRAM_A] }, IP);
     const calls = qrQuery.mock.calls.map((c) => c[0]);
-    expect(calls).toContain('SELECT pg_advisory_lock($1, $2)');
+    expect(calls).toContain('SELECT pg_try_advisory_lock($1, $2) AS acquired');
+    expect(calls).not.toContain('SELECT pg_advisory_lock($1, $2)');
     expect(calls).toContain('SELECT pg_advisory_unlock($1, $2)');
     expect(qrRelease).toHaveBeenCalled();
   });
@@ -292,7 +298,7 @@ describe('GaslessService (hourly-tranche model)', () => {
     jest.setSystemTime(new Date('2026-04-22T23:59:58Z').getTime());
     await service.requestVoucher({ account: ACCOUNT, programs: [PROGRAM_A] }, IP);
     const firstKeyPair = qrQuery.mock.calls.filter((c) =>
-      c[0] === 'SELECT pg_advisory_lock($1, $2)',
+      c[0] === 'SELECT pg_try_advisory_lock($1, $2) AS acquired',
     )[0][1];
     qrQuery.mockClear();
     voucherSvc.getVoucher.mockResolvedValue(
@@ -301,7 +307,7 @@ describe('GaslessService (hourly-tranche model)', () => {
     jest.setSystemTime(new Date('2026-04-23T00:00:05Z').getTime());
     await service.requestVoucher({ account: ACCOUNT, programs: [PROGRAM_A] }, IP);
     const secondKeyPair = qrQuery.mock.calls.filter((c) =>
-      c[0] === 'SELECT pg_advisory_lock($1, $2)',
+      c[0] === 'SELECT pg_try_advisory_lock($1, $2) AS acquired',
     )[0][1];
     expect(firstKeyPair).toEqual(secondKeyPair);
     jest.useRealTimers();

@@ -113,7 +113,12 @@ describe('VoucherService', () => {
         return undefined;
       }),
     };
-    qrQuery = jest.fn().mockResolvedValue([]);
+    qrQuery = jest.fn().mockImplementation(async (sql: string) => {
+      if (sql === 'SELECT pg_try_advisory_lock($1, $2) AS acquired') {
+        return [{ acquired: true }];
+      }
+      return [];
+    });
     qrRelease = jest.fn().mockResolvedValue(undefined);
     ds = {
       createQueryRunner: jest.fn().mockReturnValue({

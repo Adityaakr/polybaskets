@@ -3,6 +3,7 @@ import {
   Logger,
   BadRequestException,
   InternalServerErrorException,
+  ServiceUnavailableException,
   HttpException,
   HttpStatus,
   OnModuleInit,
@@ -10,6 +11,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
 import { decodeAddress, HexString } from '@gear-js/api';
+import { AdvisoryLockTimeoutError, withAdvisoryLock } from './advisory-lock';
 import { getWalletLockKey } from './wallet-lock';
 import {
   GaslessProgram,
@@ -347,19 +349,15 @@ export class GaslessService implements OnModuleInit {
     const trancheIntervalSec = this.configService.get<number>('trancheIntervalSec');
     const trancheDurationSec = this.configService.get<number>('trancheDurationSec');
 
-    // QueryRunner to pin advisory lock/unlock to the same DB connection.
-    // pg_advisory_lock is session-scoped, so using DataSource.query() risks
-    // acquiring and releasing on different pooled connections.
-    const qr = this.dataSource.createQueryRunner();
-    let lockAcquired = false;
     const [lockKey1, lockKey2] = getWalletLockKey(address);
 
     try {
-      await qr.connect();
-      await qr.query('SELECT pg_advisory_lock($1, $2)', [lockKey1, lockKey2]);
-      lockAcquired = true;
-
-      const existing = await this.voucherService.getVoucher(address);
+      return await withAdvisoryLock(
+        this.dataSource,
+        [lockKey1, lockKey2],
+        `voucher request ${address}`,
+        async () => {
+          const existing = await this.voucherService.getVoucher(address);
 
       // oneTime enforcement across the batch: if any requested program is
       // oneTime AND already in the voucher, reject.
@@ -498,28 +496,31 @@ export class GaslessService implements OnModuleInit {
         1,
         Math.ceil((nextEligibleMs - Date.now()) / 1000),
       );
-      return {
-        status: 'rate_limited',
-        retryAfterSec,
-        body: {
-          statusCode: 429,
-          error: 'Too Many Requests',
-          message: 'Per-wallet rate limit: 1 voucher request per hour',
-          nextEligibleAt: new Date(nextEligibleMs).toISOString(),
-          retryAfterSec,
+          return {
+            status: 'rate_limited',
+            retryAfterSec,
+            body: {
+              statusCode: 429,
+              error: 'Too Many Requests',
+              message: 'Per-wallet rate limit: 1 voucher request per hour',
+              nextEligibleAt: new Date(nextEligibleMs).toISOString(),
+              retryAfterSec,
+            },
+          };
         },
-      };
+      );
     } catch (error) {
       if (error instanceof HttpException) throw error;
+      if (error instanceof AdvisoryLockTimeoutError) {
+        this.logger.warn(
+          `Voucher request for account=${address} ip=${ip} timed out waiting for advisory lock`,
+        );
+        throw new ServiceUnavailableException('Voucher service is busy — please retry');
+      }
       this.logger.error(
         `Failed to process voucher request for account=${address} ip=${ip}: ${formatUnknownError(error)}`,
       );
       throw new InternalServerErrorException('Voucher processing failed — please retry');
-    } finally {
-      if (lockAcquired) {
-        await qr.query('SELECT pg_advisory_unlock($1, $2)', [lockKey1, lockKey2]);
-      }
-      await qr.release();
     }
   }
 }

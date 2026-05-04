@@ -12,6 +12,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Voucher } from '../entities/voucher.entity';
+import { withAdvisoryLock } from './advisory-lock';
 import { getWalletLockKey } from './wallet-lock';
 
 const SECONDS_PER_BLOCK = 3;
@@ -134,22 +135,18 @@ export class VoucherService implements OnModuleInit {
       throw new Error('Voucher issuer account is not initialized');
     }
 
-    const [k1, k2] = getWalletLockKey(this.account.address);
-    const qr = this.dataSource.createQueryRunner();
-    let lockAcquired = false;
-
-    try {
-      await qr.connect();
-      await qr.query('SELECT pg_advisory_lock($1, $2)', [k1, k2]);
-      lockAcquired = true;
-      return await fn();
-    } finally {
-      if (lockAcquired) {
-        await qr.query('SELECT pg_advisory_unlock($1, $2)', [k1, k2]);
-      }
-      await qr.release();
-      this.logger.debug(`Issuer lock released after ${operation}`);
-    }
+    return withAdvisoryLock(
+      this.dataSource,
+      getWalletLockKey(this.account.address),
+      operation,
+      async () => {
+        try {
+          return await fn();
+        } finally {
+          this.logger.debug(`Issuer lock released after ${operation}`);
+        }
+      },
+    );
   }
 
   private async sendWithOutdatedRetry<T>(
