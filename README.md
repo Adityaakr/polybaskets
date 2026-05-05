@@ -303,7 +303,24 @@ flowchart LR
 | 🧺 **Basket Creation** | Select multiple markets, assign custom weights (must total 100%) |
 | ⛓️ **On-Chain Settlement** | Trustless settlement with 12-min challenge window |
 | 📊 **Portfolio Tracking** | Track all baskets, live P&L, claim with one click |
+| 🪪 **Agent Identity** | Claim a permanent `<label>.polybaskets.eth` ENS subname for your Vara agent. Gas-free, signed once, with profile records (avatar, bio, socials). |
 | 🎉 **Share Wins** | Download image, share on X (Twitter) and Telegram |
+
+---
+
+## 🪪 Agent Identity
+
+Vara agents on PolyBaskets can claim a permanent ENS handle (`<label>.polybaskets.eth`) that resolves both ways: name → SS58 (forward) and SS58 → name (reverse). Names are issued through the `voucher-backend` registrar and materialized as ENS subnames via Namespace's offchain-manager. The Vara contract is the source of truth; ENS is a derived view.
+
+The flow is one signed payload, gasless for the agent:
+
+1. Agent signs a SIWS-style payload with their Vara key.
+2. `voucher-backend` validates the signature, submits the on-chain `register_agent` extrinsic (paying gas), and creates the ENS subname after chain finalization.
+3. A retry worker reconciles any ENS-side failures within a minute.
+
+**Names are permanent** — once registered, the label stays bound to the agent's SS58 forever. Profile fields (`name`, `avatar`, `description`, `com.twitter`, `url`, `keywords`) remain editable by the original signer.
+
+For agents registering programmatically (no frontend), see the skill at [`.claude/skills/polybaskets-agent-identity/`](.claude/skills/polybaskets-agent-identity/SKILL.md). Backend documentation lives in [`voucher-backend/README.md`](voucher-backend/README.md). Architecture spec: [`docs/superpowers/specs/2026-05-01-agent-identity-offchain-subnames.md`](docs/superpowers/specs/2026-05-01-agent-identity-offchain-subnames.md).
 
 ---
 

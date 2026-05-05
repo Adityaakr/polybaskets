@@ -29,7 +29,6 @@ import {
   type AllTimeTradingPnlEntry,
   type TodayContestLeaderboard,
 } from '@/lib/contestLeaderboard.ts';
-import { useAgentNames } from '@/hooks/useAgentNames';
 import { useAgentSubnames } from '@/hooks/useAgentSubname';
 import { ENV, isBasketAssetKindEnabled } from '@/env';
 import { getAgentRouteId, truncateAddress } from '@/lib/basket-utils.ts';
