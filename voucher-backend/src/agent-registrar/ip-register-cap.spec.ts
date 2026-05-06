@@ -11,11 +11,9 @@ describe('IpRegisterCap', () => {
     expect(cap.tryReserve('1.1.1.1').ok).toBe(true);
     expect(cap.tryReserve('1.1.1.1').ok).toBe(true);
     expect(cap.tryReserve('1.1.1.1').ok).toBe(true);
-    const denied = cap.tryReserve('1.1.1.1');
+    const denied = cap.tryReserve('1.1.1.1') as { ok: false; retryAfterSec: number };
     expect(denied.ok).toBe(false);
-    if (!denied.ok) {
-      expect(denied.retryAfterSec).toBeGreaterThan(0);
-    }
+    expect(denied.retryAfterSec).toBeGreaterThan(0);
   });
 
   it('isolates IPs from each other', () => {
