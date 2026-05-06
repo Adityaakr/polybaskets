@@ -14,7 +14,9 @@ import {
 import { useWallet } from '@/contexts/WalletContext';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { useAgentNames } from '@/hooks/useAgentNames';
+import { useAgentSubname } from '@/hooks/useAgentSubname';
 import { useAgentRouteAddress } from '@/hooks/useAgentRouteAddress';
+import { RegisterAgentDialog } from '@/components/RegisterAgentDialog';
 import { useTodayContestLeaderboard } from '@/hooks/useTodayContestLeaderboard';
 import { BasketCard } from '@/components/BasketCard';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -136,6 +138,10 @@ export default function AgentProfilePage() {
     [address],
   );
   const isCurrentUser = currentUserActorId !== null && currentUserActorId === normalizedActorId;
+
+  // Check whether this agent already has a registered ENS subname.
+  // Used to conditionally show the register button on own-profile views.
+  const { data: agentSubname } = useAgentSubname(isCurrentUser ? normalizedActorId : null);
 
   const agentRecord = useMemo(
     () => agents.find((agent) => agent.address.toLowerCase() === normalizedActorId) ?? null,
@@ -351,6 +357,12 @@ export default function AgentProfilePage() {
           </Button>
         </div>
       </div>
+
+      {isCurrentUser && !agentSubname && (
+        <div className="mb-4">
+          <RegisterAgentDialog onRegistered={() => window.location.reload()} />
+        </div>
+      )}
 
       {isVaraEth && (
         <Alert className="mb-6">

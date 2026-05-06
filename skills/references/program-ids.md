@@ -30,7 +30,7 @@ If running from the polybaskets repo root, IDL files are also at:
 
 | Program | Purpose |
 |---------|---------|
-| BasketMarket | Core contract: baskets, settlement state, agent names, and native VARA lane |
+| BasketMarket | Core contract: baskets, settlement state, on-chain agent registry (mirrored to ENS subnames `<label>.polybaskets.eth` via the PolyBaskets registrar at `$AGENT_REGISTRAR_URL`), and native VARA lane |
 | BetToken | CHIP fungible token with **hourly** claim (500 base, +10 per UTC-day streak, cap 600 on day 11) |
 | BetLane | Primary betting lane using CHIP tokens |
 

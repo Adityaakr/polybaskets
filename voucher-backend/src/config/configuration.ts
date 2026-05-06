@@ -67,6 +67,7 @@ export default () => {
     },
     nodeUrl: required('NODE_URL'),
     voucherAccount: required('VOUCHER_ACCOUNT'),
+    basketMarketProgramId: required('BASKET_MARKET_PROGRAM_ID') as `0x${string}`,
     // Per-tranche VARA amount added on issue() and every hourly top-up.
     hourlyTrancheVara: posInt('HOURLY_TRANCHE_VARA', '500'),
     // Max tranches per IP per UTC day (second abuse gate — the only aggregate limit).
@@ -78,5 +79,19 @@ export default () => {
     // (sliding window — voucher expires only if user abandons ≥24h).
     trancheDurationSec,
     infoApiKey: process.env.INFO_API_KEY || '',
+    namespace: {
+      apiKey: process.env.NAMESPACE_API_KEY,
+      mode: (process.env.NAMESPACE_MODE ?? 'mainnet') as 'mainnet' | 'sepolia',
+      parentName: process.env.AGENT_PARENT_NAME ?? 'polybaskets.eth',
+      ownerEvm: process.env.POLYBASKETS_OWNER_EVM,
+    },
+    agents: {
+      retryIntervalMs: parseInt(process.env.AGENT_RETRY_INTERVAL_MS ?? '30000', 10),
+      retryMaxAttempts: parseInt(process.env.AGENT_RETRY_MAX_ATTEMPTS ?? '288', 10),
+      bulkReverseLookupMax: 100,
+      payloadMaxAgeSeconds: 600,
+      payloadClockSkewSeconds: 30,
+      migrationEnabled: process.env.MIGRATION_ENABLED === 'true',
+    },
   };
 };
