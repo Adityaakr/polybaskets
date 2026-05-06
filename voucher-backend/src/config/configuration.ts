@@ -24,6 +24,24 @@ const posInt = (name: string, defaultValue: string): number => {
   return n;
 };
 
+const oneOf = (name: string, allowed: readonly string[]): string => {
+  const raw = required(name);
+  if (!allowed.includes(raw)) {
+    throw new Error(
+      `${name} must be one of [${allowed.join(', ')}] (got "${raw}")`,
+    );
+  }
+  return raw;
+};
+
+const bool = (name: string, defaultValue: boolean): boolean => {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return defaultValue;
+  if (raw === 'true' || raw === '1') return true;
+  if (raw === 'false' || raw === '0') return false;
+  throw new Error(`${name} must be "true" or "false" (got "${raw}")`);
+};
+
 /**
  * Parse a non-negative integer env var (0 is a valid sentinel for "disabled").
  * Used for the per-IP ceiling — setting `PER_IP_TRANCHES_PER_DAY=0` turns the
@@ -78,5 +96,15 @@ export default () => {
     // (sliding window — voucher expires only if user abandons ≥24h).
     trancheDurationSec,
     infoApiKey: process.env.INFO_API_KEY || '',
+    agentRegistrar: {
+      namespaceApiKey: required('NAMESPACE_API_KEY'),
+      namespaceMode: oneOf('NAMESPACE_MODE', ['mainnet', 'sepolia']),
+      parentName: required('AGENT_PARENT_NAME'),
+      ownerEvm: required('POLYBASKETS_OWNER_EVM'),
+      basketMarketProgramId: required('BASKET_MARKET_PROGRAM_ID'),
+      retryIntervalMs: posInt('AGENT_RETRY_INTERVAL_MS', '30000'),
+      retryMaxAttempts: posInt('AGENT_RETRY_MAX_ATTEMPTS', '288'),
+      migrationEnabled: bool('MIGRATION_ENABLED', false),
+    },
   };
 };
