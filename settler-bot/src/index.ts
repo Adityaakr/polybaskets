@@ -9,6 +9,17 @@ const varaClient = new BasketMarketVaraClient(
   config.settlerSeed,
 );
 
+function takeBasketBatch(start: number, count: number, size: number): { ids: number[]; next: number } {
+  if (count <= 0) {
+    return { ids: [], next: 0 };
+  }
+
+  const safeStart = start >= 0 && start < count ? start : 0;
+  const batchSize = Math.min(size, count);
+  const ids = Array.from({ length: batchSize }, (_, index) => (safeStart + index) % count);
+  return { ids, next: (safeStart + batchSize) % count };
+}
+
 process.on('unhandledRejection', (reason) => {
   if (isRetryableVaraError(reason)) {
     console.warn(`⚠️  Unhandled Vara RPC disconnect: ${getErrorMessage(reason)}. Reconnecting...`);
@@ -220,7 +231,7 @@ async function processBasket(basketId: number): Promise<void> {
 /**
  * Process settlements that can be finalized (after challenge deadline)
  */
-async function processSettlements(): Promise<void> {
+async function processSettlements(basketIds: number[]): Promise<void> {
   if (!config.shouldFinalize) {
     return;
   }
@@ -236,14 +247,13 @@ async function processSettlements(): Promise<void> {
       );
     }
 
-    const basketCount = await varaClient.getBasketCount();
     // IMPORTANT: Contract timestamps are in MILLISECONDS (from block_timestamp())
     // So we compare in milliseconds, not seconds
     const now = Date.now(); // Current timestamp in milliseconds
 
-    console.log(`[processSettlements] Checking ${basketCount} baskets for finalization (current time: ${now}ms, ${new Date(now).toISOString()})`);
+    console.log(`[processSettlements] Checking ${basketIds.length} baskets for finalization (current time: ${now}ms, ${new Date(now).toISOString()})`);
 
-    for (let basketId = 0; basketId < basketCount; basketId++) {
+    for (const basketId of basketIds) {
       const settlement = await varaClient.getSettlement(basketId);
       
       if (!settlement) {
@@ -314,6 +324,7 @@ async function main() {
   console.log(`Vara RPC: ${config.varaRpcUrl}`);
   console.log(`BasketMarket program: ${config.basketMarketProgramId}`);
   console.log(`Poll interval: ${config.pollIntervalMs}ms`);
+  console.log(`Scan batch size: ${config.scanBatchSize} baskets per phase`);
   console.log(`Finalize enabled: ${config.shouldFinalize}`);
   console.log(`Polymarket Gamma API: ${config.polymarketGammaBaseUrl}`);
   console.log('');
@@ -331,6 +342,9 @@ async function main() {
   }
   console.log('');
 
+  let nextBasketToProcess = 0;
+  let nextSettlementToProcess = 0;
+
   const poll = async () => {
     const timestamp = new Date().toISOString();
     
@@ -339,10 +353,27 @@ async function main() {
       await varaClient.ensureConnected();
       
       const basketCount = await varaClient.getBasketCount();
-      console.log(`${timestamp} Polling ${basketCount} baskets...`);
+      const basketBatch = takeBasketBatch(
+        nextBasketToProcess,
+        basketCount,
+        config.scanBatchSize,
+      );
+      const settlementBatch = takeBasketBatch(
+        nextSettlementToProcess,
+        basketCount,
+        config.scanBatchSize,
+      );
 
-      // Process all baskets
-      for (let basketId = 0; basketId < basketCount; basketId++) {
+      nextBasketToProcess = basketBatch.next;
+      nextSettlementToProcess = settlementBatch.next;
+
+      console.log(
+        `${timestamp} Polling ${basketBatch.ids.length}/${basketCount} baskets ` +
+          `(next basket cursor=${nextBasketToProcess}, settlement cursor=${nextSettlementToProcess})...`,
+      );
+
+      // Process a bounded slice each cycle so one slow RPC pass cannot block the bot forever.
+      for (const basketId of basketBatch.ids) {
         try {
           await processBasket(basketId);
         } catch (error) {
@@ -361,7 +392,7 @@ async function main() {
       // Process settlements that can be finalized
       if (config.shouldFinalize) {
         try {
-          await processSettlements();
+          await processSettlements(settlementBatch.ids);
         } catch (error) {
           if (isRetryableVaraError(error)) {
             console.warn(`${timestamp} Connection lost during settlement processing, will retry on next poll`);

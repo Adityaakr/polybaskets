@@ -76,6 +76,7 @@ export const config = {
   basketMarketProgramId: getRequiredHexEnv('BASKET_MARKET_PROGRAM_ID'),
   settlerSeed: getSharedSettlerSeed(),
   pollIntervalMs: getNumberEnv('SETTLER_BOT_POLL_INTERVAL_MS', '30000'),
+  scanBatchSize: getNumberEnv('SETTLER_BOT_SCAN_BATCH_SIZE', '100'),
   shouldFinalize: getBooleanEnv('SETTLER_BOT_FINALIZE_ENABLED', 'true'),
   polymarketGammaBaseUrl:
     getOptionalEnv('POLYMARKET_GAMMA_BASE_URL') ?? 'https://gamma-api.polymarket.com',
