@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  IsDefined,
   IsNotEmpty,
   IsString,
   MaxLength,
@@ -13,6 +14,7 @@ export class UpdateProfileDto {
   @MaxLength(66)
   account: string;
 
+  @IsDefined()
   @ValidateNested()
   @Type(() => ProfileDto)
   profile: ProfileDto;

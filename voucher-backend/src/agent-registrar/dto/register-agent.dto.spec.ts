@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { RegisterAgentDto } from './register-agent.dto';
+import { UpdateProfileDto } from './update-profile.dto';
 
 async function validateDto(payload: unknown): Promise<string[]> {
   const dto = plainToInstance(RegisterAgentDto, payload);
@@ -62,11 +63,21 @@ describe('RegisterAgentDto', () => {
     expect(errors.length).toBeGreaterThan(0);
   });
 
-  it('rejects malformed account', async () => {
-    const errors = await validateDto({ account: 'nope', name: 'happy' });
-    // Note: account validation here is shape only (length cap). Decode validation
-    // is done at the service layer. As long as length is reasonable, this is OK.
-    // We expect empty here (since 'nope' is short) — adjust to assert length only.
-    expect(errors.length).toBeGreaterThanOrEqual(0);
+  it('rejects account exceeding length cap', async () => {
+    const errors = await validateDto({
+      account: 'x'.repeat(67),
+      name: 'happy',
+    });
+    expect(errors.length).toBeGreaterThan(0);
+  });
+});
+
+describe('UpdateProfileDto', () => {
+  it('rejects when profile is omitted', async () => {
+    const dto = plainToInstance(UpdateProfileDto, {
+      account: '0x' + 'a'.repeat(64),
+    });
+    const errors = await validate(dto as object, { whitelist: true });
+    expect(errors.length).toBeGreaterThan(0);
   });
 });
