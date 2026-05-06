@@ -9,6 +9,7 @@ import { ThrottlerGuard } from '@nestjs/throttler';
 import { GaslessProgram } from './entities/gasless-program.entity';
 import { Voucher } from './entities/voucher.entity';
 import { IpTrancheUsage } from './entities/ip-tranche-usage.entity';
+import { AgentRegistrarModule } from './agent-registrar/agent-registrar.module';
 import { GaslessModule } from './gasless/gasless.module';
 import configuration from './config/configuration';
 
@@ -37,6 +38,7 @@ if (!globalThis.crypto) {
       }),
       inject: [ConfigService],
     }),
+    AgentRegistrarModule,
     GaslessModule,
   ],
   providers: [
