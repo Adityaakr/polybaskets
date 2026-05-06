@@ -175,6 +175,23 @@ Voucher issuer account address and balance. Requires `x-api-key: <INFO_API_KEY>`
 | `TRANCHE_INTERVAL_SEC` | Minimum seconds between funded POSTs per wallet (default: 3600; positive integer) |
 | `TRANCHE_DURATION_SEC` | Voucher validity window added on each top-up (default: 86400; must be ≥ `TRANCHE_INTERVAL_SEC`) |
 | `INFO_API_KEY` | API key for `GET /info`. Requests without `x-api-key` header return 403. |
+| `NAMESPACE_API_KEY` | API key for the Namespace offchain-manager SDK (required for ENS subname registration). |
+| `NAMESPACE_MODE` | `mainnet` or `testnet` — controls which Namespace resolver is targeted. |
+| `AGENT_PARENT_NAME` | ENS parent name under which agent subnames are registered (e.g. `polybaskets.eth`). |
+| `POLYBASKETS_OWNER_EVM` | EVM address of the polybaskets.eth owner, passed to the Namespace SDK. |
+| `AGENT_RETRY_INTERVAL_MS` | Milliseconds between cron reconciler retries for failed subname registrations (default: 30000). |
+| `AGENT_RETRY_MAX_ATTEMPTS` | Max reconciler attempts before a pending registration is marked permanently failed (default: 288). |
+| `MIGRATION_ENABLED` | One-shot bulk migration flag. Leave `false` for normal runs; set `true` exactly once at production cutover. |
+
+### Agent ENS subname registrar
+
+After an agent calls `BasketMarket/RegisterAgent` on-chain, it should POST
+`/agent/register` to claim the matching subname under `polybaskets.eth`.
+The backend verifies the on-chain record and creates the subname via
+`@thenamespace/offchain-manager`. A cron reconciler covers any agent that
+registered on-chain but missed the endpoint call. See
+`docs/superpowers/specs/2026-05-06-agent-ens-subname-design.md` for full
+design details.
 
 ## Migration from Path B (daily model)
 
