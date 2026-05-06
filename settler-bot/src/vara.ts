@@ -23,7 +23,26 @@ export function getErrorMessage(error: unknown): string {
 
 export function isRetryableVaraError(error: unknown): boolean {
   const message = getErrorMessage(error);
-  return /disconnected|normal closure|abnormal closure|no response|websocket|connection closed|connection error|1000::|1006::/i.test(message);
+  return /disconnected|normal closure|abnormal closure|no response|websocket|connection closed|connection error|timed out|1000::|1006::/i.test(message);
+}
+
+async function withTimeout<T>(label: string, promise: Promise<T>, timeoutMs = 60_000): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new VaraConnectionError(`${label} timed out after ${timeoutMs}ms`)),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
 }
 
 export interface VaraBasket {
@@ -329,11 +348,14 @@ export class BasketMarketVaraClient {
         .withAccount(this.settlerAccount);
 
       console.log(`[settler-bot] Basket ${basketId}: calculating gas for settlement proposal`);
-      await tx.calculateGas();
+      await withTimeout(`Basket ${basketId} proposal gas calculation`, tx.calculateGas());
       console.log(`[settler-bot] Basket ${basketId}: signing and sending settlement proposal`);
-      const { txHash, response } = await tx.signAndSend();
+      const { txHash, response } = await withTimeout(
+        `Basket ${basketId} proposal signAndSend`,
+        tx.signAndSend(),
+      );
       console.log(`[settler-bot] Basket ${basketId}: proposal tx submitted (${txHash}), waiting for response`);
-      await response();
+      await withTimeout(`Basket ${basketId} proposal response`, response());
       
       return txHash;
     } catch (error) {
@@ -357,11 +379,14 @@ export class BasketMarketVaraClient {
         .withAccount(this.settlerAccount);
 
       console.log(`[settler-bot] Basket ${basketId}: calculating gas for settlement finalization`);
-      await tx.calculateGas();
+      await withTimeout(`Basket ${basketId} finalization gas calculation`, tx.calculateGas());
       console.log(`[settler-bot] Basket ${basketId}: signing and sending settlement finalization`);
-      const { txHash, response } = await tx.signAndSend();
+      const { txHash, response } = await withTimeout(
+        `Basket ${basketId} finalization signAndSend`,
+        tx.signAndSend(),
+      );
       console.log(`[settler-bot] Basket ${basketId}: finalization tx submitted (${txHash}), waiting for response`);
-      await response();
+      await withTimeout(`Basket ${basketId} finalization response`, response());
       
       return txHash;
     } catch (error) {

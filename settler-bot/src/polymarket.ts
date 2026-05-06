@@ -42,6 +42,10 @@ export async function fetchMarketBySlug(
     });
 
     if (!response.ok) {
+      if (response.status === 404) {
+        console.warn(`Polymarket market not found by slug ${slug} (404)`);
+        return null;
+      }
       throw new Error(`API error: ${response.status}`);
     }
 
@@ -72,6 +76,10 @@ export async function fetchMarketById(
     });
 
     if (!response.ok) {
+      if (response.status === 404) {
+        console.warn(`Polymarket market not found by id ${id} (404)`);
+        return null;
+      }
       throw new Error(`API error: ${response.status}`);
     }
 

@@ -325,6 +325,8 @@ async function main() {
   console.log(`BasketMarket program: ${config.basketMarketProgramId}`);
   console.log(`Poll interval: ${config.pollIntervalMs}ms`);
   console.log(`Scan batch size: ${config.scanBatchSize} baskets per phase`);
+  console.log(`Start basket cursor: ${config.startBasketId}`);
+  console.log(`Start settlement cursor: ${config.startSettlementBasketId}`);
   console.log(`Finalize enabled: ${config.shouldFinalize}`);
   console.log(`Polymarket Gamma API: ${config.polymarketGammaBaseUrl}`);
   console.log('');
@@ -342,8 +344,8 @@ async function main() {
   }
   console.log('');
 
-  let nextBasketToProcess = 0;
-  let nextSettlementToProcess = 0;
+  let nextBasketToProcess = config.startBasketId;
+  let nextSettlementToProcess = config.startSettlementBasketId;
 
   const poll = async () => {
     const timestamp = new Date().toISOString();

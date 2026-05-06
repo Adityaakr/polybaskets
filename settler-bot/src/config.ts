@@ -33,6 +33,15 @@ const getNumberEnv = (name: string, fallback: string): number => {
   return value;
 };
 
+const getNonNegativeNumberEnv = (name: string, fallback: string): number => {
+  const value = Number(getOptionalEnv(name) ?? fallback);
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`Invalid ${name}: expected a non-negative number`);
+  }
+
+  return value;
+};
+
 const getBooleanEnv = (name: string, fallback: string): boolean => {
   const value = (getOptionalEnv(name) ?? fallback).toLowerCase();
   if (value === 'true') return true;
@@ -77,6 +86,8 @@ export const config = {
   settlerSeed: getSharedSettlerSeed(),
   pollIntervalMs: getNumberEnv('SETTLER_BOT_POLL_INTERVAL_MS', '30000'),
   scanBatchSize: getNumberEnv('SETTLER_BOT_SCAN_BATCH_SIZE', '100'),
+  startBasketId: getNonNegativeNumberEnv('SETTLER_BOT_START_BASKET_ID', '0'),
+  startSettlementBasketId: getNonNegativeNumberEnv('SETTLER_BOT_START_SETTLEMENT_BASKET_ID', '0'),
   shouldFinalize: getBooleanEnv('SETTLER_BOT_FINALIZE_ENABLED', 'true'),
   polymarketGammaBaseUrl:
     getOptionalEnv('POLYMARKET_GAMMA_BASE_URL') ?? 'https://gamma-api.polymarket.com',
